@@ -635,7 +635,8 @@ pub async fn op(State(state): State<AppState>, headers: HeaderMap, Json(body): J
             atelier_docx::cite::fill(&mut body.op, &found).map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.0))?;
         }
         // Les figures se lisent dans le projet : chemin d'origine.
-        let images = body.op.to_string().contains("\"insert_image\"");
+        let raw = body.op.to_string();
+        let images = raw.contains("\"insert_image\"") || raw.contains("\"replace_image\"");
         if body.delta && sessions_enabled() && !images {
             let s = session_for(&path).map_err(|e| (refusal(&e), e.0))?;
             let mut g = lock_session(&s);

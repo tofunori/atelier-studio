@@ -456,6 +456,8 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                     Some(m) => {
                         media = Some(m);
                         pieces.push(("\u{FFFC}".into(), Kind::Object("image".into()), None));
+                        // Une figure comme une autre : effacée ou remplacée d'un bloc.
+                        whole = true;
                     }
                     None => drawn.push((c.id(), pieces.len(), false)),
                 }

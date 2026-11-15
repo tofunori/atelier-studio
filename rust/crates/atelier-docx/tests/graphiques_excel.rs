@@ -182,13 +182,13 @@ fn le_plan_annonce_le_graphique_excel_et_comment_le_voir() {
     let mut d = with_chart(&scatter(&numeric_x(), &ratios(), false, false, "nextTo"), None);
     let m = d.model().unwrap();
     let plan = atelier_docx::ops::outline(&m, 0, None, 200_000);
-    assert!(plan.contains("{graphique Excel : "), "{plan}");
+    assert!(plan.contains("{graphique Excel 1 : "), "{plan}");
     assert!(plan.contains("Figures : 1, dont 1 graphique Excel"), "{plan}");
     assert!(plan.contains("action images"), "{plan}");
     // Une image ordinaire reste une image, et le plan l'annonce sans graphique.
     let mut plain = Docx::from_bytes(common::build("christophe")).unwrap();
     let plan = atelier_docx::ops::outline(&plain.model().unwrap(), 0, None, 200_000);
-    assert!(plan.contains("p10 : {image : "), "{plan}");
+    assert!(plan.contains("p10 : {image 1 : "), "{plan}");
     assert!(!plan.lines().any(|l| l.starts_with('p') && l.contains("{graphique Excel")), "{plan}");
     assert!(plan.contains("Figures : 1. "), "{plan}");
 }

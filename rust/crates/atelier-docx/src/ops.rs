@@ -59,6 +59,21 @@ pub enum Op {
         #[serde(skip)]
         bytes: Option<Vec<u8>>,
     },
+    /// Remplace la `index`-ième figure (depuis 0) du paragraphe par celle du
+    /// projet (`path`, chargée via [`Op::load_images`]) : même place, même
+    /// largeur, même paragraphe (et donc même style). En suivi, l'ancienne
+    /// barrée et la nouvelle ajoutée. `alt` vide : celui de l'ancienne.
+    ReplaceImage {
+        paragraph: String,
+        index: usize,
+        path: String,
+        #[serde(default)]
+        alt: String,
+        #[serde(skip)]
+        bytes: Option<Vec<u8>>,
+    },
+    /// Efface la `index`-ième figure (depuis 0) du paragraphe d'un bloc.
+    DeleteImage { paragraph: String, index: usize },
     /// Corrige la `index`-ième équation (depuis 0) du paragraphe d'après
     /// son LaTeX : en suivi, l'ancienne supprimée et la nouvelle insérée.
     ReplaceMath { paragraph: String, index: usize, latex: String },
@@ -102,7 +117,7 @@ impl Op {
             Op::FormatRange { .. } | Op::FormatText { .. } | Op::FormatParagraph { .. } => "mise en forme",
             Op::InsertNote { .. } => "note",
             Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
-            Op::InsertImage { .. } => "figure",
+            Op::InsertImage { .. } | Op::ReplaceImage { .. } | Op::DeleteImage { .. } => "figure",
             Op::ReplaceMath { .. } | Op::InsertMath { .. } => "équation",
             Op::InsertRuns { .. } => "collage",
             Op::InsertCitation { .. } | Op::EditCitation { .. } => "citation",
@@ -127,7 +142,7 @@ impl Op {
     /// projet) et rend ses octets. Le moteur ne lit jamais le disque seul.
     pub fn load_images(&mut self, read: &mut dyn FnMut(&str) -> Result<Vec<u8>>) -> Result<()> {
         match self {
-            Op::InsertImage { path, bytes, .. } => *bytes = Some(read(path)?),
+            Op::InsertImage { path, bytes, .. } | Op::ReplaceImage { path, bytes, .. } => *bytes = Some(read(path)?),
             Op::Batch { ops } => {
                 for op in ops {
                     op.load_images(read)?;
@@ -305,6 +320,12 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("figure");
             json!(crate::objects::insert_image(docx, paragraph, *at, b.clone(), name, alt, tracked, sig)?)
         }
+        Op::ReplaceImage { paragraph, index, path, alt, bytes } => {
+            let Some(b) = bytes else { return err("figure non chargée") };
+            let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("figure");
+            json!(crate::objects::replace_image(docx, paragraph, *index, b.clone(), name, alt, tracked, sig)?)
+        }
+        Op::DeleteImage { paragraph, index } => json!(crate::objects::delete_image(docx, paragraph, *index, tracked, sig)?),
         Op::ReplaceMath { paragraph, index, latex } => {
             json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
         }
@@ -348,8 +369,10 @@ fn shape_note(sh: &crate::shapes::Shape) -> String {
 fn para_line(p: &crate::model::Para) -> String {
     let mut line = String::new();
     let mut open: Vec<u32> = Vec::new();
-    // Équations comptées comme `replace_math` : celles qui ne sont pas barrées.
+    // Équations et figures comptées comme `replace_math` et
+    // `replace_image` : celles qui ne sont pas barrées.
     let mut equations = 0;
+    let mut figures = 0;
     // Zones de texte et formes sans morceau à elles : devant le segment où
     // elles sont ancrées.
     let drawn = |line: &mut String, at: Option<usize>| {
@@ -409,9 +432,17 @@ fn para_line(p: &crate::model::Para) -> String {
                 (Some("note"), Some(k)) => format!("{{note {k} : n{}}}", s.text),
                 (Some("note de fin"), Some(k)) => format!("{{note de fin {k} : e{}}}", s.text),
                 // Figure : son texte de remplacement ; `images` la montre telle que la page.
+                // Numérotée dans le paragraphe pour la remplacer ou l'effacer
+                // (actions replace_figure, delete_figure).
                 (Some("image"), _) if s.media.is_some() => {
                     let what = if s.chart { "graphique Excel" } else { "image" };
-                    format!("{{{what} : {}}}", s.alt.as_deref().unwrap_or("sans texte de remplacement"))
+                    let alt = s.alt.as_deref().unwrap_or("sans texte de remplacement");
+                    if matches!(s.rev, Some("del" | "moveFrom")) {
+                        format!("{{{what} : {alt}}}")
+                    } else {
+                        figures += 1;
+                        format!("{{{what} {figures} : {alt}}}")
+                    }
                 }
                 // Zone de texte ou forme dessinée : son texte, pas un caractère de remplacement.
                 _ if s.shape.and_then(|k| p.shapes.get(k)).is_some() => shape_note(&p.shapes[s.shape.unwrap()]),
@@ -476,7 +507,7 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
             "Zones de texte : {boxes}. L'auteur les a posées sur la page, souvent par-dessus une figure pour y écrire ses propres valeurs : leur texte ({{zone de texte : …}}) fait partie du document au même titre que le reste, et l'action images montre chaque figure avec les zones posées dessus."
         );
     }
-    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation <id> : …}} = citation Zotero vivante (la changer avec l'action cite et son id, jamais à la main), {{équation N : LaTeX}} = équation Word (objet OMML), la N-ième du paragraphe, écrite en LaTeX (la corriger avec l'action equation : paragraph, equation=N, latex) ; {{objet : …}} non retouchable ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
+    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation <id> : …}} = citation Zotero vivante (la changer avec l'action cite et son id, jamais à la main), {{équation N : LaTeX}} = équation Word (objet OMML), la N-ième du paragraphe, écrite en LaTeX (la corriger avec l'action equation : paragraph, equation=N, latex) ; {{objet : …}} non retouchable ; {{image N : …}} et {{graphique Excel N : …}} = N-ième figure du paragraphe, à voir avec l'action images, à remplacer (replace_figure : paragraph, image=N, figure) ou effacer (delete_figure) ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {

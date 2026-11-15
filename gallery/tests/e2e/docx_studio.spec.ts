@@ -1207,6 +1207,38 @@ test('docx: notes, en-tête, pied de page et figures se retouchent dans la page'
   expect(errors).toEqual([]);
 });
 
+test("docx: une figure remplacée par l'agent : l'ancienne barrée, la nouvelle à sa place et à sa largeur, puis seule une fois acceptée", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await writeFile(path.join(project.root, 'barres.png'), PNG);
+  await open(page, project);
+  const m = await disk(page, project);
+  const idx = m.paragraphs.findIndex(p => p.segments.some(s => s.media));
+  const old = page.locator(`.d-p[data-idx="${idx}"] .chip.fig img`);
+  await expect(old).toHaveCount(1);
+  const width = await old.evaluate(i => i.getBoundingClientRect().width);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Claude', op: {op: 'replace_image', paragraph: `p${idx}`, index: 0, path: 'barres.png'}}});
+  expect(r.ok(), await r.text()).toBe(true);
+  // Même paragraphe : l'ancienne barrée, la nouvelle ajoutée juste après.
+  const gone = page.locator(`.d-p[data-idx="${idx}"] .chip.fig.del img`);
+  const added = page.locator(`.d-p[data-idx="${idx}"] .chip.fig.ins img`);
+  await expect(gone).toBeVisible({timeout: 6000});
+  await expect(added).toBeVisible();
+  expect(await added.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
+  // Largeur de l'ancienne, proportions de la nouvelle (2:1).
+  const box = await added.evaluate(i => { const b = i.getBoundingClientRect(); return {w: b.width, h: b.height}; });
+  expect(Math.abs(box.w - width)).toBeLessThan(1);
+  expect(Math.abs(box.h - width / 2)).toBeLessThan(1.5);
+  // Un seul geste dans la marge : accepter le tout ne garde que la nouvelle.
+  const agent = (await disk(page, project)).changes.filter(c => c.author === 'Claude');
+  expect(agent.map(c => c.kind).sort()).toEqual(['del', 'ins']);
+  await page.locator(`#cards .it.grp[data-ids~="${agent[0].id}"] [data-act="acceptAll"]`).click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[idx].segments.filter(s => s.media).map(s => s.rev ?? '')).toEqual(['']);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .chip.fig img`)).toHaveCount(1);
+  await expect(page.locator(`.d-p[data-idx="${idx}"] .chip.fig.del`)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('docx: lignes et colonnes de tableau depuis la barre', async ({page, project}) => {
   await open(page, project);
   const cells = async () => (await disk(page, project)).paragraphs.filter(p => (p as {cell?: number[]}).cell).length;

@@ -46,7 +46,7 @@ fn resolve(project_root: &str, requested: &str) -> Result<PathBuf, String> {
     Ok(resolved)
 }
 
-/// Image du projet à insérer (PNG, JPEG, GIF).
+/// Image du projet à insérer (PNG, JPEG, GIF, ou PDF rendu en PNG).
 fn resolve_figure(project_root: &str, requested: &str) -> Result<PathBuf, String> {
     let root = Path::new(project_root).canonicalize().map_err(|e| format!("projet illisible : {e}"))?;
     let p = Path::new(requested);
@@ -55,11 +55,28 @@ fn resolve_figure(project_root: &str, requested: &str) -> Result<PathBuf, String
     if !resolved.starts_with(&root) {
         return Err("la figure doit être dans le projet".into());
     }
-    let ok = resolved.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif"].iter().any(|x| e.eq_ignore_ascii_case(x)));
+    let ok = resolved.extension().and_then(|e| e.to_str()).is_some_and(|e| ["png", "jpg", "jpeg", "gif", "pdf"].iter().any(|x| e.eq_ignore_ascii_case(x)));
     if !ok {
-        return Err("figure : PNG, JPEG ou GIF".into());
+        return Err("figure : PNG, JPEG, GIF ou PDF".into());
     }
     Ok(resolved)
+}
+
+/// Largeur (px) d'une figure PDF rendue pour Word : nette à pleine largeur
+/// de texte (environ 370 ppp sur 16,5 cm).
+const PDF_FIGURE_WIDTH: u16 = 2400;
+const PDF_FIGURE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Octets de la figure à poser dans le .docx. Word n'affiche pas un PDF
+/// comme une image : sa première page est rendue en PNG (outil atelier-pdf).
+fn figure_bytes(project_root: &str, requested: &str, pdf_tool: Option<&Path>) -> Result<Vec<u8>, String> {
+    let path = resolve_figure(project_root, requested)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("figure illisible : {e}"))?;
+    if !path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+        return Ok(bytes);
+    }
+    let tool = pdf_tool.ok_or("figure PDF : l'outil de rendu d'Atelier (atelier-pdf) est introuvable ; donne une version PNG de la figure")?;
+    atelier_pdf::tool::memory_page_png(tool, &bytes, PDF_FIGURE_WIDTH, PDF_FIGURE_TIMEOUT).map_err(|e| format!("figure PDF : {e}"))
 }
 
 fn str_arg<'a>(req: &'a Value, key: &str) -> Option<&'a str> {
@@ -68,6 +85,11 @@ fn str_arg<'a>(req: &'a Value, key: &str) -> Option<&'a str> {
 
 fn usize_arg(req: &Value, key: &str) -> Option<usize> {
     req.get(key).and_then(Value::as_u64).map(|n| n as usize)
+}
+
+/// `image` : la N-ième figure du paragraphe ({image N : …} dans read), 1 par défaut.
+fn figure_index(req: &Value) -> Result<usize, String> {
+    usize_arg(req, "image").unwrap_or(1).checked_sub(1).ok_or_else(|| "image : numéro à partir de 1 ({image 1 : …} dans read)".to_string())
 }
 
 fn comment_id(req: &Value) -> Result<u32, String> {
@@ -124,6 +146,11 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             paragraph: paragraph.ok_or("paragraph manquant : le paragraphe de l'équation (p65)")?,
             index: usize_arg(req, "equation").unwrap_or(1).checked_sub(1).ok_or("equation : numéro à partir de 1 ({équation 1 : …} dans read)")?,
             latex: need("latex")?,
+        },
+        // Figure ({image N : …} dans read) effacée d'un bloc, en suivi.
+        "delete_figure" => Op::DeleteImage {
+            paragraph: paragraph.ok_or("paragraph manquant : le paragraphe de la figure (p65)")?,
+            index: figure_index(req)?,
         },
         // Réunit `paragraph` au paragraphe qui le précède (sa marque de fin
         // est supprimée en suivi), comme Suppr en fin du paragraphe d'avant.
@@ -707,14 +734,28 @@ fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: 
     // (Thierry, 2026-11-13) : l'étudiant ou le relecteur ne voit que lui.
     let sig = Signature::now(&signer(project_root, &path)?);
     let expected = str_arg(req, "revision");
-    let (result, revision) = if action == "insert_note" || action == "insert_figure" {
+    let (result, revision) = if action == "replace_figure" {
+        // Même place, même largeur, même paragraphe (donc même style).
+        let paragraph = str_arg(req, "paragraph").ok_or("paragraph manquant : le paragraphe de la figure à remplacer (p65)")?.to_string();
+        let index = figure_index(req)?;
+        let fig = str_arg(req, "figure").ok_or("figure manquant : chemin de la nouvelle image dans le projet")?;
+        let bytes = figure_bytes(project_root, fig, atelier_pdf::tool::locate_tool().as_deref())?;
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: "figure" };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| {
+            let mut op = Op::ReplaceImage { paragraph: paragraph.clone(), index, path: fig.to_string(), alt: str_arg(req, "text").unwrap_or("").to_string(), bytes: None };
+            op.load_images(&mut |_| Ok(bytes.clone()))?;
+            let mut r = ops::apply(d, &op, true, &sig)?;
+            r["paragraph"] = json!(paragraph);
+            Ok(r)
+        })
+        .map_err(|e| e.0)?
+    } else if action == "insert_note" || action == "insert_figure" {
         // Placé juste après `find` ; la figure vient du projet.
         let find = str_arg(req, "find").ok_or("find manquant : le texte juste avant l'appel de note ou la figure")?.to_string();
         let mut bytes = None;
         if action == "insert_figure" {
             let fig = str_arg(req, "figure").ok_or("figure manquant : chemin de l'image dans le projet")?;
-            let fpath = resolve_figure(project_root, fig)?;
-            bytes = Some(std::fs::read(&fpath).map_err(|e| format!("figure illisible : {e}"))?);
+            bytes = Some(figure_bytes(project_root, fig, atelier_pdf::tool::locate_tool().as_deref())?);
         }
         let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
         let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: if action == "insert_note" { "note" } else { "figure" } };
@@ -811,7 +852,11 @@ fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: 
         let text = ops::outline(&model, p, Some(p + 1), READ_MAX_CHARS);
         out["now"] = json!(text.lines().find(|l| l.starts_with(&format!("p{p} "))).unwrap_or(""));
     }
-    out["note"] = json!(if action == "edit_comment" {
+    out["note"] = json!(if action == "replace_figure" {
+        "Figure remplacée en suivi, à la même place et à la même largeur, dans le même paragraphe (même style) : l'ancienne barrée, la nouvelle ajoutée juste après. Regarde-la avec images (paragraph) avant de le dire à l'utilisateur ; il accepte ou refuse."
+    } else if action == "delete_figure" {
+        "Figure effacée en suivi (barrée) : l'utilisateur accepte ou refuse. Sa légende et le paragraphe restent : retouche-les à part si besoin."
+    } else if action == "edit_comment" {
         "Commentaire de l'utilisateur corrigé dans le .docx, toujours à son nom : dis-lui en une phrase ce que tu as changé."
     } else if action == "withdraw_comment" {
         "Bulle retirée du .docx, c'est fait (rien à valider) : dis-le à l'utilisateur en une phrase."
@@ -1239,6 +1284,73 @@ mod tests {
         std::fs::write(path, out.finish().unwrap().into_inner()).unwrap();
     }
 
+    /// Thierry, 2026-11-15 : l'agent posait la nouvelle figure à côté de
+    /// l'ancienne, dans un paragraphe au mauvais style, et lui demandait
+    /// d'effacer l'ancienne à la main.
+    #[test]
+    fn l_agent_remplace_ou_efface_une_figure_en_suivi() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        png.extend_from_slice(&[0, 0, 0, 40, 0, 0, 0, 20, 8, 6, 0, 0, 0]);
+        std::fs::create_dir_all(dir.path().join("figures")).unwrap();
+        std::fs::write(dir.path().join("figures/barres.png"), &png).unwrap();
+        let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
+        let line = read["text"].as_str().unwrap().lines().find(|l| l.contains("{image 1 : Figure 2.4}")).unwrap().to_string();
+        let p = line.split(' ').next().unwrap().to_string();
+        assert!(read["text"].as_str().unwrap().contains("replace_figure"), "la notation dit comment la remplacer");
+
+        // Mauvais numéro, format refusé : rien n'est écrit.
+        let before = std::fs::read(&path).unwrap();
+        let e = run(root, "claude", "replace_figure", &json!({"path": "article.docx", "paragraph": p, "image": 2, "figure": "figures/barres.png"})).unwrap_err();
+        assert!(e.contains("n'a que 1 figure"), "{e}");
+        std::fs::write(dir.path().join("figures/barres.svg"), "<svg/>").unwrap();
+        assert!(run(root, "claude", "replace_figure", &json!({"path": "article.docx", "paragraph": p, "figure": "figures/barres.svg"})).unwrap_err().contains("PNG, JPEG, GIF ou PDF"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        let r = run(root, "claude", "replace_figure", &json!({"path": "article.docx", "paragraph": p, "image": 1, "figure": "figures/barres.png"})).unwrap();
+        assert_eq!(r["author"], "Thierry", "{r}");
+        let now = r["now"].as_str().unwrap();
+        assert!(now.contains("[-{image : Figure 2.4}-]#") && now.contains("[+{image 1 : Figure 2.4}+]#"), "{now}");
+        assert!(r["note"].as_str().unwrap().contains("même place"), "{r}");
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let para = m.paragraphs.iter().find(|x| x.id == p).unwrap();
+        let new = para.segments.iter().find(|s| s.media.is_some() && s.rev == Some("ins")).unwrap();
+        // Largeur de l'ancienne (96 px), proportions de la nouvelle.
+        assert_eq!((new.width, new.height), (Some(96), Some(48)));
+        // Les deux suivis sont notés comme venant de l'agent.
+        assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 2);
+
+        // Effacer la nouvelle, la sienne : sans trace ; l'ancienne reste barrée.
+        run(root, "claude", "delete_figure", &json!({"path": "article.docx", "paragraph": p})).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let figs: Vec<_> = m.paragraphs.iter().find(|x| x.id == p).unwrap().segments.iter().filter(|s| s.media.is_some()).map(|s| s.rev).collect();
+        assert_eq!(figs, [Some("del")]);
+        assert!(run(root, "claude", "delete_figure", &json!({"path": "article.docx"})).unwrap_err().contains("paragraph manquant"));
+    }
+
+    #[test]
+    fn une_figure_pdf_demande_l_outil_de_rendu() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("fig.pdf"), b"%PDF-1.4\n%%EOF").unwrap();
+        let root = dir.path().to_str().unwrap();
+        let e = figure_bytes(root, "fig.pdf", None).unwrap_err();
+        assert!(e.contains("atelier-pdf") && e.contains("PNG"), "{e}");
+        std::fs::write(dir.path().join("fig.PNG"), b"x").unwrap();
+        assert_eq!(figure_bytes(root, "fig.PNG", None).unwrap(), b"x");
+        // Faux atelier-pdf : la page 1, rendue à 2400 px de large.
+        use std::os::unix::fs::PermissionsExt;
+        let calls = dir.path().join("calls.txt");
+        let tool = dir.path().join("atelier-pdf");
+        std::fs::write(&tool, format!("#!/bin/sh\necho \"$1 $3 $4\" >> '{c}'\nprintf rendu > \"$5\"\n", c = calls.display())).unwrap();
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(figure_bytes(root, "fig.pdf", Some(&tool)).unwrap(), b"rendu");
+        assert_eq!(std::fs::read_to_string(&calls).unwrap(), "page 1 2400\n");
+    }
+
     #[test]
     fn l_agent_voit_les_figures_comme_sur_la_page() {
         use base64::Engine as _;
@@ -1249,7 +1361,7 @@ mod tests {
         // La lecture annonce la figure et l'action qui la montre.
         let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
         let text = read["text"].as_str().unwrap();
-        assert!(text.contains("p10 ") && text.contains("{image : ") && text.contains("action images"), "{text}");
+        assert!(text.contains("p10 ") && text.contains("{image 1 : ") && text.contains("action images"), "{text}");
 
         // Une image déjà lisible (PNG) part telle quelle.
         let out = run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
@@ -1456,7 +1568,7 @@ mod tests {
         let read = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap();
         let text = read["text"].as_str().unwrap();
         assert!(text.contains("Zones de texte : 2."), "{text}");
-        assert!(text.contains("{zone de texte : H = 0,4 m}{zone de texte : Niveau initial = 12,5 m}{image : "), "{text}");
+        assert!(text.contains("{zone de texte : H = 0,4 m}{zone de texte : Niveau initial = 12,5 m}{image 1 : "), "{text}");
 
         let out = run(root, "claude", "images", &json!({"path": "article.docx"})).unwrap();
         assert_eq!(out["total"], 1, "{out}");
