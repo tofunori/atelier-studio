@@ -41,7 +41,7 @@ const test = base.extend<{project: {root: string; url: string; doc: string}}>({
 });
 
 type Para = {text: string; align?: string; heading?: number; segments: {text: string; media?: string; rev?: string; highlight?: string; u?: boolean}[]};
-type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; date: string; text: string; parent?: number; done: boolean; quote: string}[]; unreadComments?: number[]};
+type Model = {revision: string; paragraphs: Para[]; notes: {paragraphs: Para[]}[]; headers: {paragraphs: Para[]}[]; changes: {id: number; kind: string; author: string; text: string; date: string}[]; comments: {id: number; author: string; date: string; text: string; parent?: number; done: boolean; quote: string}[]; unreadComments?: number[]; bookmark?: {marks?: {id: number; color: string}[]; last?: number}};
 
 async function open(page: Page, project: {url: string; doc: string}) {
   await page.request.post(`${project.url}/docx/prefs`, {data: {author: 'Thierry'}});
@@ -278,6 +278,29 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect(page.locator('#bub')).toContainText('Christophe');
   await page.locator('#bub [data-act="accept"]').click();
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
+});
+
+// Thierry, 2026-11-15 : la bulle de SA modification n'offrait qu'un ✕
+// (« Retirer »), qu'il prenait pour « fermer ». Elle porte maintenant
+// ✕ et ✓, comme celle des autres.
+test("docx: sa propre modification s'accepte depuis sa bulle", async ({page, project}) => {
+  const c = (await disk(page, project)).changes.find(x => x.id === 120)!;
+  await page.request.post(`${project.url}/docx/prefs`, {data: {author: c.author}});
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  await page.locator('#paper .ins[data-ch="120"]').click();
+  const bub = page.locator('#bub');
+  await expect(bub).toContainText('Toi');
+  await expect(bub.locator('[data-act="reject"]')).toBeVisible();
+  await expect(bub.locator('[data-act="accept"]')).toHaveAttribute('aria-label', 'Accepter');
+  // Échap ferme la bulle sans rien décider.
+  await page.keyboard.press('Escape');
+  await expect(bub).not.toHaveClass(/\bshow\b/);
+  expect((await disk(page, project)).changes.some(x => x.id === 120)).toBe(true);
+  await page.locator('#paper .ins[data-ch="120"]').click();
+  await bub.locator('[data-act="accept"]').click();
+  await expect.poll(async () => (await disk(page, project)).changes.some(x => x.id === 120)).toBe(false);
+  await expect(page.locator('#paper .ins[data-ch="120"]')).toHaveCount(0);
 });
 
 // Thierry, 2026-11-14 : il résolvait et répondait pendant que l'agent
@@ -794,6 +817,71 @@ test("docx: une bulle que Claude a touchée porte un point jusqu'à ce qu'on l'o
   } finally {
     await writeFile(file, '[]');
   }
+});
+
+test("docx: des rubans de couleur sur les cartes, gardés à la réouverture, filtrés dans la liste et parcourus au clavier", async ({page, project}) => {
+  await open(page, project);
+  const m0 = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m0.revision, author: 'Christophe', op: {op: 'comment', paragraph: 'p5', find: 'large bande', text: 'Vérifier les coefficients de bande.'}}});
+  expect(r.ok()).toBe(true);
+  const c2 = (await disk(page, project)).comments.find(x => x.text === 'Vérifier les coefficients de bande.')!;
+  await page.reload();
+  const first = page.locator('#cards .it[data-key="c1"]');
+  const second = page.locator(`#cards .it[data-key="c${c2.id}"]`);
+  const marks = async () => (await disk(page, project)).bookmark?.marks ?? [];
+  // Aucun ruban : seulement un contour qui apparaît au survol.
+  await expect(page.locator('#cards .rb.on')).toHaveCount(0);
+  await first.locator('.cc').hover();
+  await expect.poll(() => first.locator('.rb').evaluate(el => Number(getComputedStyle(el).opacity))).toBeGreaterThan(0);
+  // Un clic sur le ruban fantôme pose un ruban gris, sans ouvrir la carte.
+  await first.locator('.rb').click();
+  await expect(first.locator('.rb')).toHaveClass(/\bon\b/);
+  await expect(first).not.toHaveClass(/\bon\b/);
+  await expect.poll(marks).toEqual([{id: 1, color: 'gris'}]);
+  // Un clic sur le ruban posé ouvre ses couleurs : rouge.
+  await first.locator('.rb').click();
+  const menu = page.locator('.menu.show');
+  await expect(menu.locator('.mi-cell:not(.danger)')).toHaveCount(5);
+  await expect(menu.locator('.mi-cell.danger')).toHaveAttribute('aria-label', 'Retirer le ruban (⌘D)');
+  await menu.locator('.mi-cell[aria-label^="Rouge"]').click();
+  await expect(first.locator('.rb')).toHaveAttribute('data-tab', 'rouge');
+  await expect.poll(marks).toEqual([{id: 1, color: 'rouge'}]);
+  // ⌘D puis ⌥⌘5 sur une autre carte ouverte : un second ruban, bleu ; le premier reste.
+  await second.locator('.cc').click();
+  await page.keyboard.press('ControlOrMeta+d');
+  await expect(second.locator('.rb')).toHaveAttribute('data-tab', 'gris');
+  await page.keyboard.press('ControlOrMeta+Alt+Digit5');
+  await expect(second.locator('.rb')).toHaveAttribute('data-tab', 'bleu');
+  await expect(first.locator('.rb')).toHaveAttribute('data-tab', 'rouge');
+  await expect.poll(marks).toEqual([{id: 1, color: 'rouge'}, {id: c2.id, color: 'bleu'}]);
+  // Rien dans le .docx : les rubans vivent dans l'historique d'Atelier.
+  expect((await readFile(project.doc)).includes(Buffer.from('rouge'))).toBe(false);
+  // Réouverture : les rubans sont là ; la liste les rappelle et filtre par couleur.
+  await page.reload();
+  await expect(first.locator('.rb')).toHaveAttribute('data-tab', 'rouge');
+  await expect(second.locator('.rb')).toHaveAttribute('data-tab', 'bleu');
+  await page.locator('#tabCom').click();
+  await expect(page.locator('#pane .cl[data-key="c1"] .sgl')).toHaveAttribute('data-tab', 'rouge');
+  await expect(page.locator('#pane .tf .f')).toHaveCount(3);
+  await page.locator('#pane .tf .f[data-tab="bleu"]').click();
+  await expect(page.locator('#pane .cl')).toHaveCount(1);
+  await expect(page.locator(`#pane .cl[data-key="c${c2.id}"]`)).toBeVisible();
+  await page.locator('#pane .tf .f[data-tab=""]').click();
+  await expect(page.locator('#pane .cl')).toHaveCount(2);
+  // ⇧⌘D passe d'un ruban au suivant, dans l'ordre du document.
+  await page.keyboard.press('ControlOrMeta+Shift+d');
+  await expect(first).toHaveClass(/\bon\b/);
+  await page.keyboard.press('ControlOrMeta+Shift+d');
+  await expect(second).toHaveClass(/\bon\b/);
+  // ⌘D sur la carte ouverte retire son ruban ; « Retirer » du menu, l'autre.
+  await page.keyboard.press('ControlOrMeta+d');
+  await expect(second.locator('.rb')).not.toHaveClass(/\bon\b/);
+  await page.keyboard.press('Escape');
+  await first.locator('.rb').click();
+  await page.locator('.menu.show .mi-cell.danger').click();
+  await expect(page.locator('#cards .rb.on')).toHaveCount(0);
+  await expect(page.locator('#pane .tf')).toHaveCount(0);
+  await expect.poll(marks).toEqual([]);
 });
 
 /** Fichier des brouillons de réponse de l'agent (atelier_docx::drafts), ou de

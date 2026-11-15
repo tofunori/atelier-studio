@@ -2734,6 +2734,26 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     assert!(body.contains("\"had\":true"), "{body}");
     let (_, body) = http(srv.port, "GET", &format!("/docx/model?path={rel}"), None);
     assert_eq!(json_of(&body)["unreadComments"], serde_json::json!([]), "{body}");
+    // Rubans de couleur : posé, recoloré, retrouvé dans le modèle, retiré ; rien dans le .docx.
+    let before = std::fs::read(&doc).unwrap();
+    let mark = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "action": "set", "comment": 1}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/bookmark", Some(&mark));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(json_of(&body)["marks"], serde_json::json!([{"id": 1, "color": "gris"}]), "{body}");
+    let red = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "action": "set", "comment": 1, "color": "rouge"}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/bookmark", Some(&red));
+    assert_eq!(st, 200, "{body}");
+    let (_, body) = http(srv.port, "GET", &format!("/docx/model?path={rel}"), None);
+    assert_eq!(json_of(&body)["bookmark"]["marks"], serde_json::json!([{"id": 1, "color": "rouge"}]), "{body}");
+    let clear = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "action": "clear", "comment": 1}).to_string();
+    let (st, body) = http(srv.port, "POST", "/docx/bookmark", Some(&clear));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(json_of(&body)["marks"], serde_json::json!([]), "{body}");
+    let bad = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "action": "set"}).to_string();
+    assert_eq!(http(srv.port, "POST", "/docx/bookmark", Some(&bad)).0, 400);
+    let orange = serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "action": "set", "comment": 1, "color": "orange"}).to_string();
+    assert_eq!(http(srv.port, "POST", "/docx/bookmark", Some(&orange)).0, 400);
+    assert_eq!(std::fs::read(&doc).unwrap(), before, "le signet n'écrit jamais dans le .docx");
 
     // Annuler puis rétablir l'acceptation.
     let undo = |revision: &str, redo: bool| serde_json::json!({"path": "Chapitre 2 corrigé CK.docx", "revision": revision, "redo": redo}).to_string();

@@ -87,6 +87,8 @@
     agentChanges?: Record<string, string>;
     /** Fils que l'agent a écrits, répondus ou corrigés et que l'utilisateur n'a pas ouverts. */
     unreadComments?: number[];
+    /** Signet « où j'en étais » et dernier fil ouvert, retrouvés par Atelier. */
+    bookmark?: { marks?: { id: number; color: string }[]; last?: number };
   };
   type Pos = { idx: number; off: number };
   type Sel = { a: Pos; b: Pos };
@@ -302,6 +304,14 @@
    *  `seenNow` : ouvertes ici, l'avis au serveur encore en route. */
   let unread = new Set<number>();
   const seenNow = new Set<number>();
+  /** Rubans de couleur (Thierry, 2026-11-15) : un ruban au bord haut d'une
+   *  carte, plusieurs par document, gardés par Atelier (rien dans le .docx).
+   *  `last` : dernier fil ouvert, où ⇧⌘D ramène sans ruban. */
+  const TABS: [string, string][] = [["gris", "Gris"], ["rouge", "Rouge"], ["jaune", "Jaune"], ["vert", "Vert"], ["bleu", "Bleu"]];
+  let ribbons = new Map<number, string>();
+  let lastOpened: number | null = null;
+  /** Filtre de la liste Commentaires par couleur de ruban ("" : tous). */
+  let ribbonFilter = "";
   /** Commentaires dont la résolution (ou réouverture) est en route : un
    *  deuxième clic sur la même carte est ignoré jusqu'à la réponse. */
   const resolving = new Set<number>();
@@ -311,6 +321,10 @@
     // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
     if (m.agentChanges) agentMarks = m.agentChanges;
     if (m.unreadComments) unread = new Set(m.unreadComments.filter((id) => !seenNow.has(id)));
+    if (m.bookmark) {
+      ribbons = new Map((m.bookmark.marks || []).map((r) => [r.id, r.color] as const));
+      lastOpened = m.bookmark.last ?? null;
+    }
     if (m.body !== undefined) return m;
     const body: Para[] = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest: Para[] = [];
@@ -2802,7 +2816,7 @@
     openMenu = null;
     openTrigger = null;
   }
-  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void };
+  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void; row?: Item[] };
   /** Indication grise à droite d'une rangée de menu (raccourci, date). */
   const hint = (text: string) => `<span class="mi-k">${esc(text)}</span>`;
   function showMenu(trigger: HTMLElement, items: Item[], alignRight = false) {
@@ -2814,6 +2828,28 @@
     for (const it of items) {
       if (it.sep) { const s = document.createElement("div"); s.className = "mi-sep"; m.appendChild(s); continue; }
       if (it.head) { const h = document.createElement("div"); h.className = "mi-head"; h.textContent = it.label; m.appendChild(h); continue; }
+      if (it.row) {
+        // Rangée de pastilles (couleurs d'un ruban) : une case par choix.
+        const r = document.createElement("div");
+        r.className = "mi-row";
+        r.setAttribute("role", "group");
+        r.setAttribute("aria-label", it.label);
+        for (const x of it.row) {
+          if (x.sep) { const v = document.createElement("i"); v.className = "mi-vsep"; r.appendChild(v); continue; }
+          const b = document.createElement("button");
+          b.className = "mi mi-cell" + (x.on ? " cur" : "") + (x.danger ? " danger" : "");
+          if (x.danger) b.setAttribute("role", "menuitem");
+          else { b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(!!x.on)); }
+          b.setAttribute("aria-label", x.label);
+          b.title = x.label;
+          b.innerHTML = x.html || "";
+          b.addEventListener("mousedown", (e) => e.preventDefault());
+          b.addEventListener("click", () => { closeMenu(); x.run?.(); });
+          r.appendChild(b);
+        }
+        m.appendChild(r);
+        continue;
+      }
       const b = document.createElement("button");
       b.className = "mi" + (it.danger ? " danger" : "");
       b.setAttribute("role", "menuitem");
@@ -3400,7 +3436,12 @@
     // Le point de tête ne dit qu'une chose : l'agent a touché ce fil et la
     // carte n'a pas encore été ouverte (l'avatar porte déjà la couleur de l'auteur).
     const nl = unread.has(c.id) && !on ? `<i class="nl" data-tooltip="Touchée par l'agent, pas encore lue"></i>` : "";
-    let h = q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
+    // Ruban au bord haut : plein et coloré sur un fil marqué, fantôme au survol des autres.
+    const col = ribbons.get(c.id);
+    let h = col
+      ? `<button class="rb on" data-act="bookmark" data-tab="${col}" aria-haspopup="menu" aria-label="Ruban ${tabName(col).toLowerCase()} : changer la couleur ou retirer" data-tooltip="Couleur du ruban"></button>`
+      : `<button class="rb" data-act="bookmark" aria-label="Poser un ruban" data-tooltip="Poser un ruban (⌘D)"></button>`;
+    h += q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
     // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
     const text = (x: Comment) => {
       if (on && editing?.id === x.id) {
@@ -3453,7 +3494,8 @@
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>${fix}</div>`;
     }
-    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
+    const cls = `cc${q || nl ? "" : " nq"}${col ? " bm" : ""}`;
+    return on ? `<div class="${cls}">${h}</div>` : `<div class="${cls}" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
   function draftHTML(): string {
     return `<div class="cc"><div class="hd">${avatar(author)}<span class="nm">${esc(firstName(author))}</span><span class="dt">Brouillon</span></div>
@@ -3526,7 +3568,7 @@
     for (const it of lane) {
       if (it.kind === "chip" && view !== "revue") continue;
       const on = it.key === focusKey;
-      if (on && it.kind === "comment") markSeen(it.ids[0]);
+      if (on && it.kind === "comment") { markSeen(it.ids[0]); noteOpened(it.ids[0]); }
       const html = it.kind === "chip" ? chipHTML(it, openChips.has(it.key)) : it.kind === "draft" ? draftHTML() : commentHTML(commentMap.get(it.ids[0])!, on);
       let el = prev.get(it.key);
       if (!el) {
@@ -3809,6 +3851,68 @@
       .catch(() => { /* le point reviendra au prochain modèle : rien de perdu */ })
       .finally(() => seenNow.delete(id));
   }
+  function tabName(color: string): string {
+    return TABS.find(([c]) => c === color)?.[1] ?? color;
+  }
+  /** Pose, recolore ou retire (`null`) le ruban d'un fil. */
+  let ribbonSeq = 0;
+  function setRibbon(id: number, color: string | null) {
+    if ((ribbons.get(id) ?? null) === color) return;
+    const prev = ribbons.get(id) ?? null;
+    const apply = (c: string | null) => { if (c) ribbons.set(id, c); else ribbons.delete(id); };
+    apply(color);
+    if (ribbonFilter && ![...ribbons.values()].includes(ribbonFilter)) ribbonFilter = "";
+    renderCards();
+    renderSide();
+    const seq = ++ribbonSeq;
+    api("/docx/bookmark", color === null ? { path: PATH, action: "clear", comment: id } : { path: PATH, action: "set", comment: id, color })
+      .then((r) => {
+        if (seq !== ribbonSeq || !r?.marks) return; // un autre geste est passé depuis
+        ribbons = new Map((r.marks as { id: number; color: string }[]).map((m) => [m.id, m.color] as const));
+        renderCards();
+        renderSide();
+      })
+      .catch(() => {
+        if ((ribbons.get(id) ?? null) === color) { apply(prev); renderCards(); renderSide(); }
+        status("Ruban non enregistré", true);
+      });
+  }
+  /** Clic sur un ruban posé : ses cinq couleurs et « Retirer ». */
+  function ribbonMenu(trigger: HTMLElement, id: number) {
+    const cur = ribbons.get(id);
+    showMenu(trigger, [
+      { label: "Couleur du ruban", row: [
+        ...TABS.map(([c, n], i): Item => ({ label: `${n} (⌥⌘${i + 1})`, html: `<i class="sw" data-tab="${c}"></i>`, on: c === cur, run: () => setRibbon(id, c) })),
+        { label: "", sep: true },
+        { label: "Retirer le ruban (⌘D)", html: ic("trash", 14), danger: true, run: () => setRibbon(id, null) },
+      ] },
+    ], true);
+  }
+  /** Dernier fil ouvert : là où ⇧⌘D ramène quand aucun ruban n'est posé. */
+  function noteOpened(id: number) {
+    if (lastOpened === id) return;
+    lastOpened = id;
+    api("/docx/bookmark", { path: PATH, action: "opened", comment: id }).catch(() => { /* simple repli : rien de perdu */ });
+  }
+  /** ⇧⌘D : ruban suivant dans l'ordre du document (de la couleur filtrée,
+   *  s'il y en a une), sinon le dernier fil ouvert. */
+  function goBookmark() {
+    const marked = lane
+      .filter((it) => it.kind === "comment" && !it.done && ribbons.has(it.ids[0]) && (!ribbonFilter || ribbons.get(it.ids[0]) === ribbonFilter))
+      .sort(byPosition);
+    if (marked.length) {
+      const k = marked.findIndex((it) => it.key === focusKey);
+      if (document.body.classList.contains("no-lane")) openLane();
+      focusCard(marked[(k + 1) % marked.length].key, true);
+      return;
+    }
+    if (lastOpened !== null && lane.some((it) => it.key === `c${lastOpened}`)) {
+      if (document.body.classList.contains("no-lane")) openLane();
+      focusCard(`c${lastOpened}`, true);
+      return;
+    }
+    status("Aucun ruban dans ce document");
+  }
   function askPane(action: "widen" | "restore", px: number) {
     clearTimeout(paneWait);
     paneAction = action;
@@ -4054,9 +4158,23 @@
       if (e.code === "Enter") { e.preventDefault(); decideCurrent("accept"); return; }
       if (e.code === "Backspace") { e.preventDefault(); decideCurrent("reject"); return; }
       if (e.code === "KeyA") { e.preventDefault(); askComment(); return; }
+      if (/^Digit[1-5]$/.test(e.code)) {
+        // ⌥⌘1 à ⌥⌘5 : couleur du ruban de la carte ouverte (⌘1 et ⌘2 sont pris par Atelier).
+        const id = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : NaN;
+        if (!commentMap.has(id) || commentMap.get(id)!.done) return;
+        e.preventDefault();
+        setRibbon(id, TABS[Number(e.code.slice(5)) - 1][0]);
+      }
     } else if (e.shiftKey && !e.altKey && e.code === "KeyE" && !typing) {
       e.preventDefault();
       $("btnTrack").click();
+    } else if (!e.altKey && e.code === "KeyD") {
+      // ⌘D pose ou retire le ruban de la carte ouverte ; ⇧⌘D passe au ruban suivant.
+      e.preventDefault();
+      if (e.shiftKey) { goBookmark(); return; }
+      const id = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : NaN;
+      if (commentMap.has(id) && !commentMap.get(id)!.done) setRibbon(id, ribbons.has(id) ? null : "gris");
+      else status("Ouvre un commentaire pour y poser un ruban");
     }
   });
 
@@ -4245,6 +4363,11 @@
     }
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
+    if (act === "bookmark") {
+      if (ribbons.has(c.id)) ribbonMenu(t.closest("[data-act]") as HTMLElement, c.id);
+      else setRibbon(c.id, "gris");
+      return;
+    }
     const ta = host.querySelector("textarea");
     if (act === "propose") {
       // Ce qui est tapé sert de consigne à l'agent, puis s'efface : le brouillon prend sa place.
@@ -4432,9 +4555,11 @@
     const mine = c.author === author;
     showChange(id);
     const at = c.date ? `${dateFr(c.date)}, ${timeFr(c.date)}` : "";
-    const acts = mine
-      ? `<button class="mini no" data-act="reject" aria-label="Retirer ma retouche" data-tooltip="Retirer">${ic("x", 14)}</button>`
-      : `<button class="mini no" data-act="reject" aria-label="Refuser" data-tooltip="Refuser">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter" data-tooltip="Accepter">${ic("check", 14)}</button>`;
+    // Thierry, 2026-11-15 : « juste un crochet et un x », sur toutes les
+    // modifications, les siennes comprises (elles n'avaient qu'un ✕
+    // « Retirer », lu comme « fermer », et pas d'Accepter). La bulle se
+    // ferme d'un clic ailleurs ou avec Échap.
+    const acts = `<button class="mini no" data-act="reject" aria-label="${mine ? "Retirer ma retouche" : "Refuser"}" data-tooltip="${mine ? "Retirer" : "Refuser"} (⌥⌘⌫)">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter" data-tooltip="Accepter (⌥⌘↩)">${ic("check", 14)}</button>`;
     bub.innerHTML = `${avatar(c.author, true)}<span class="w"><b>${esc(mine ? "Toi" : firstName(c.author))}</b> · ${kindLabel(c)}${at ? `<small>${at}</small>` : ""}</span>${acts}`;
     bub.dataset.ch = String(id);
     bubAnchor = el;
@@ -5108,13 +5233,26 @@
       }).join("") : `<div class="more">Aucun titre dans ce document.</div>`;
     } else {
       let sec: string | null = null;
-      const items = lane.filter((it) => it.kind === "comment").sort(byPosition);
+      const all = lane.filter((it) => it.kind === "comment").sort(byPosition);
+      // Filtre par couleur de ruban, en tête, dès qu'un fil en porte un.
+      const count = new Map<string, number>();
+      for (const it of all) { const col = ribbons.get(it.ids[0]); if (col) count.set(col, (count.get(col) || 0) + 1); }
+      if (ribbonFilter && !count.has(ribbonFilter)) ribbonFilter = "";
+      if (count.size) {
+        html += `<div class="tf" role="group" aria-label="Filtrer par ruban"><button class="f${ribbonFilter ? "" : " on"}" data-tab="" aria-pressed="${!ribbonFilter}">Tous</button>`;
+        for (const [col, name] of TABS) {
+          const n = count.get(col);
+          if (n) html += `<button class="f${ribbonFilter === col ? " on" : ""}" data-tab="${col}" aria-pressed="${ribbonFilter === col}" aria-label="Rubans ${name.toLowerCase()} : ${n}" data-tooltip="Rubans ${name.toLowerCase()}"><i class="sw" data-tab="${col}"></i>${nf(n)}</button>`;
+        }
+        html += `</div>`;
+      }
+      const items = ribbonFilter ? all.filter((it) => ribbons.get(it.ids[0]) === ribbonFilter) : all;
       for (const it of items) {
         const c = commentMap.get(it.ids[0])!;
         const s = it.idx < 1e9 ? sectionOf(it.idx) : "Hors du texte";
         if (s !== sec) { sec = s; if (s) html += `<div class="sect">${esc(s)}</div>`; }
         const replies = model.comments.filter((r) => r.parent === c.id).length;
-        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}</small></span></button>`;
+        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}${ribbons.has(c.id) ? `<i class="sgl" data-tab="${ribbons.get(c.id)}" role="img" aria-label="Ruban ${tabName(ribbons.get(c.id)!).toLowerCase()}"></i>` : ""}</small></span></button>`;
       }
       if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
     }
@@ -5164,6 +5302,8 @@
     const t = e.target as HTMLElement;
     const o = t.closest(".ol") as HTMLElement | null;
     const c = t.closest(".cl") as HTMLElement | null;
+    const f = t.closest(".tf .f") as HTMLElement | null;
+    if (f) { ribbonFilter = f.dataset.tab || ""; renderSide(); return; }
     if (o) {
       const el = paper.querySelector(`.d-p[data-idx="${o.dataset.i}"]`);
       if (el) scroller.scrollBy({ top: el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 32, behavior: smooth() });
