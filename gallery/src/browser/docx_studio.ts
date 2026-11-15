@@ -2930,7 +2930,7 @@
     <button class="ib" id="navPrev" aria-label="Précédente" data-tooltip="Précédente (⌥⌘↑)">${ic("up")}</button>
     <button class="cnt" id="revMenu" aria-haspopup="menu" data-tooltip="Parcourir, trier, tout accepter, versions"></button>
     <button class="ib" id="navNext" aria-label="Suivante" data-tooltip="Suivante (⌥⌘↓)">${ic("down")}</button>
-    <span class="cap" role="group" aria-label="Décider"><button class="ib" id="btnReject" aria-label="Refuser" data-tooltip="Refuser (⌥⌘⌫)">${ic("x")}</button><button class="ib" id="btnAccept" aria-label="Accepter" data-tooltip="Accepter (⌥⌘↩)">${ic("check")}</button></span>
+    <span class="cap" role="group" aria-label="Décider"><button class="ib" id="btnReject" aria-label="Refuser la modification" data-tooltip="Refuser la modification en cours (⌥⌘⌫)">${ic("x")}</button><button class="ib" id="btnAccept" aria-label="Accepter la modification" data-tooltip="Accepter la modification en cours (⌥⌘↩)">${ic("check")}</button></span>
     <span class="vs"></span>
     <button class="ib hide3" id="btnComment" aria-label="Commenter" data-tooltip="Commenter la sélection (⌥⌘A)">${ic("msgPlus")}</button>
     <button class="track on" id="btnTrack" aria-pressed="true" data-tooltip="Suivi des modifications (⇧⌘E) : chaque retouche reste visible dans Word"><span class="sw"><i></i></span>Suivi</button>
@@ -4056,8 +4056,8 @@
     ($("navNext") as HTMLButtonElement).disabled = !count;
     ($("btnAccept") as HTMLButtonElement).disabled = !count || view === "original";
     ($("btnReject") as HTMLButtonElement).disabled = !count || navMode === "com" || view === "original";
-    $("btnAccept").dataset.tooltip = navMode === "com" ? "Régler le commentaire (⌥⌘↩)" : "Accepter (⌥⌘↩)";
-    $("btnAccept").setAttribute("aria-label", navMode === "com" ? "Régler le commentaire" : "Accepter");
+    $("btnAccept").dataset.tooltip = navMode === "com" ? "Régler le commentaire en cours (⌥⌘↩)" : "Accepter la modification en cours (⌥⌘↩)";
+    $("btnAccept").setAttribute("aria-label", navMode === "com" ? "Régler le commentaire" : "Accepter la modification");
   }
 
   const smooth = (): ScrollBehavior => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
