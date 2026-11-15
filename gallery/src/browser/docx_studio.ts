@@ -5759,9 +5759,12 @@
     return true;
   }
   // La sélection d'une zone de texte ne passe pas toujours par selectionchange
-  // (WebKit) : la souris et le clavier la relisent aussi.
+  // (WebKit) : la souris et le clavier la relisent aussi. WebKit ne renvoie pas
+  // non plus « select » quand on revient dans le champ sur la même sélection :
+  // l'entrée du focus la relit.
   const draftSelSync = () => { if (draftField()) requestAnimationFrame(() => { syncBubbar(); }); };
   cardsEl.addEventListener("select", draftSelSync, true);
+  cardsEl.addEventListener("focusin", draftSelSync);
   cardsEl.addEventListener("mouseup", draftSelSync);
   cardsEl.addEventListener("keyup", (e) => { if (e.shiftKey || e.key === "a") draftSelSync(); });
   cardsEl.addEventListener("focusout", () => requestAnimationFrame(() => { if (!bubbleSelAt() && !bubbar.matches(":hover")) bubbar.classList.remove("show"); }));
