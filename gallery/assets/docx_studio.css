@@ -616,6 +616,15 @@ body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{
 .nbox .c-input{margin-top:0;min-height:56px;font-size:13px}
 .nbox .ac{display:flex;align-items:center;gap:4px;margin-top:8px}
 .nbox .btn kbd{margin-left:2px;font:500 11px/1 var(--ui-font);color:var(--text-muted);font-variant-numeric:tabular-nums}
+/* Brouillon de l'agent : une ligne, deux icônes (variante A, 2026-11-15). */
+.nbox.line{display:flex;align-items:center;gap:4px;width:300px;padding:4px 4px 4px 12px}
+.nbox.line .c-input{flex:1;min-width:0;min-height:28px;padding:4px 0;background:transparent;font-size:12px;line-height:20px}
+.nbox.line .c-input:focus-visible{box-shadow:none}
+.nbox.line .sep{flex:none;align-self:center;width:1px;height:16px;margin:0 2px;background:color-mix(in srgb,var(--text-primary) 14%,transparent)}
+.nbox.line .mini{flex:none;align-self:center;width:28px;height:28px}
+.nbox.line .mini.on{background:var(--press);color:var(--text-primary)}
+#draftmarks{position:fixed;inset:0;pointer-events:none;z-index:var(--z-popover,120)}
+#draftmarks i{position:fixed;background:var(--doc-note-on)}
 ::highlight(docx-note){background-color:var(--doc-note-on)}
 ::highlight(docx-tochat){text-decoration:underline dotted var(--doc-none);text-decoration-thickness:1.5px;text-underline-offset:4px}
 #chatnums{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}

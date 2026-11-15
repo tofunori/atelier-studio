@@ -868,20 +868,30 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   expect(bb!.y + bb!.height).toBeLessThanOrEqual(fb!.y + fb!.height);
   expect(bb!.y + bb!.height).toBeGreaterThan(fb!.y - 48);
   await bar.locator('[aria-label="Ajouter au chat"]').click();
-  await expect(page.locator('.nbox .nb-src')).toContainText('Brouillon de réponse');
-  await expect(page.locator('.nbox .nb-src')).toContainText('« annexe B »');
-  await expect(page.locator('.nbox [data-act="doc"]')).toContainText('Retoucher');
-  await page.locator('.nbox.show textarea').fill('Laquelle exactement ?');
-  await page.locator('.nbox.show textarea').press('Enter');
+  // Une ligne et deux icônes : ni ligne d'origine ni boutons écrits.
+  const line = page.locator('.nbox.line.show');
+  await expect(line).toBeVisible();
+  await expect(line.locator('.nb-src, .btn, kbd')).toHaveCount(0);
+  await expect(line.locator('textarea')).toHaveAttribute('aria-label', 'Ta note sur « annexe B »');
+  await expect(line.locator('[data-act="doc"]')).toHaveAttribute('aria-label', 'Faire retoucher par Claude');
+  // La ligne se pose sous le champ du brouillon, sans le couvrir.
+  const [lb, fb2] = await Promise.all([line.boundingBox(), field.boundingBox()]);
+  expect(lb!.y).toBeGreaterThanOrEqual(fb2!.y + fb2!.height);
+  expect(lb!.height).toBeLessThanOrEqual(40);
+  // Le passage noté reste marqué dans le brouillon pendant qu'on écrit.
+  await expect(page.locator('#draftmarks i')).toHaveCount(1);
+  await line.locator('textarea').fill('Laquelle exactement ?');
+  await line.locator('[data-act="chat"]').click();
+  await expect(page.locator('#draftmarks i')).toHaveCount(0);
   await expect(page.locator('.nbox.show')).toHaveCount(0);
   const toChatSent = await page.evaluate(() => (window as unknown as {__sent: {text: string}}).__sent);
   expect(toChatSent.text).toMatch(/brouillon de réponse à Christophe\) : « annexe B »\nCommentaire : Laquelle exactement \?$/);
   await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.");
-  // ⌘Entrée : l'agent retouche son brouillon selon la note sur le passage.
+  // Entrée (le robot) : l'agent retouche son brouillon selon la note sur le passage.
   await pick('annexe B');
   await bar.locator('[aria-label="Annoter"]').click();
   await page.locator('.nbox.show textarea').fill('cite plutôt la section 4.2');
-  await page.locator('.nbox.show textarea').press('ControlOrMeta+Enter');
+  await page.locator('.nbox.show textarea').press('Enter');
   await expect(thread.locator('.c-wait')).toBeVisible();
   const redo = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean}}).__sent);
   expect(redo.direct).toBe(true);

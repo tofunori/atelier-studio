@@ -5384,21 +5384,44 @@
   }
   /** Rectangle du début de la sélection dans la zone de texte : un double
    *  invisible aux mêmes métriques, mesuré puis retiré. */
-  function draftSelRect(ta: HTMLTextAreaElement): DOMRect {
+  function mirrorRects(ta: HTMLTextAreaElement, a: number, b: number): DOMRect[] {
     const cs = getComputedStyle(ta);
     const box = ta.getBoundingClientRect();
     const m = document.createElement("div");
-    for (const k of ["font", "letterSpacing", "lineHeight", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "borderTopWidth", "borderLeftWidth", "boxSizing", "textIndent", "tabSize"] as const) m.style[k] = cs[k];
-    Object.assign(m.style, { position: "fixed", visibility: "hidden", top: `${box.top}px`, left: `${box.left}px`, width: `${box.width}px`, whiteSpace: "pre-wrap", overflowWrap: "anywhere", borderStyle: "solid", borderColor: "transparent" });
-    m.textContent = ta.value.slice(0, ta.selectionStart);
+    for (const k of ["font", "letterSpacing", "lineHeight", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth", "boxSizing", "wordSpacing", "fontKerning", "textIndent", "tabSize"] as const) m.style[k] = cs[k];
+    Object.assign(m.style, { position: "fixed", visibility: "hidden", top: `${box.top - ta.scrollTop}px`, left: `${box.left}px`, width: `${box.width}px`, whiteSpace: "pre-wrap", overflowWrap: "anywhere", borderStyle: "solid", borderColor: "transparent" });
+    m.textContent = ta.value.slice(0, a);
     const mark = document.createElement("span");
-    mark.textContent = ta.value.slice(ta.selectionStart, ta.selectionEnd) || "\u200b";
+    mark.textContent = ta.value.slice(a, b) || "\u200b";
     m.appendChild(mark);
     document.body.appendChild(m);
-    const r = mark.getClientRects()[0] || mark.getBoundingClientRect();
+    const rs = Array.from(mark.getClientRects()).filter((r) => r.width > 0);
     m.remove();
-    const top = Math.max(box.top, r.top - ta.scrollTop);
-    return new DOMRect(Math.max(box.left, r.left), top, r.width, r.height);
+    // Bornées au champ : ce qui défile hors de vue ne se dessine pas.
+    return rs.map((r) => {
+      const top = Math.max(box.top, r.top), bottom = Math.min(box.bottom, r.bottom);
+      return new DOMRect(r.left, top, r.width, bottom - top);
+    }).filter((r) => r.height > 0);
+  }
+  function draftSelRect(ta: HTMLTextAreaElement): DOMRect {
+    const r = mirrorRects(ta, ta.selectionStart, ta.selectionEnd)[0];
+    return r || ta.getBoundingClientRect();
+  }
+  /** Le passage noté reste visible dans le brouillon quand le focus passe à
+   *  la ligne de note (une zone de texte n'affiche plus sa sélection). */
+  const draftMarks = document.createElement("div");
+  draftMarks.id = "draftmarks";
+  draftMarks.setAttribute("aria-hidden", "true");
+  document.body.appendChild(draftMarks);
+  function paintDraftMarks() {
+    const d = noting?.bub?.draft ? noting.bub : null;
+    const ta = d ? cardsEl.querySelector<HTMLTextAreaElement>(`[data-key="c${d.cid}"] .c-field.ad textarea`) : null;
+    if (!d || !ta || ta.value.slice(d.s, d.e) !== d.quote) { draftMarks.replaceChildren(); return; }
+    draftMarks.replaceChildren(...mirrorRects(ta, d.s, d.e).map((r) => {
+      const el = document.createElement("i");
+      Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      return el;
+    }));
   }
   /** Sélection de bulle (message ou brouillon) et son rectangle d'ancrage. */
   function bubbleSelAt(): { bub: Bub; rect: DOMRect } | null {
@@ -5467,6 +5490,7 @@
     noting = null;
     nbox.classList.remove("show");
     paintNotes();
+    paintDraftMarks();
   }
   function openNote() {
     const s = getSelection();
@@ -5478,6 +5502,7 @@
     selbar.classList.remove("show");
     s.removeAllRanges();
     noting = { sel, segs };
+    nbox.classList.remove("line");
     // Même repère que dans la boîte du chat : le numéro du paragraphe.
     const n = /p(\d+)$/.exec(model.paragraphs[segs[0].idx].id)?.[1] ?? String(segs[0].idx + 1);
     const word = view !== "original";
@@ -5506,14 +5531,23 @@
     if (!bub.draft) getSelection()?.removeAllRanges();
     noting = { sel: null, segs: [], bub };
     const n = /p(\d+)$/.exec(bubPara(c))?.[1];
-    // Dans le brouillon de l'agent, « Répondre » n'a pas de sens (rien n'est
-    // encore posté) : la note part à l'agent, qui retouche son brouillon.
-    const doc = bub.draft
-      ? `<button class="btn q" data-act="doc" data-tooltip="Demander à l'agent de retoucher son brouillon selon ta note">${ic("bot", 14)}Retoucher<kbd>⌘↵</kbd></button>`
-      : `<button class="btn q" data-act="doc" data-tooltip="Répondre dans ce fil en citant le passage">${ic("undo", 14)}Répondre<kbd>⌘↵</kbd></button>`;
-    nbox.innerHTML = `<div class="nb-src">${ic(bub.draft ? "bot" : "chat", 12)}<span>${bub.draft ? "Brouillon de réponse" : `Bulle de ${esc(firstName(c.author))}`}${n ? ` · ¶ ${n}` : ""} · « ${esc(clip(oneLine(bub.quote), 90))} »</span></div>
+    if (bub.draft) {
+      // Brouillon de l'agent (variante A, 2026-11-15) : une ligne et deux
+      // icônes, le passage reste sélectionné dans le champ. Le robot (↵)
+      // fait retoucher le brouillon ; la bulle (⌘↵) l'envoie au chat.
+      nbox.classList.add("line");
+      nbox.innerHTML = `<textarea class="c-input" rows="1" placeholder="Ta note…" aria-label="${esc(`Ta note sur « ${clip(oneLine(bub.quote), 60)} »`)}"></textarea><span class="sep" aria-hidden="true"></span>`
+        + `<button class="mini on" data-act="doc" aria-label="Faire retoucher par Claude" data-tooltip="Faire retoucher par Claude ↵">${ic("bot", 14)}</button>`
+        + `<button class="mini" data-act="chat" aria-label="Ajouter au chat" data-tooltip="Ajouter le passage et ta note au chat ⌘↵">${ic("chat", 14)}</button>`;
+      const f = draftField()?.getBoundingClientRect();
+      showNbox(f ? new DOMRect(f.left - 4, f.top, f.width, f.height) : rect);
+      paintDraftMarks();
+      return;
+    }
+    nbox.classList.remove("line");
+    nbox.innerHTML = `<div class="nb-src">${ic("chat", 12)}<span>Bulle de ${esc(firstName(c.author))}${n ? ` · ¶ ${n}` : ""} · « ${esc(clip(oneLine(bub.quote), 90))} »</span></div>
       <textarea class="c-input" rows="2" placeholder="Ta note…" aria-label="Ta note"></textarea>
-      <div class="ac">${doc}
+      <div class="ac"><button class="btn q" data-act="doc" data-tooltip="Répondre dans ce fil en citant le passage">${ic("undo", 14)}Répondre<kbd>⌘↵</kbd></button>
       <button class="btn p" data-act="chat" data-tooltip="Ajouter le passage et ta note à la boîte du chat">${ic("chat", 14)}Au chat<kbd>↵</kbd></button></div>`;
     showNbox(rect);
   }
@@ -5595,7 +5629,12 @@
   });
   nbox.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeNote(); paper.focus({ preventScroll: true }); return; }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); commitNote(e.metaKey || e.ctrlKey ? "doc" : "chat"); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      // Une ligne (brouillon) : Entrée fait retoucher, ⌘Entrée part au chat.
+      const cmd = e.metaKey || e.ctrlKey;
+      commitNote(nbox.classList.contains("line") ? (cmd ? "chat" : "doc") : (cmd ? "doc" : "chat"));
+    }
   });
   document.addEventListener("mousedown", (e) => { if (noting && !nbox.contains(e.target as Node)) closeNote(); });
   // La boîte du chat dit quels passages y attendent encore : envoyés ou
