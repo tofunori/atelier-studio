@@ -113,6 +113,34 @@ fn commenter_repondre_resoudre_supprimer() {
     }
 }
 
+// Un paquet où un même paraId a deux entrées commentsExtended : la lecture
+// garde la dernière, la résolution doit donc les mettre toutes à jour,
+// sinon le fil résolu revient ouvert à la réouverture.
+#[test]
+fn resoudre_tient_meme_avec_une_entree_commentsextended_en_double() {
+    use std::io::Write;
+    let one = "<w15:commentEx w15:paraId=\"5C000001\" w15:done=\"0\"/>";
+    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, data) in entries(&build("christophe")) {
+        let data = if name == atelier_docx::COMMENTS_EXT {
+            let text = String::from_utf8(data).unwrap();
+            assert!(text.contains(one));
+            text.replacen(one, &format!("{one}{one}"), 1).into_bytes()
+        } else {
+            data
+        };
+        out.start_file(name.as_str(), zip::write::SimpleFileOptions::default()).unwrap();
+        out.write_all(&data).unwrap();
+    }
+    let mut d = atelier_docx::Docx::from_bytes(out.finish().unwrap().into_inner()).unwrap();
+    comments::resolve(&mut d, 1, true).unwrap();
+    let mut d = reopen(&d);
+    assert!(d.model().unwrap().comments.iter().find(|x| x.id == 1).unwrap().done, "résolu après réouverture");
+    comments::resolve(&mut d, 1, false).unwrap();
+    let mut d = reopen(&d);
+    assert!(!d.model().unwrap().comments.iter().find(|x| x.id == 1).unwrap().done, "rouvert après réouverture");
+}
+
 #[test]
 fn commenter_un_document_sans_commentaires_cree_les_parties() {
     let mut d = open("christophe");

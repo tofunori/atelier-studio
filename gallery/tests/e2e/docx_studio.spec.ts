@@ -335,6 +335,40 @@ test("docx: résoudre et répondre pendant que l'agent écrit, puis rouvrir : to
   await expect(page.locator('#cards .it[data-key="c1"] .cc.dn')).toBeVisible();
 });
 
+// Thierry, 2026-11-15 (revCK, commentaire 760) : résolu, puis rouvert 4 s
+// plus tard sans un mot. La carte « Réglé » redéployée met « Rouvrir » là
+// où était « Résoudre » : le clic de trop rouvrait le fil en silence. Un
+// « Rouvrir » cliqué dans l'instant où la carte s'ouvre est ignoré, un
+// vrai « Rouvrir » le dit, et la résolution tient à la réouverture.
+test("docx: un fil résolu ne se rouvre pas d'un clic de trop, et reste résolu à la réouverture", async ({page, project}) => {
+  await open(page, project);
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  await thread.locator('.cc').click();
+  await thread.locator('[data-act="resolve"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
+  await expect(thread.locator('.cc.dn')).toBeVisible();
+
+  // Clic sur « Réglé » puis tout de suite sur « Rouvrir » : rien ne change.
+  await thread.locator('.cc.dn').click();
+  await thread.locator('[data-act="reopen"]').click();
+  await page.waitForTimeout(400);
+  expect((await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
+  await expect(thread.locator('[data-act="reopen"]')).toBeVisible();
+
+  // Fermer et rouvrir le document : le fil est toujours résolu.
+  await page.goto('about:blank');
+  await open(page, project);
+  expect((await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(true);
+  await expect(thread.locator('.cc.dn')).toBeVisible();
+
+  // Un « Rouvrir » voulu rouvre, et le dit.
+  await thread.locator('.cc.dn').click();
+  await page.waitForTimeout(700);
+  await thread.locator('[data-act="reopen"]').click();
+  await expect(page.locator('#toast')).toContainText('Commentaire rouvert');
+  await expect.poll(async () => (await disk(page, project)).comments.find(c => c.id === 1)?.done).toBe(false);
+});
+
 // Thierry, 2026-11-14 (suite) : ses retouches de texte disparaissaient
 // aussi. Une frappe ou un commentaire posé dans un paragraphe que l'agent
 // venait de retoucher partait en conflit, et le panneau ne le rejouait que

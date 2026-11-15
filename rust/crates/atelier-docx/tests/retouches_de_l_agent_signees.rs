@@ -5,12 +5,21 @@ use atelier_docx::{Docx, history::Origin, marks};
 use common::*;
 use serde_json::json;
 
+/// Historique des essais hors de celui de l'utilisateur : lancés sur le Mac,
+/// ces tests notaient des « réparation » de fichiers temporaires dans
+/// ~/Library/Application Support/atelier-studio/docx-historique.
+fn history_root() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| atelier_docx::history::set_root(std::env::temp_dir().join(format!("atelier-docx-signees-tests-{}", std::process::id()))));
+}
+
 fn op(v: serde_json::Value) -> Op {
     serde_json::from_value(v).unwrap()
 }
 
 #[test]
 fn les_suivis_signes_claude_passent_au_nom_de_l_utilisateur_et_restent_reconnus() {
+    history_root();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("Chapitre corrigé.docx");
     // Un fichier retouché par l'agent avant la signature au nom de l'utilisateur.
@@ -53,6 +62,7 @@ fn les_suivis_signes_claude_passent_au_nom_de_l_utilisateur_et_restent_reconnus(
 
 #[test]
 fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
+    history_root();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("revCK.docx");
     let mut d = open("christophe");
@@ -72,7 +82,7 @@ fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
 
     let pending = atelier_docx::drafts::list(&path).unwrap();
     let origin = Origin { source: "atelier", author: "Thierry Laurent", label: "réparation" };
-    let (r, _) = atelier_docx::edit_file_as(&path, None, &origin, |d| marks::repair(d, "Thierry Laurent", &pending, true)).unwrap();
+    let (r, _) = atelier_docx::edit_file_as(&path, None, &origin, |d| marks::repair(d, "Thierry Laurent", &pending)).unwrap();
     marks::remember(&path, &r.stamps).unwrap();
     for id in &r.replied {
         atelier_docx::drafts::clear(&path, *id).unwrap();
@@ -84,10 +94,11 @@ fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
     assert_eq!(mine(&after), 2);
     let sent = after.comments.iter().find(|c| c.text == "Précisé dans la légende.").unwrap();
     assert_eq!((sent.author.as_str(), sent.parent), ("Thierry Laurent", Some(tops[1])));
-    // Les deux fils où Thierry répond sont ouverts : Word les montre.
-    for id in [tops[0], tops[1]] {
-        assert!(!after.comments.iter().find(|c| c.id == id).unwrap().done, "fil {id}");
-    }
+    // Un fil résolu le reste : la réparation ne rouvre jamais ce que
+    // l'utilisateur a réglé (revCK, 2026-11-13 : 24 fils rouverts, pris
+    // pour des résolutions perdues à la réouverture).
+    assert!(after.comments.iter().find(|c| c.id == tops[0]).unwrap().done, "fil résolu gardé résolu");
+    assert!(!after.comments.iter().find(|c| c.id == tops[1]).unwrap().done);
     assert!(atelier_docx::drafts::list(&path).unwrap().is_empty());
 }
 
@@ -96,6 +107,7 @@ fn la_reparation_rouvre_les_fils_repondus_et_envoie_les_brouillons() {
 /// nom de l'utilisateur ; les commentaires des autres ne bougent pas.
 #[test]
 fn les_commentaires_signes_claude_passent_au_nom_de_l_utilisateur() {
+    history_root();
     use std::io::{Cursor, Read, Write};
     let src = build("christophe");
     let mut zin = zip::ZipArchive::new(Cursor::new(src)).unwrap();

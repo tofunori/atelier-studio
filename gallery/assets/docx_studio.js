@@ -316,6 +316,11 @@
   /** Commentaires dont la résolution (ou réouverture) est en route : un
    *  deuxième clic sur la même carte est ignoré jusqu'à la réponse. */
   const resolving = new Set        ();
+  /** Moment où une carte s'est déployée : « Rouvrir » y prend la place de
+   *  « Résoudre », et un clic de plus juste après ne doit pas défaire la
+   *  résolution (revCK, 760, 2026-11-15 : rouvert 4 s après). */
+  let focusedAt = 0;
+  const REOPEN_GUARD_MS = 600;
   /** Corps, puis notes, puis en-têtes et pieds dans une seule liste : un
    *  rang (`idx`) désigne n'importe quel paragraphe modifiable. */
   function normalize(m       )        {
@@ -4073,6 +4078,7 @@
   }
 
   function focusCard(key        , scroll         ) {
+    if (key !== focusKey) focusedAt = Date.now();
     focusKey = key;
     hideBubble();
     renderCards();
@@ -4416,6 +4422,7 @@
       // (Malenfant, 2026-11-13 : résolu puis rouvert 2 s plus tard).
       const want = act === "resolve";
       if (resolving.has(c.id)) return;
+      if (!want && Date.now() - focusedAt < REOPEN_GUARD_MS) return;
       resolving.add(c.id);
       structural(async () => {
         try {
@@ -4423,6 +4430,7 @@
           if (!cur || cur.done === want) return;
           const ok = await sendOp({ op: "resolve", id: c.id, done: want });
           if (ok && want) { if (focusKey === it.key) { focusKey = ""; renderCards(); } status("Commentaire réglé"); }
+          else if (ok) status("Commentaire rouvert");
         } finally {
           resolving.delete(c.id);
         }
