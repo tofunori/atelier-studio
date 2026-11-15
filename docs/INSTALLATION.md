@@ -145,8 +145,9 @@ Your conversations and settings are kept.
   also data you cannot get back: highlights and notes on the project's own
   PDFs (`pdf_annots.json`), LaTeX and Markdown comments, the whiteboard
   (`board.tldr.json`), figure and diff version history
-  (`figure_versions.sqlite`, `dv_versions/`). **Do not delete it.** Back it up
-  with the project.
+  (`figure_versions.sqlite`, `dv_versions/`), Word preferences
+  (`docx_prefs.json`). **Do not delete it.** Back it up with the project.
+  Atelier leaves a `README.txt` in the folder that says the same thing.
 
 To uninstall, quit Atelier and move it from Applications to the Trash. Delete
 the `atelier-studio` folder above only if you also want to erase your

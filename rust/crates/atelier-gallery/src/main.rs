@@ -2676,6 +2676,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // entre write et rename (9 × 160 Ko constatés à la racine le 2026-08-28).
     // 1h de marge pour ne jamais toucher une écriture en cours.
     atelier_core::clean_stale_tmp(&root, std::time::Duration::from_secs(3600));
+    // Un projet déjà ouvert avant cet avis le reçoit au prochain lancement.
+    atelier_core::ensure_data_notice(&root);
     let port = resolve_port(&args);
     let remote = !matches!(
         args.host.as_str(),

@@ -266,6 +266,8 @@ fn safe_cache_dir(root: &Path) -> Option<PathBuf> {
         }
     } else {
         fs::create_dir(&cache).ok()?;
+        // Le dossier naît ici : il reçoit aussitôt son avis.
+        crate::ensure_data_notice(&root);
     }
     let canonical = fs::canonicalize(&cache).ok()?;
     canonical.starts_with(&root).then_some(canonical)
