@@ -105,12 +105,12 @@ fn la_lecture_de_l_agent_donne_leur_texte() {
     let model = on_figure().model().unwrap();
     let plan = ops::outline(&model, 0, None, 100_000);
     assert!(plan.contains("Zones de texte : 2."), "{plan}");
-    let line = plan.lines().find(|l| l.starts_with('p') && l.contains("{image : ")).unwrap();
-    assert!(line.contains("{zone de texte : Niveau initial / = 12,5 m}{zone de texte : H = 12,5 – 12,1 = 0,4 m}{image : "), "{line}");
+    let line = plan.lines().find(|l| l.starts_with('p') && l.contains("{image 1 : ")).unwrap();
+    assert!(line.contains("{zone de texte : Niveau initial / = 12,5 m}{zone de texte : H = 12,5 – 12,1 = 0,4 m}{image 1 : "), "{line}");
     // Sans zone de texte : ni l'annonce ni une ligne changée.
     let plain = ops::outline(&common::open("christophe").model().unwrap(), 0, None, 100_000);
     assert!(!plain.contains("Zones de texte :"), "{plain}");
-    assert_eq!(plain.lines().find(|l| l.starts_with('p') && l.contains("{image : ")).unwrap(), line.replace("{zone de texte : Niveau initial / = 12,5 m}{zone de texte : H = 12,5 – 12,1 = 0,4 m}", ""));
+    assert_eq!(plain.lines().find(|l| l.starts_with('p') && l.contains("{image 1 : ")).unwrap(), line.replace("{zone de texte : Niveau initial / = 12,5 m}{zone de texte : H = 12,5 – 12,1 = 0,4 m}", ""));
 }
 
 /// Dans un paragraphe de texte : une zone ancrée au milieu d'une phrase, une

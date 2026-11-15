@@ -228,9 +228,9 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 22] = [
+const DOCX_ACTIONS: [&str; 24] = [
     "read", "images", "edit", "equation", "insert_equation", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
-    "insert_note", "insert_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
+    "insert_note", "insert_figure", "replace_figure", "delete_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
 ];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
@@ -244,9 +244,10 @@ pub fn docx_tool_definition() -> Value {
     images: figures, charts, text boxes as on the page. Writes are tracked changes or comments in the \
     user's name; only the user accepts or rejects. find = exact current text (+paragraph or occurrence \
     if ambiguous). insert_note / insert_figure / cite go after find. cite: live Zotero citation, keys \
-    from cite_search, never typed by hand; bibliography: add or refresh it. insert_row / delete_row: \
-    by a cell. join: p8 into p7. split: after find. equation N / insert_equation: from latex. Fix or remove your or the user's comment: \
-    edit_comment / withdraw_comment. draft_reply: a card draft the user sends, for a reviewer.",
+    from cite_search; bibliography: add or refresh it. insert_row / delete_row: by a cell. join: p8 into \
+    p7. split: after find. equation N / insert_equation: from latex. replace_figure / delete_figure: \
+    image N. edit_comment / withdraw_comment: your or the user's comment. draft_reply: a \
+    card draft the user sends.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -264,8 +265,9 @@ pub fn docx_tool_definition() -> Value {
                 "latex": { "type": "string", "description": "equation / insert_equation: the whole equation in LaTeX (\\alpha_{rzt}, \\tau^{a}_{z}, \\frac, \\sum, \\left(…\\right)); only what changes is tracked" },
                 "display": { "type": "boolean", "description": "insert_equation: alone and centred in a new paragraph after paragraph, instead of inline after find" },
                 "after": { "type": "string", "description": "insert_paragraph / bibliography: goes after this paragraph (p12); bibliography defaults to the end" },
-                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
-                "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },
+                "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure / replace_figure: alt text (replace_figure keeps the old one by default)" },
+                "figure": { "type": "string", "description": "insert_figure / replace_figure: PNG/JPEG/GIF/PDF path in the project (PDF: page 1)" },
+                "image": { "type": "integer", "description": "replace_figure / delete_figure: N of {image N : …} in the paragraph (1 if alone); the new figure keeps the old one's place, width and paragraph style" },
                 "above": { "type": "boolean", "description": "insert_row: above instead of below" },
                 "comment": { "type": "integer", "description": "reply / draft_reply / edit_comment / withdraw_comment / checked: comment number (c3 → 3)" },
                 "again": { "type": "boolean", "description": "comment: a second, different comment on a passage you already commented" },

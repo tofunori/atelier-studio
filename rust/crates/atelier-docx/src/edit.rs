@@ -298,6 +298,22 @@ pub(crate) fn insert_raw(docx: &mut Docx, paragraph: &str, at: usize, raw: &str,
     replace_span(docx, &story.part, &src, &t, at, at, "", Some(raw), tracked, sig)
 }
 
+/// Remplace les caractères `start..end` (un objet entier : la figure qu'on
+/// change) par un run déjà écrit : l'ancien effacé, le nouveau ajouté juste
+/// après lui, d'un seul geste.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn replace_raw(docx: &mut Docx, paragraph: &str, start: usize, end: usize, raw: &str, tracked: bool, sig: &Signature) -> Result<EditResult> {
+    let (story, src) = docx.story_src(paragraph)?;
+    let doc = xml::parse(&src)?;
+    xml::require_w_prefix(&doc)?;
+    let t = target(&src, &doc, paragraph)?;
+    if start > end || end > t.text.chars().count() {
+        return err("passage au-delà de la fin du paragraphe");
+    }
+    drop(doc);
+    replace_span(docx, &story.part, &src, &t, start, end, "", Some(raw), tracked, sig)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e: usize, with: &str, raw: Option<&str>, tracked: bool, sig: &Signature) -> Result<EditResult> {
     let inserting = !with.is_empty() || raw.is_some();

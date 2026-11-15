@@ -406,6 +406,52 @@ fn max_docpr(docx: &mut Docx) -> Result<u64> {
 /// réelle à 96 ppp, réduite à la largeur du texte si besoin.
 #[allow(clippy::too_many_arguments)]
 pub fn insert_image(docx: &mut Docx, paragraph: &str, at: usize, bytes: Vec<u8>, name: &str, alt: &str, tracked: bool, sig: &Signature) -> Result<Inserted> {
+    let (run, rel) = picture_run(docx, paragraph, bytes, name, alt, None)?;
+    let EditResult { changes } = edit::insert_raw(docx, paragraph, at, &run, tracked, sig)?;
+    Ok(Inserted { id: rel, changes })
+}
+
+/// La `index`-ième figure (depuis 0, celles qui ne sont pas barrées) du
+/// paragraphe : sa position dans le texte courant et son image.
+fn nth_figure(docx: &mut Docx, paragraph: &str, index: usize) -> Result<(usize, crate::walk::Media)> {
+    let (_, src) = docx.story_src(paragraph)?;
+    let doc = xml::parse(&src)?;
+    let t = edit::target(&src, &doc, paragraph)?;
+    let figures: Vec<_> = t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| Some((p, (*sp)?))).filter(|(p, _)| p.media.is_some()).collect();
+    match figures.get(index) {
+        Some((p, (s, _))) if p.unit.is_some() => Ok((*s, p.media.clone().expect("figures filtrées sur media"))),
+        Some(_) => err("cette figure est prise dans un champ ou dans le suivi d'un autre auteur : décider ce suivi d'abord, ou la changer dans Word"),
+        None if figures.is_empty() => err(format!("aucune figure dans {paragraph} ({{image N : …}} dans read)")),
+        None => err(format!("{paragraph} n'a que {} figure{} ({{image N : …}} dans read)", figures.len(), if figures.len() > 1 { "s" } else { "" })),
+    }
+}
+
+/// Remplace la `index`-ième figure du paragraphe par l'image `bytes`, à la
+/// même place et à la même largeur (hauteur d'après ses proportions) : en
+/// suivi, l'ancienne barrée et la nouvelle ajoutée juste après, comme Word
+/// quand on colle une figure par-dessus une autre. Le paragraphe garde son
+/// style. `alt` vide : la nouvelle reprend le texte de remplacement de l'ancienne.
+#[allow(clippy::too_many_arguments)]
+pub fn replace_image(docx: &mut Docx, paragraph: &str, index: usize, bytes: Vec<u8>, name: &str, alt: &str, tracked: bool, sig: &Signature) -> Result<Inserted> {
+    let (at, old) = nth_figure(docx, paragraph, index)?;
+    let alt = if alt.is_empty() { old.descr.as_str() } else { alt };
+    let width = (old.cx > 0).then_some(old.cx);
+    let (run, rel) = picture_run(docx, paragraph, bytes, name, alt, width)?;
+    let EditResult { changes } = edit::replace_raw(docx, paragraph, at, at + 1, &run, tracked, sig)?;
+    Ok(Inserted { id: rel, changes })
+}
+
+/// Efface la `index`-ième figure du paragraphe d'un bloc (en suivi : barrée,
+/// comme Suppr sur une figure dans Word).
+pub fn delete_image(docx: &mut Docx, paragraph: &str, index: usize, tracked: bool, sig: &Signature) -> Result<EditResult> {
+    let (at, _) = nth_figure(docx, paragraph, index)?;
+    edit::replace_range(docx, paragraph, at, at + 1, "", tracked, sig)
+}
+
+/// Run d'une figure en ligne : l'image entre dans word/media/ avec sa
+/// relation. Largeur `width` (EMU) imposée, sinon sa taille réelle à 96 ppp ;
+/// jamais plus large que le texte.
+fn picture_run(docx: &mut Docx, paragraph: &str, bytes: Vec<u8>, name: &str, alt: &str, width: Option<u64>) -> Result<(String, String)> {
     let Some((ext, w, h)) = sniff(&bytes) else {
         return err("format d'image non pris en charge : PNG, JPEG ou GIF");
     };
@@ -413,7 +459,10 @@ pub fn insert_image(docx: &mut Docx, paragraph: &str, at: usize, bytes: Vec<u8>,
         return err("image vide");
     }
     let part = parse_ref(paragraph)?.part;
-    let (mut cx, mut cy) = (w as u64 * EMU_PX, h as u64 * EMU_PX);
+    let (mut cx, mut cy) = match width {
+        Some(cx) => (cx, (cx as u128 * h as u128 / w as u128) as u64),
+        None => (w as u64 * EMU_PX, h as u64 * EMU_PX),
+    };
     let max = text_width(docx)?;
     if cx > max {
         cy = cy * max / cx;
@@ -450,8 +499,7 @@ pub fn insert_image(docx: &mut Docx, paragraph: &str, at: usize, bytes: Vec<u8>,
         rel = rel,
         r = xml::R,
     );
-    let EditResult { changes } = edit::insert_raw(docx, paragraph, at, &run, tracked, sig)?;
-    Ok(Inserted { id: rel, changes })
+    Ok((run, rel))
 }
 
 #[cfg(test)]
