@@ -25,6 +25,7 @@
 //! - [`history`] : versions reçues et annuler / rétablir, sur disque.
 //! - [`triage`] : tri des suivis par nature (fond, nombres, ponctuation, espaces).
 
+pub mod bookmark;
 pub mod chart;
 pub mod cite;
 pub mod check;
