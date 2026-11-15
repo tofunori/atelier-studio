@@ -36,6 +36,7 @@ pub mod edit;
 pub mod feedback;
 pub mod layout;
 pub mod math;
+mod math_track;
 pub mod model;
 pub mod new;
 pub mod objects;

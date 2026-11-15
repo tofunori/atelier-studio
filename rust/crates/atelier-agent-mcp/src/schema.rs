@@ -228,8 +228,8 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 20] = [
-    "read", "images", "edit", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
+const DOCX_ACTIONS: [&str; 22] = [
+    "read", "images", "edit", "equation", "insert_equation", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
     "insert_note", "insert_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
 ];
 
@@ -245,7 +245,7 @@ pub fn docx_tool_definition() -> Value {
     user's name; only the user accepts or rejects. find = exact current text (+paragraph or occurrence \
     if ambiguous). insert_note / insert_figure / cite go after find. cite: live Zotero citation, keys \
     from cite_search, never typed by hand; bibliography: add or refresh it. insert_row / delete_row: \
-    a cell's row. join: p8 into p7. split: after find. Fix or remove your or the user's comment with \
+    by a cell. join: p8 into p7. split: after find. equation N / insert_equation: from latex. Fix or remove your or the user's comment: \
     edit_comment / withdraw_comment. draft_reply: a card draft the user sends, for a reviewer.",
         "inputSchema": {
             "type": "object",
@@ -260,6 +260,9 @@ pub fn docx_tool_definition() -> Value {
                 "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
+                "equation": { "type": "integer", "description": "equation: N of {équation N : …} in the paragraph (1 if alone); Word equations are objects, never edit them with edit" },
+                "latex": { "type": "string", "description": "equation / insert_equation: the whole equation in LaTeX (\\alpha_{rzt}, \\tau^{a}_{z}, \\frac, \\sum, \\left(…\\right)); only what changes is tracked" },
+                "display": { "type": "boolean", "description": "insert_equation: alone and centred in a new paragraph after paragraph, instead of inline after find" },
                 "after": { "type": "string", "description": "insert_paragraph / bibliography: goes after this paragraph (p12); bibliography defaults to the end" },
                 "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure: alt text (figure: image path in the project)" },
                 "figure": { "type": "string", "description": "insert_figure: PNG/JPEG/GIF path in the project" },

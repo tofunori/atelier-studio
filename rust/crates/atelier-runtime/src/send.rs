@@ -295,7 +295,11 @@ Windows EMF/WMF pictures and the text boxes and shapes the author laid over a fi
 (a text box often holds the author's own values on top of a diagram; read shows its text as \
 {{zone de texte : …}}). Look at them before discussing or grading a figure, a chart or an \
 equation pasted as an image; never judge one from its alt text, never extract it from the package by \
-hand, and never say you cannot see it. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+hand, and never say you cannot see it. Word equations (OMML objects, shown by read as \
+{{équation N : LaTeX}}) are yours to fix too: action=equation with paragraph, equation=N and the whole \
+corrected latex, tracked like Word (only the changed symbols); a new one is action=insert_equation \
+(latex, inline after find, or display=true to centre it in a new paragraph after paragraph); never \
+ask the user to type or retype one by hand. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \

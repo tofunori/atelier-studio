@@ -140,6 +140,9 @@ pub struct Piece {
     pub page_break: bool,
     /// Résultat d'une citation Zotero : son `citationID`.
     pub cite: Option<String>,
+    /// Équation retouchée en suivi à l'intérieur : les marques de cette
+    /// version (identifiant, texte touché), `rev` étant la première.
+    pub inner_revs: Vec<(u32, String)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -315,6 +318,31 @@ pub fn inline(src: &str, p: Node, state: &mut State) -> Inline {
 fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     let ns = node.tag_name().namespace();
     let name = node.tag_name().name();
+    if ns == Some(M) && (name == "oMath" || name == "oMathPara") && ctx.revs.is_empty() {
+        // Retouchée en suivi à l'intérieur (comme Word le note) : l'ancienne
+        // version barrée, puis la nouvelle ajoutée, chacune avec ses marques.
+        let inner = crate::math::inner_revisions(node);
+        if !inner.is_empty() {
+            use crate::math::View;
+            for (view, kind, rk) in [(View::Before, "del", RevKind::Del), (View::Now, "ins", RevKind::Ins)] {
+                let mine: Vec<(u32, String)> = inner.iter().filter(|r| r.kind == kind).map(|r| (r.id, r.text.clone())).collect();
+                // Accepter ou refuser l'une décide tout le geste (`review::decide`) :
+                // sans marque de ce genre, la version porte la première du geste.
+                let rid = mine.first().map(|(id, _)| *id).unwrap_or(inner[0].id);
+                // Équation neuve : rien avant elle à montrer barré.
+                if view == View::Before && mine.is_empty() && crate::math::text_view(node, view).is_empty() {
+                    continue;
+                }
+                push(ctx, state, out, crate::math::text_view(node, view), Kind::Object("équation".into()), Fmt::default(), None);
+                let last = out.pieces.last_mut().expect("morceau poussé");
+                last.math = Some(crate::math::to_latex_view(node, view));
+                last.math_display = name == "oMathPara";
+                last.rev = Some((rk, rid));
+                last.inner_revs = mine;
+            }
+            return;
+        }
+    }
     if ns == Some(M) && (name == "oMath" || name == "oMathPara") {
         let text: String = node.descendants().filter(|n| n.tag_name().namespace() == Some(M) && n.tag_name().name() == "t").filter_map(|n| n.text()).collect();
         push(ctx, state, out, text, Kind::Object("équation".into()), Fmt::default(), None);
@@ -657,6 +685,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         math_display: false,
         page_break: false,
         cite: None,
+        inner_revs: Vec::new(),
     });
 }
 

@@ -118,6 +118,13 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             with: req.get("with").and_then(Value::as_str).unwrap_or("").to_string(),
         },
         "insert_paragraph" => Op::InsertParagraph { after: need("after")?, text: need("text")? },
+        // Équation de Word ({équation N : …} dans read) réécrite d'après son
+        // LaTeX, en suivi noté comme Word : seuls les symboles changés.
+        "equation" => Op::ReplaceMath {
+            paragraph: paragraph.ok_or("paragraph manquant : le paragraphe de l'équation (p65)")?,
+            index: usize_arg(req, "equation").unwrap_or(1).checked_sub(1).ok_or("equation : numéro à partir de 1 ({équation 1 : …} dans read)")?,
+            latex: need("latex")?,
+        },
         // Réunit `paragraph` au paragraphe qui le précède (sa marque de fin
         // est supprimée en suivi), comme Suppr en fin du paragraphe d'avant.
         "join" => Op::Join { paragraph: paragraph.ok_or("paragraph manquant : le second des deux paragraphes à réunir (p8 pour réunir p7 et p8)")? },
@@ -724,6 +731,25 @@ fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: 
             Ok(r)
         })
         .map_err(|e| e.0)?
+    } else if action == "insert_equation" {
+        // En ligne juste après `find`, ou centrée seule sur sa ligne dans un
+        // paragraphe neuf après `paragraph` (display) ; en suivi comme Word.
+        let latex = str_arg(req, "latex").ok_or("latex manquant : l'équation en LaTeX")?.to_string();
+        let display = req.get("display").and_then(Value::as_bool).unwrap_or(false);
+        let find = str_arg(req, "find").map(str::to_string);
+        let (paragraph, occurrence) = (str_arg(req, "paragraph").map(str::to_string), usize_arg(req, "occurrence"));
+        if find.is_none() && !(display && paragraph.is_some()) {
+            return Err("find manquant : le texte juste avant l'équation (ou display=true et paragraph = celui après lequel la poser)".into());
+        }
+        let origin = atelier_docx::history::Origin { source: "agent", author: &sig.author, label: "équation" };
+        atelier_docx::edit_file_as(&path, expected, &origin, |d| {
+            let (p, at) = match &find {
+                Some(f) => ops::place_after(d, paragraph.as_deref(), f, occurrence)?,
+                None => (paragraph.clone().unwrap_or_default(), 0),
+            };
+            ops::apply(d, &Op::InsertMath { paragraph: p, at, latex: latex.clone(), display }, true, &sig)
+        })
+        .map_err(|e| e.0)?
     } else {
         let op = op_of(action, req)?;
         // Bulle écrite, répondue ou corrigée : un point « non lu » dans la
@@ -907,6 +933,63 @@ mod tests {
         let end = text.find(&format!(" : {shown}}}")).unwrap();
         let at = text[..end].rfind("{citation ").unwrap() + 10;
         text[at..end].to_string()
+    }
+
+    #[test]
+    fn l_agent_lit_et_corrige_une_equation_word_en_suivi() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        // read montre le LaTeX de l'équation et son numéro, pas son texte aplati.
+        let text = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap()["text"].as_str().unwrap().to_string();
+        let line = text.lines().find(|l| l.contains("{équation 1 : ")).unwrap_or_else(|| panic!("{text}"));
+        assert!(line.contains(r"{équation 1 : \alpha =0,356\rho_{1}}"), "{line}");
+        let para = line.split(' ').next().unwrap().to_string();
+
+        let r = run(root, "claude", "equation", &json!({"path": "article.docx", "paragraph": para, "latex": r"\beta =0,356\rho_{1}"})).unwrap();
+        assert_eq!((r["author"].as_str(), r["proposed_by"].as_str()), (Some("Thierry"), Some("Claude")), "{r}");
+        let now = r["now"].as_str().unwrap();
+        assert!(now.contains(r"[-{équation : \alpha =0,356\rho_{1}}-]") && now.contains(r"[+{équation 1 : \beta =0,356\rho_{1}}+]"), "{now}");
+        // Seul le symbole changé est en suivi, et Atelier sait que c'est l'agent.
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let mine: Vec<_> = m.changes.iter().filter(|c| c.author == "Thierry").map(|c| (c.kind.as_str(), c.text.as_str())).collect();
+        assert_eq!(mine, [("del", "α"), ("ins", "β")]);
+        let marks = atelier_docx::marks::list(&path, &m).unwrap();
+        assert!(m.changes.iter().filter(|c| c.author == "Thierry").all(|c| marks.get(&c.id).map(String::as_str) == Some("Claude")), "{marks:?}");
+
+        let e = run(root, "claude", "equation", &json!({"path": "article.docx", "paragraph": para, "equation": 2, "latex": "x"})).unwrap_err();
+        assert!(e.contains("introuvable"), "{e}");
+        let e = run(root, "claude", "equation", &json!({"path": "article.docx", "paragraph": para, "latex": r"\frac{a}{b"})).unwrap_err();
+        assert!(e.contains("LaTeX non converti"), "{e}");
+        assert!(run(root, "claude", "equation", &json!({"path": "article.docx", "latex": "x"})).unwrap_err().contains("paragraph manquant"));
+    }
+
+    #[test]
+    fn l_agent_ajoute_une_equation_word_en_suivi() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let text = run(root, "claude", "read", &json!({"path": "article.docx"})).unwrap()["text"].as_str().unwrap().to_string();
+        let line = text.lines().find(|l| l.starts_with("p0 ")).unwrap_or_else(|| panic!("{text}"));
+        let word = line[3..].split_whitespace().find(|w| w.chars().all(char::is_alphabetic) && w.len() > 3).unwrap().to_string();
+
+        // En ligne, juste après un mot.
+        let r = run(root, "claude", "insert_equation", &json!({"path": "article.docx", "find": word, "paragraph": "p0", "latex": r"a_{z}"})).unwrap();
+        let now = r["now"].as_str().unwrap();
+        assert!(now.contains(&format!(r"{word}[+{{équation 1 : a_{{z}}}}+]")), "{now}");
+        // Centrée dans un paragraphe neuf.
+        let r = run(root, "claude", "insert_equation", &json!({"path": "article.docx", "paragraph": "p0", "display": true, "latex": r"\tau^{a}_{z}"})).unwrap();
+        assert_eq!(r["result"]["paragraph"], "p1", "{r}");
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let s = m.paragraphs[1].segments.iter().find(|s| s.latex.is_some()).unwrap();
+        assert!(s.display && s.rev == Some("ins"), "{s:?}");
+        assert!(m.changes.iter().filter(|c| c.author == "Thierry").count() >= 4);
+        let e = run(root, "claude", "insert_equation", &json!({"path": "article.docx", "latex": "x"})).unwrap_err();
+        assert!(e.contains("find manquant"), "{e}");
     }
 
     #[test]
