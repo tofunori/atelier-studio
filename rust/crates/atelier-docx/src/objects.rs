@@ -414,16 +414,76 @@ pub fn insert_image(docx: &mut Docx, paragraph: &str, at: usize, bytes: Vec<u8>,
 /// La `index`-ième figure (depuis 0, celles qui ne sont pas barrées) du
 /// paragraphe : sa position dans le texte courant et son image.
 fn nth_figure(docx: &mut Docx, paragraph: &str, index: usize) -> Result<(usize, crate::walk::Media)> {
-    let (_, src) = docx.story_src(paragraph)?;
-    let doc = xml::parse(&src)?;
-    let t = edit::target(&src, &doc, paragraph)?;
-    let figures: Vec<_> = t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| Some((p, (*sp)?))).filter(|(p, _)| p.media.is_some()).collect();
-    match figures.get(index) {
-        Some((p, (s, _))) if p.unit.is_some() => Ok((*s, p.media.clone().expect("figures filtrées sur media"))),
-        Some(_) => err("cette figure est prise dans un champ ou dans le suivi d'un autre auteur : décider ce suivi d'abord, ou la changer dans Word"),
-        None if figures.is_empty() => err(format!("aucune figure dans {paragraph} ({{image N : …}} dans read)")),
-        None => err(format!("{paragraph} n'a que {} figure{} ({{image N : …}} dans read)", figures.len(), if figures.len() > 1 { "s" } else { "" })),
+    use crate::walk::{Lock, RevKind};
+    // Deux passes au plus : une figure qui partage son run (Word y glisse
+    // la marque de saut de page, un appel de commentaire, une tabulation)
+    // en est d'abord sortie, à l'identique, puis relue.
+    for _ in 0..2 {
+        let (story, src) = docx.story_src(paragraph)?;
+        let doc = xml::parse(&src)?;
+        let t = edit::target(&src, &doc, paragraph)?;
+        let figures: Vec<_> = t.inline.pieces.iter().zip(&t.spans).filter_map(|(p, sp)| Some((p, (*sp)?))).filter(|(p, _)| p.media.is_some()).collect();
+        let Some((p, (s, _))) = figures.get(index) else {
+            return if figures.is_empty() {
+                err(format!("aucune figure dans {paragraph} ({{image N : …}} dans read)"))
+            } else {
+                err(format!("{paragraph} n'a que {} figure{} ({{image N : …}} dans read)", figures.len(), if figures.len() > 1 { "s" } else { "" }))
+            };
+        };
+        if p.unit.is_some() {
+            return Ok((*s, p.media.clone().expect("figures filtrées sur media")));
+        }
+        match p.lock.clone() {
+            Some(Lock::Shared { run, object }) => {
+                let isolated = isolate(&src, &doc, run, object)?;
+                docx.set_part(&story.part, isolated);
+            }
+            Some(Lock::Field(kind)) => {
+                return err(format!(
+                    "cette figure est le résultat d'un champ Word ({kind}) : dans Word, la sélectionner puis dissocier le champ (⌘⇧F9), ou la remplacer dans Word"
+                ))
+            }
+            Some(Lock::Rev(kind, id)) => {
+                let m = docx.model()?;
+                let author = m.changes.iter().find(|c| c.id == id).map(|c| c.author.clone()).unwrap_or_default();
+                let what = match kind {
+                    RevKind::MoveTo | RevKind::MoveFrom => "déplacée",
+                    RevKind::Ins => "ajoutée",
+                    RevKind::Del => "effacée",
+                };
+                let by = if author.is_empty() { String::new() } else { format!(" par {author}") };
+                return err(format!("cette figure est {what} en suivi{by} (suivi {id}) : accepter ou refuser ce suivi d'abord"));
+            }
+            Some(Lock::Control) => return err("cette figure est dans un contrôle de contenu Word : l'en sortir dans Word d'abord"),
+            None => return err("cette figure ne se détache pas du texte qui l'entoure : la changer dans Word"),
+        }
     }
+    err("cette figure ne se détache pas du texte qui l'entoure : la changer dans Word")
+}
+
+/// Le run `run` coupé autour de l'objet `object` : ce qui le précède, l'objet
+/// seul, ce qui le suit, chacun dans un run de même balise et de mêmes
+/// propriétés. Rien ne bouge à l'affichage ; les appels de commentaire et
+/// les marques de rendu restent à leur place.
+fn isolate(src: &str, doc: &roxmltree::Document, run: std::ops::Range<usize>, object: std::ops::Range<usize>) -> Result<String> {
+    let Some(r) = doc.descendants().find(|n| is_w(*n, "r") && n.range() == run) else {
+        return err("run de la figure introuvable");
+    };
+    let open = xml::open_tag(src, r);
+    let close = format!("</{}>", open[1..].split(|c: char| c.is_whitespace() || c == '>' || c == '/').next().unwrap_or("w:r"));
+    let rpr = xml::w_child(r, "rPr").map(|n| &src[n.range()]).unwrap_or("");
+    let kids: Vec<_> = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr")).collect();
+    let group = |pick: &dyn Fn(&std::ops::Range<usize>) -> bool| -> String {
+        let inner: String = kids.iter().map(|n| n.range()).filter(|g| pick(g)).map(|g| &src[g]).collect();
+        if inner.is_empty() { String::new() } else { format!("{open}{rpr}{inner}{close}") }
+    };
+    let before = group(&|g| g.end <= object.start);
+    let alone = group(&|g| *g == object);
+    let after = group(&|g| g.start >= object.end);
+    if alone.is_empty() {
+        return err("figure introuvable dans son run");
+    }
+    Ok(format!("{}{before}{alone}{after}{}", &src[..run.start], &src[run.end..]))
 }
 
 /// Remplace la `index`-ième figure du paragraphe par l'image `bytes`, à la

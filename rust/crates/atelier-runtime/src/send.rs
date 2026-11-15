@@ -302,7 +302,8 @@ corrected latex, tracked like Word (only the changed symbols); a new one is acti
 ask the user to type or retype one by hand. A figure (read: {{image N : …}}) is replaced in place by \
 action=replace_figure (paragraph, image=N, figure = a PNG/JPEG/GIF/PDF of the project): same place, \
 width and paragraph style, tracked; action=delete_figure removes one. Never insert a new figure next \
-to an old one and ask the user to delete the old one by hand. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
+to an old one and ask the user to delete the old one by hand; if replace_figure refuses, insert nothing \
+and tell the user its reason. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
 supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \

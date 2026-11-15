@@ -143,6 +143,23 @@ pub struct Piece {
     /// Équation retouchée en suivi à l'intérieur : les marques de cette
     /// version (identifiant, texte touché), `rev` étant la première.
     pub inner_revs: Vec<(u32, String)>,
+    /// Figure sans `unit` : ce qui la retient (pour la remplacer ou dire
+    /// pourquoi on ne peut pas).
+    pub lock: Option<Lock>,
+}
+
+/// Ce qui empêche d'effacer une figure d'un bloc.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Lock {
+    /// Le run de la figure porte aussi du texte, une tabulation, un appel de
+    /// commentaire… : à isoler dans son propre run (même mise en forme).
+    Shared { run: Range<usize>, object: Range<usize> },
+    /// Dans un champ Word (INCLUDEPICTURE…) : son type.
+    Field(String),
+    /// Dans un suivi (ajout d'un autre, déplacement) : son genre et son id.
+    Rev(RevKind, u32),
+    /// Dans un contrôle de contenu, une balise active ou du XML personnalisé.
+    Control,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -408,6 +425,7 @@ fn visit(node: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
             if ctx.revs.is_empty() && ctx.simple_field.is_none() && state.fields.is_empty() {
                 for p in &mut out.pieces[first..] {
                     p.unit = Some(node.range());
+                    p.lock = None;
                 }
             }
         }
@@ -435,6 +453,8 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
     let mut pieces: Vec<(String, Kind, Option<usize>)> = Vec::new();
     let mut media = None;
     let mut whole = false;
+    // Élément de la figure dans le run (dessin, image VML, contenu alternatif).
+    let mut object: Option<Range<usize>> = None;
     let mut field_unit: Option<Range<usize>> = None;
     // Dessins du run : (nœud, rang du morceau local devant lequel il est ancré, morceau à lui).
     let mut drawn: Vec<(roxmltree::NodeId, usize, bool)> = Vec::new();
@@ -455,6 +475,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                 match picture {
                     Some(m) => {
                         media = Some(m);
+                        object = Some(c.range());
                         pieces.push(("\u{FFFC}".into(), Kind::Object("image".into()), None));
                         // Une figure comme une autre : effacée ou remplacée d'un bloc.
                         whole = true;
@@ -506,6 +527,7 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                             && state.fields.is_empty() && f.clean && ctx.revs.is_empty() && f.parent == r.parent().map(|p| p.id()) && f.first_piece <= out.pieces.len() {
                                 for p in &mut out.pieces[f.first_piece..] {
                                     p.unit = Some(f.begin..r.range().end);
+                                    p.lock = None;
                                 }
                                 // Les morceaux du résultat sont poussés après ce run : voir plus bas.
                                 field_unit = Some(f.begin..r.range().end);
@@ -526,6 +548,9 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
                 simple = false;
                 // Un dessin (zone de texte, groupe) n'est pas l'image qu'il contient.
                 media = if is_drawn(c) { None } else { media_of(c) };
+                if media.is_some() {
+                    object = Some(c.range());
+                }
                 if media.is_none() {
                     drawn.push((c.id(), pieces.len(), true));
                 }
@@ -610,7 +635,9 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         last.page_break = forced;
         last.media = media.clone();
         // Objet seul dans son run, hors suivi et hors champ : supprimable.
-        let alone = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr")).count() == 1;
+        // La marque de saut de page que Word note au rendu (`lastRenderedPageBreak`)
+        // n'occupe rien : une figure en haut de page reste seule dans son run.
+        let alone = r.children().filter(|n| n.is_element() && !is_w(*n, "rPr") && !is_w(*n, "lastRenderedPageBreak")).count() == 1;
         let plain = ctx.simple_field.is_none() && state.fields.is_empty();
         if whole && alone && ctx.revs.is_empty() && plain && ctx.editable_parent {
             last.unit = Some(r.range());
@@ -622,6 +649,19 @@ fn run(r: Node, ctx: &mut Ctx, state: &mut State, out: &mut Inline) {
         }
         if let Some(u) = &field_unit {
             last.unit = Some(u.clone());
+        }
+        if whole && last.unit.is_none() && last.media.is_some() {
+            last.lock = Some(if let Some(f) = &ctx.simple_field {
+                Lock::Field(f.clone())
+            } else if let Some(f) = state.fields.first() {
+                Lock::Field(if f.kind.is_empty() { classify_field(&f.instr) } else { f.kind.clone() })
+            } else if let Some((k, id)) = ctx.revs.last() {
+                Lock::Rev(*k, *id)
+            } else if !ctx.editable_parent {
+                Lock::Control
+            } else {
+                Lock::Shared { run: r.range(), object: object.clone().unwrap_or(r.range()) }
+            });
         }
     }
     // Dessins après le dernier morceau du run.
@@ -688,6 +728,7 @@ fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fm
         page_break: false,
         cite: None,
         inner_revs: Vec::new(),
+        lock: None,
     });
 }
 
