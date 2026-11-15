@@ -4546,9 +4546,11 @@
     const mine = c.author === author;
     showChange(id);
     const at = c.date ? `${dateFr(c.date)}, ${timeFr(c.date)}` : "";
-    const acts = mine
-      ? `<button class="mini no" data-act="reject" aria-label="Retirer ma retouche" data-tooltip="Retirer">${ic("x", 14)}</button>`
-      : `<button class="mini no" data-act="reject" aria-label="Refuser" data-tooltip="Refuser">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter" data-tooltip="Accepter">${ic("check", 14)}</button>`;
+    // Thierry, 2026-11-15 : « juste un crochet et un x », sur toutes les
+    // modifications, les siennes comprises (elles n'avaient qu'un ✕
+    // « Retirer », lu comme « fermer », et pas d'Accepter). La bulle se
+    // ferme d'un clic ailleurs ou avec Échap.
+    const acts = `<button class="mini no" data-act="reject" aria-label="${mine ? "Retirer ma retouche" : "Refuser"}" data-tooltip="${mine ? "Retirer" : "Refuser"} (⌥⌘⌫)">${ic("x", 14)}</button><button class="mini ok" data-act="accept" aria-label="Accepter" data-tooltip="Accepter (⌥⌘↩)">${ic("check", 14)}</button>`;
     bub.innerHTML = `${avatar(c.author, true)}<span class="w"><b>${esc(mine ? "Toi" : firstName(c.author))}</b> · ${kindLabel(c)}${at ? `<small>${at}</small>` : ""}</span>${acts}`;
     bub.dataset.ch = String(id);
     bubAnchor = el;

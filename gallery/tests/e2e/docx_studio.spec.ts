@@ -280,6 +280,29 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
 });
 
+// Thierry, 2026-11-15 : la bulle de SA modification n'offrait qu'un ✕
+// (« Retirer »), qu'il prenait pour « fermer ». Elle porte maintenant
+// ✕ et ✓, comme celle des autres.
+test("docx: sa propre modification s'accepte depuis sa bulle", async ({page, project}) => {
+  const c = (await disk(page, project)).changes.find(x => x.id === 120)!;
+  await page.request.post(`${project.url}/docx/prefs`, {data: {author: c.author}});
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(project.doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toContainText('2.2 Fraction de glace');
+  await page.locator('#paper .ins[data-ch="120"]').click();
+  const bub = page.locator('#bub');
+  await expect(bub).toContainText('Toi');
+  await expect(bub.locator('[data-act="reject"]')).toBeVisible();
+  await expect(bub.locator('[data-act="accept"]')).toHaveAttribute('aria-label', 'Accepter');
+  // Échap ferme la bulle sans rien décider.
+  await page.keyboard.press('Escape');
+  await expect(bub).not.toHaveClass(/\bshow\b/);
+  expect((await disk(page, project)).changes.some(x => x.id === 120)).toBe(true);
+  await page.locator('#paper .ins[data-ch="120"]').click();
+  await bub.locator('[data-act="accept"]').click();
+  await expect.poll(async () => (await disk(page, project)).changes.some(x => x.id === 120)).toBe(false);
+  await expect(page.locator('#paper .ins[data-ch="120"]')).toHaveCount(0);
+});
+
 // Thierry, 2026-11-14 : il résolvait et répondait pendant que l'agent
 // posait d'autres bulles dans le même TP ; ces gestes, calculés sur la
 // révision d'avant l'agent, partaient en conflit et se perdaient. Ils
