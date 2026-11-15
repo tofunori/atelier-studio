@@ -88,7 +88,7 @@
     /** Fils que l'agent a écrits, répondus ou corrigés et que l'utilisateur n'a pas ouverts. */
     unreadComments?: number[];
     /** Signet « où j'en étais » et dernier fil ouvert, retrouvés par Atelier. */
-    bookmark?: { manual?: number; last?: number };
+    bookmark?: { marks?: { id: number; color: string }[]; last?: number };
   };
   type Pos = { idx: number; off: number };
   type Sel = { a: Pos; b: Pos };
@@ -300,10 +300,14 @@
    *  `seenNow` : ouvertes ici, l'avis au serveur encore en route. */
   let unread = new Set<number>();
   const seenNow = new Set<number>();
-  /** Signet « où j'en étais » (Thierry, 2026-11-15) : un ruban gris au bord
-   *  haut d'une carte, un seul par document, gardé par Atelier (rien dans le
-   *  .docx). `last` : dernier fil ouvert, où ⇧⌘D ramène sans signet. */
-  let bookmark: { manual: number | null; last: number | null } = { manual: null, last: null };
+  /** Rubans de couleur (Thierry, 2026-11-15) : un ruban au bord haut d'une
+   *  carte, plusieurs par document, gardés par Atelier (rien dans le .docx).
+   *  `last` : dernier fil ouvert, où ⇧⌘D ramène sans ruban. */
+  const TABS: [string, string][] = [["gris", "Gris"], ["rouge", "Rouge"], ["jaune", "Jaune"], ["vert", "Vert"], ["bleu", "Bleu"]];
+  let ribbons = new Map<number, string>();
+  let lastOpened: number | null = null;
+  /** Filtre de la liste Commentaires par couleur de ruban ("" : tous). */
+  let ribbonFilter = "";
   /** Commentaires dont la résolution (ou réouverture) est en route : un
    *  deuxième clic sur la même carte est ignoré jusqu'à la réponse. */
   const resolving = new Set<number>();
@@ -313,7 +317,10 @@
     // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
     if (m.agentChanges) agentMarks = m.agentChanges;
     if (m.unreadComments) unread = new Set(m.unreadComments.filter((id) => !seenNow.has(id)));
-    if (m.bookmark) bookmark = { manual: m.bookmark.manual ?? null, last: m.bookmark.last ?? null };
+    if (m.bookmark) {
+      ribbons = new Map((m.bookmark.marks || []).map((r) => [r.id, r.color] as const));
+      lastOpened = m.bookmark.last ?? null;
+    }
     if (m.body !== undefined) return m;
     const body: Para[] = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest: Para[] = [];
@@ -2805,7 +2812,7 @@
     openMenu = null;
     openTrigger = null;
   }
-  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void };
+  type Item = { label: string; html?: string; on?: boolean; danger?: boolean; sep?: boolean; head?: boolean; disabled?: boolean; run?: () => void; row?: Item[] };
   /** Indication grise à droite d'une rangée de menu (raccourci, date). */
   const hint = (text: string) => `<span class="mi-k">${esc(text)}</span>`;
   function showMenu(trigger: HTMLElement, items: Item[], alignRight = false) {
@@ -2817,6 +2824,28 @@
     for (const it of items) {
       if (it.sep) { const s = document.createElement("div"); s.className = "mi-sep"; m.appendChild(s); continue; }
       if (it.head) { const h = document.createElement("div"); h.className = "mi-head"; h.textContent = it.label; m.appendChild(h); continue; }
+      if (it.row) {
+        // Rangée de pastilles (couleurs d'un ruban) : une case par choix.
+        const r = document.createElement("div");
+        r.className = "mi-row";
+        r.setAttribute("role", "group");
+        r.setAttribute("aria-label", it.label);
+        for (const x of it.row) {
+          if (x.sep) { const v = document.createElement("i"); v.className = "mi-vsep"; r.appendChild(v); continue; }
+          const b = document.createElement("button");
+          b.className = "mi mi-cell" + (x.on ? " cur" : "") + (x.danger ? " danger" : "");
+          if (x.danger) b.setAttribute("role", "menuitem");
+          else { b.setAttribute("role", "menuitemradio"); b.setAttribute("aria-checked", String(!!x.on)); }
+          b.setAttribute("aria-label", x.label);
+          b.title = x.label;
+          b.innerHTML = x.html || "";
+          b.addEventListener("mousedown", (e) => e.preventDefault());
+          b.addEventListener("click", () => { closeMenu(); x.run?.(); });
+          r.appendChild(b);
+        }
+        m.appendChild(r);
+        continue;
+      }
       const b = document.createElement("button");
       b.className = "mi" + (it.danger ? " danger" : "");
       b.setAttribute("role", "menuitem");
@@ -3403,9 +3432,11 @@
     // Le point de tête ne dit qu'une chose : l'agent a touché ce fil et la
     // carte n'a pas encore été ouverte (l'avatar porte déjà la couleur de l'auteur).
     const nl = unread.has(c.id) && !on ? `<i class="nl" data-tooltip="Touchée par l'agent, pas encore lue"></i>` : "";
-    // Signet : ruban au bord haut, plein sur le fil marqué, en contour au survol des autres.
-    const bm = bookmark.manual === c.id;
-    let h = `<button class="rb${bm ? " on" : ""}" data-act="bookmark" aria-pressed="${bm}" aria-label="${bm ? "Retirer le signet" : "Garder ma place ici"}" data-tooltip="${bm ? "Retirer le signet (⌘D)" : "Garder ma place ici (⌘D)"}"></button>`;
+    // Ruban au bord haut : plein et coloré sur un fil marqué, fantôme au survol des autres.
+    const col = ribbons.get(c.id);
+    let h = col
+      ? `<button class="rb on" data-act="bookmark" data-tab="${col}" aria-haspopup="menu" aria-label="Ruban ${tabName(col).toLowerCase()} : changer la couleur ou retirer" data-tooltip="Couleur du ruban"></button>`
+      : `<button class="rb" data-act="bookmark" aria-label="Poser un ruban" data-tooltip="Poser un ruban (⌘D)"></button>`;
     h += q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
     // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
     const text = (x: Comment) => {
@@ -3453,7 +3484,7 @@
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
-    const cls = `cc${q || nl ? "" : " nq"}${bm ? " bm" : ""}`;
+    const cls = `cc${q || nl ? "" : " nq"}${col ? " bm" : ""}`;
     return on ? `<div class="${cls}">${h}</div>` : `<div class="${cls}" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
   function draftHTML(): string {
@@ -3505,7 +3536,6 @@
     settleChecks();
     lane = collectLane();
     navOrder = lane.filter((it) => it.kind === "comment" && !it.done).sort(byPosition).map((it) => it.key);
-    slideBookmark();
     if (focusKey && !lane.some((it) => it.key === focusKey)) focusKey = "";
     // Les fiches inchangées gardent leur élément (et leur hauteur mesurée) :
     // une réponse du disque ne reconstruit que ce qui a bougé.
@@ -3811,51 +3841,67 @@
       .catch(() => { /* le point reviendra au prochain modèle : rien de perdu */ })
       .finally(() => seenNow.delete(id));
   }
-  /** Pose (ou retire, `null`) le signet ; un seul par document. */
-  function setBookmark(id: number | null) {
-    const prev = bookmark.manual;
-    if (prev === id) return;
-    bookmark = { ...bookmark, manual: id };
+  function tabName(color: string): string {
+    return TABS.find(([c]) => c === color)?.[1] ?? color;
+  }
+  /** Pose, recolore ou retire (`null`) le ruban d'un fil. */
+  let ribbonSeq = 0;
+  function setRibbon(id: number, color: string | null) {
+    if ((ribbons.get(id) ?? null) === color) return;
+    const prev = ribbons.get(id) ?? null;
+    const apply = (c: string | null) => { if (c) ribbons.set(id, c); else ribbons.delete(id); };
+    apply(color);
+    if (ribbonFilter && ![...ribbons.values()].includes(ribbonFilter)) ribbonFilter = "";
     renderCards();
     renderSide();
-    api("/docx/bookmark", id === null ? { path: PATH, action: "clear" } : { path: PATH, action: "set", comment: id })
+    const seq = ++ribbonSeq;
+    api("/docx/bookmark", color === null ? { path: PATH, action: "clear", comment: id } : { path: PATH, action: "set", comment: id, color })
       .then((r) => {
-        if (bookmark.manual !== id) return; // un autre geste est passé depuis
-        bookmark = { manual: r?.manual ?? null, last: r?.last ?? bookmark.last };
+        if (seq !== ribbonSeq || !r?.marks) return; // un autre geste est passé depuis
+        ribbons = new Map((r.marks as { id: number; color: string }[]).map((m) => [m.id, m.color] as const));
         renderCards();
         renderSide();
       })
       .catch(() => {
-        if (bookmark.manual === id) { bookmark = { ...bookmark, manual: prev }; renderCards(); renderSide(); }
-        status("Signet non enregistré", true);
+        if ((ribbons.get(id) ?? null) === color) { apply(prev); renderCards(); renderSide(); }
+        status("Ruban non enregistré", true);
       });
   }
-  /** Dernier fil ouvert : là où ⇧⌘D ramène quand aucun signet n'est posé. */
+  /** Clic sur un ruban posé : ses cinq couleurs et « Retirer ». */
+  function ribbonMenu(trigger: HTMLElement, id: number) {
+    const cur = ribbons.get(id);
+    showMenu(trigger, [
+      { label: "Couleur du ruban", row: [
+        ...TABS.map(([c, n], i): Item => ({ label: `${n} (⌥⌘${i + 1})`, html: `<i class="sw" data-tab="${c}"></i>`, on: c === cur, run: () => setRibbon(id, c) })),
+        { label: "", sep: true },
+        { label: "Retirer le ruban (⌘D)", html: ic("trash", 14), danger: true, run: () => setRibbon(id, null) },
+      ] },
+    ], true);
+  }
+  /** Dernier fil ouvert : là où ⇧⌘D ramène quand aucun ruban n'est posé. */
   function noteOpened(id: number) {
-    if (bookmark.last === id) return;
-    bookmark = { ...bookmark, last: id };
+    if (lastOpened === id) return;
+    lastOpened = id;
     api("/docx/bookmark", { path: PATH, action: "opened", comment: id }).catch(() => { /* simple repli : rien de perdu */ });
   }
-  /** Fil marqué réglé (ici ou dans Word) : le signet passe au fil ouvert
-   *  suivant dans l'ordre du document, c'est là qu'on en est. */
-  let sliding = false;
-  function slideBookmark() {
-    const id = bookmark.manual;
-    if (id === null || sliding || !model) return;
-    const c = commentMap.get(id);
-    if (!c || !c.done) return;
-    const order = lane.filter((it) => it.kind === "comment").sort(byPosition);
-    const k = order.findIndex((it) => it.key === `c${id}`);
-    const after = order.slice(k + 1).concat(order.slice(0, k)).find((it) => !it.done);
-    sliding = true;
-    queueMicrotask(() => { sliding = false; setBookmark(after ? after.ids[0] : null); });
-  }
-  /** ⇧⌘D : retourne au signet, sinon au dernier fil ouvert. */
+  /** ⇧⌘D : ruban suivant dans l'ordre du document (de la couleur filtrée,
+   *  s'il y en a une), sinon le dernier fil ouvert. */
   function goBookmark() {
-    const id = [bookmark.manual, bookmark.last].find((x) => x !== null && lane.some((it) => it.key === `c${x}`));
-    if (id === undefined || id === null) { status("Aucun signet dans ce document"); return; }
-    if (document.body.classList.contains("no-lane")) openLane();
-    focusCard(`c${id}`, true);
+    const marked = lane
+      .filter((it) => it.kind === "comment" && !it.done && ribbons.has(it.ids[0]) && (!ribbonFilter || ribbons.get(it.ids[0]) === ribbonFilter))
+      .sort(byPosition);
+    if (marked.length) {
+      const k = marked.findIndex((it) => it.key === focusKey);
+      if (document.body.classList.contains("no-lane")) openLane();
+      focusCard(marked[(k + 1) % marked.length].key, true);
+      return;
+    }
+    if (lastOpened !== null && lane.some((it) => it.key === `c${lastOpened}`)) {
+      if (document.body.classList.contains("no-lane")) openLane();
+      focusCard(`c${lastOpened}`, true);
+      return;
+    }
+    status("Aucun ruban dans ce document");
   }
   function askPane(action: "widen" | "restore", px: number) {
     clearTimeout(paneWait);
@@ -4102,16 +4148,23 @@
       if (e.code === "Enter") { e.preventDefault(); decideCurrent("accept"); return; }
       if (e.code === "Backspace") { e.preventDefault(); decideCurrent("reject"); return; }
       if (e.code === "KeyA") { e.preventDefault(); askComment(); return; }
+      if (/^Digit[1-5]$/.test(e.code)) {
+        // ⌥⌘1 à ⌥⌘5 : couleur du ruban de la carte ouverte (⌘1 et ⌘2 sont pris par Atelier).
+        const id = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : NaN;
+        if (!commentMap.has(id) || commentMap.get(id)!.done) return;
+        e.preventDefault();
+        setRibbon(id, TABS[Number(e.code.slice(5)) - 1][0]);
+      }
     } else if (e.shiftKey && !e.altKey && e.code === "KeyE" && !typing) {
       e.preventDefault();
       $("btnTrack").click();
     } else if (!e.altKey && e.code === "KeyD") {
-      // ⌘D pose ou retire le signet sur la carte ouverte ; ⇧⌘D y ramène.
+      // ⌘D pose ou retire le ruban de la carte ouverte ; ⇧⌘D passe au ruban suivant.
       e.preventDefault();
       if (e.shiftKey) { goBookmark(); return; }
       const id = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : NaN;
-      if (commentMap.has(id) && !commentMap.get(id)!.done) setBookmark(bookmark.manual === id ? null : id);
-      else status("Ouvre un commentaire pour y poser le signet");
+      if (commentMap.has(id) && !commentMap.get(id)!.done) setRibbon(id, ribbons.has(id) ? null : "gris");
+      else status("Ouvre un commentaire pour y poser un ruban");
     }
   });
 
@@ -4300,7 +4353,11 @@
     }
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
-    if (act === "bookmark") { setBookmark(bookmark.manual === c.id ? null : c.id); return; }
+    if (act === "bookmark") {
+      if (ribbons.has(c.id)) ribbonMenu(t.closest("[data-act]") as HTMLElement, c.id);
+      else setRibbon(c.id, "gris");
+      return;
+    }
     const ta = host.querySelector("textarea");
     if (act === "propose") {
       // Ce qui est tapé sert de consigne à l'agent, puis s'efface : le brouillon prend sa place.
@@ -5164,13 +5221,26 @@
       }).join("") : `<div class="more">Aucun titre dans ce document.</div>`;
     } else {
       let sec: string | null = null;
-      const items = lane.filter((it) => it.kind === "comment").sort(byPosition);
+      const all = lane.filter((it) => it.kind === "comment").sort(byPosition);
+      // Filtre par couleur de ruban, en tête, dès qu'un fil en porte un.
+      const count = new Map<string, number>();
+      for (const it of all) { const col = ribbons.get(it.ids[0]); if (col) count.set(col, (count.get(col) || 0) + 1); }
+      if (ribbonFilter && !count.has(ribbonFilter)) ribbonFilter = "";
+      if (count.size) {
+        html += `<div class="tf" role="group" aria-label="Filtrer par ruban"><button class="f${ribbonFilter ? "" : " on"}" data-tab="" aria-pressed="${!ribbonFilter}">Tous</button>`;
+        for (const [col, name] of TABS) {
+          const n = count.get(col);
+          if (n) html += `<button class="f${ribbonFilter === col ? " on" : ""}" data-tab="${col}" aria-pressed="${ribbonFilter === col}" aria-label="Rubans ${name.toLowerCase()} : ${n}" data-tooltip="Rubans ${name.toLowerCase()}"><i class="sw" data-tab="${col}"></i>${nf(n)}</button>`;
+        }
+        html += `</div>`;
+      }
+      const items = ribbonFilter ? all.filter((it) => ribbons.get(it.ids[0]) === ribbonFilter) : all;
       for (const it of items) {
         const c = commentMap.get(it.ids[0])!;
         const s = it.idx < 1e9 ? sectionOf(it.idx) : "Hors du texte";
         if (s !== sec) { sec = s; if (s) html += `<div class="sect">${esc(s)}</div>`; }
         const replies = model.comments.filter((r) => r.parent === c.id).length;
-        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}${bookmark.manual === c.id ? `<i class="sgl" role="img" aria-label="Signet"></i>` : ""}</small></span></button>`;
+        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}${ribbons.has(c.id) ? `<i class="sgl" data-tab="${ribbons.get(c.id)}" role="img" aria-label="Ruban ${tabName(ribbons.get(c.id)!).toLowerCase()}"></i>` : ""}</small></span></button>`;
       }
       if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
     }
@@ -5220,6 +5290,8 @@
     const t = e.target as HTMLElement;
     const o = t.closest(".ol") as HTMLElement | null;
     const c = t.closest(".cl") as HTMLElement | null;
+    const f = t.closest(".tf .f") as HTMLElement | null;
+    if (f) { ribbonFilter = f.dataset.tab || ""; renderSide(); return; }
     if (o) {
       const el = paper.querySelector(`.d-p[data-idx="${o.dataset.i}"]`);
       if (el) scroller.scrollBy({ top: el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 32, behavior: smooth() });

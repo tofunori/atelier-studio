@@ -356,11 +356,15 @@ pub struct BookmarkBody {
     action: String,
     #[serde(default)]
     comment: Option<u32>,
+    /// Teinte du ruban pour `set` (gris par défaut).
+    #[serde(default)]
+    color: Option<String>,
 }
 
-/// `POST /docx/bookmark` — `{path, action, comment?}` : pose (`set`) ou
-/// retire (`clear`) le signet « où j'en étais », ou note le dernier fil
-/// ouvert (`opened`). Rend `{manual?, last?}`. Rien n'est écrit dans le .docx.
+/// `POST /docx/bookmark` — `{path, action, comment, color?}` : pose ou
+/// recolore (`set`) ou retire (`clear`) le ruban d'un fil, ou note le dernier
+/// fil ouvert (`opened`). Rend `{marks:[{id,color}], last?}`. Rien n'est
+/// écrit dans le .docx.
 pub async fn bookmark(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<BookmarkBody>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
@@ -370,10 +374,14 @@ pub async fn bookmark(State(state): State<AppState>, headers: HeaderMap, Json(bo
         Err(r) => return r,
     };
     use atelier_docx::bookmark::Action;
+    let color = body.color.unwrap_or_else(|| atelier_docx::bookmark::COLORS[0].into());
+    if !atelier_docx::bookmark::is_color(&color) {
+        return json_error(StatusCode::BAD_REQUEST, "teinte inconnue (gris, rouge, jaune, vert ou bleu)");
+    }
     let action = match (body.action.as_str(), body.comment) {
-        ("set", Some(id)) => Action::Set(id),
+        ("set", Some(id)) => Action::Set(id, color),
         ("opened", Some(id)) => Action::Opened(id),
-        ("clear", _) => Action::Clear,
+        ("clear", Some(id)) => Action::Clear(id),
         _ => return json_error(StatusCode::BAD_REQUEST, "action inconnue (set, clear ou opened, avec comment)"),
     };
     let job = move || -> Result<atelier_docx::bookmark::Place, String> {
