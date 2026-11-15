@@ -686,3 +686,52 @@ body.triage #scroll,body.triage.no-margin #scroll,body.triage.lane-over #scroll{
 body.no-margin #laneGrip,body.no-lane #laneGrip,body.lane-over #laneGrip,body.lane-in #laneGrip,body.lane-out #laneGrip{display:none}
 body.lane-drag,body.lane-drag *{cursor:col-resize!important;user-select:none;-webkit-user-select:none}
 @media (prefers-reduced-motion:reduce){#laneGrip::after{transition:none}}
+/* Figure à la main (2026-11-15) : un clic la prend (cadre fin autour d'elle
+   et de sa légende, capsule, poignées de taille), on la glisse entre deux
+   paragraphes (barre d'atterrissage). Calque posé sur la page, dans le
+   défilement : il suit le texte sans rien recalculer. */
+#figui{position:absolute;left:0;top:0;width:0;height:0;z-index:2;pointer-events:none;visibility:hidden;opacity:0;transition:opacity 120ms ease-out,visibility 0s linear 120ms;--fg-ink:var(--text-primary)}
+#figui.on{visibility:visible;opacity:1;transition:opacity 120ms ease-out}
+body.blanche #figui{--fg-ink:var(--doc-ink)}
+#figui>*{position:absolute;left:0;top:0}
+.fg-frame,.fg-was,.fg-bar{display:none}
+.fg-frame.on,.fg-was.on,.fg-bar.on{display:block}
+.fg-frame,.fg-box{box-shadow:0 0 0 1px color-mix(in srgb,var(--fg-ink) 55%,transparent)}
+.fg-was{outline:1px dashed color-mix(in srgb,var(--fg-ink) 35%,transparent)}
+.fg-h{position:absolute;width:8px;height:8px;border-radius:999px;background:var(--paper-bg);box-shadow:0 0 0 1px var(--fg-ink);pointer-events:auto}
+.fg-h::before{content:'';position:absolute;inset:-6px}
+.fg-h.tl{left:-4px;top:-4px;cursor:nwse-resize}
+.fg-h.tr{right:-4px;top:-4px;cursor:nesw-resize}
+.fg-h.bl{left:-4px;bottom:-4px;cursor:nesw-resize}
+.fg-h.br{right:-4px;bottom:-4px;cursor:nwse-resize}
+.fg-cap{display:flex;align-items:center;gap:8px;height:24px;padding:0 4px 0 8px;border-radius:6px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);font:400 12px/1.5 var(--ui-font);color:var(--text-secondary);white-space:nowrap;pointer-events:auto;user-select:none;-webkit-user-select:none}
+.fg-cap.mv{cursor:grab}
+.fg-cap small{font-size:11px;color:var(--text-muted)}
+.fg-grip{display:flex;margin-left:-4px;color:var(--text-muted)}
+.fg-vs{width:1px;height:12px;background:var(--border-subtle,var(--border))}
+.fg-cap .mini{width:20px;height:20px;color:var(--text-secondary)}
+.fg-cap .mini.open{background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary)}
+.fg-bar{height:2px;border-radius:999px;background:var(--fg-ink)}
+.fg-bar::before,.fg-bar::after{content:'';position:absolute;top:-2px;width:6px;height:6px;border-radius:999px;background:var(--fg-ink)}
+.fg-bar::before{left:-3px}
+.fg-bar::after{right:-3px}
+.fg-ghost,.fg-tip{position:fixed;left:0;top:0;z-index:var(--z-popover,120);pointer-events:none;visibility:hidden;opacity:0;transition:opacity 120ms ease-out}
+.fg-ghost.on{visibility:visible;opacity:.92}
+.fg-tip.on{visibility:visible;opacity:1}
+.fg-ghost{padding:8px;border-radius:6px;background:var(--paper-bg);box-shadow:var(--elev)}
+.fg-ghost img{display:block;width:120px;height:auto;max-height:120px;object-fit:contain}
+.fg-tip{padding:0 8px;border-radius:6px;background:var(--bg-pop,var(--surface-overlay));color:var(--text-primary,var(--txt));box-shadow:var(--elev);font:400 11px/20px var(--ui-font);font-variant-numeric:tabular-nums;white-space:nowrap}
+body:not(.v-original) #paper .chip.fig:not(.del) img{cursor:pointer}
+body.fig-on #caret{display:none}
+body.fig-drag,body.fig-drag *{cursor:grabbing!important}
+#paper .d-p.fg-from{opacity:.35;transition:opacity 120ms ease-out}
+/* Ancienne place d'une figure déplacée en suivi : vignette réduite et barrée
+   (en Révision seulement ; l'Original la montre entière). */
+body.v-revue #paper .d-p.fg-old .chip.fig img{width:auto!important;height:72px}
+body.v-final #paper .d-p.mv-old,body.v-original #paper .d-p.mv-new{display:none}
+/* Fiche unique d'un déplacement de figure : ✕ ✓ toujours visibles. */
+.ch.mv .row{cursor:pointer}
+.ch.mv .lbl b{color:var(--text-primary)}
+.ch.mv .lbl small{margin-left:8px;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+.ch.mv .gr{opacity:1}
+@media (prefers-reduced-motion:reduce){#figui,#figui.on,.fg-ghost,.fg-tip,#paper .d-p.fg-from{transition:none}}

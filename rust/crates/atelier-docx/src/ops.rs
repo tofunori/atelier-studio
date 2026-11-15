@@ -74,6 +74,17 @@ pub enum Op {
     },
     /// Efface la `index`-ième figure (depuis 0) du paragraphe d'un bloc.
     DeleteImage { paragraph: String, index: usize },
+    /// Déplace la figure du paragraphe `paragraph`, avec sa légende, devant
+    /// le paragraphe `to` (ou juste après lui, avec `after`). En suivi :
+    /// l'ancienne place barrée et la nouvelle ajoutée, comme un
+    /// couper-coller dans Word, à accepter ou refuser d'un seul geste.
+    MoveFigure { paragraph: String, to: String, #[serde(default)] after: bool },
+    /// Largeur (en pixels à 96 ppp) de la `index`-ième figure du
+    /// paragraphe, proportions gardées. Jamais en suivi : Word ne suit pas
+    /// la taille d'une image.
+    ResizeImage { paragraph: String, index: usize, width: u32 },
+    /// Texte de remplacement de la `index`-ième figure (hors suivi).
+    SetImageAlt { paragraph: String, index: usize, alt: String },
     /// Corrige la `index`-ième équation (depuis 0) du paragraphe d'après
     /// son LaTeX : en suivi, l'ancienne supprimée et la nouvelle insérée.
     ReplaceMath { paragraph: String, index: usize, latex: String },
@@ -118,6 +129,9 @@ impl Op {
             Op::InsertNote { .. } => "note",
             Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
             Op::InsertImage { .. } | Op::ReplaceImage { .. } | Op::DeleteImage { .. } => "figure",
+            Op::MoveFigure { .. } => "déplacement de figure",
+            Op::ResizeImage { .. } => "taille de figure",
+            Op::SetImageAlt { .. } => "texte de remplacement",
             Op::ReplaceMath { .. } | Op::InsertMath { .. } => "équation",
             Op::InsertRuns { .. } => "collage",
             Op::InsertCitation { .. } | Op::EditCitation { .. } => "citation",
@@ -326,6 +340,9 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             json!(crate::objects::replace_image(docx, paragraph, *index, b.clone(), name, alt, tracked, sig)?)
         }
         Op::DeleteImage { paragraph, index } => json!(crate::objects::delete_image(docx, paragraph, *index, tracked, sig)?),
+        Op::MoveFigure { paragraph, to, after } => crate::figure::move_figure(docx, paragraph, to, *after, tracked, sig)?,
+        Op::ResizeImage { paragraph, index, width } => crate::figure::resize(docx, paragraph, *index, *width)?,
+        Op::SetImageAlt { paragraph, index, alt } => crate::figure::set_alt(docx, paragraph, *index, alt)?,
         Op::ReplaceMath { paragraph, index, latex } => {
             json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
         }

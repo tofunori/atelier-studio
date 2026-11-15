@@ -228,9 +228,9 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 24] = [
+const DOCX_ACTIONS: [&str; 25] = [
     "read", "images", "edit", "equation", "insert_equation", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
-    "insert_note", "insert_figure", "replace_figure", "delete_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
+    "insert_note", "insert_figure", "replace_figure", "delete_figure", "move_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
 ];
 
 /// Documents Word du projet (panneau .docx). Les retouches de l'agent sont
@@ -245,9 +245,9 @@ pub fn docx_tool_definition() -> Value {
     user's name; only the user accepts or rejects. find = exact current text (+paragraph or occurrence \
     if ambiguous). insert_note / insert_figure / cite go after find. cite: live Zotero citation, keys \
     from cite_search; bibliography: add or refresh it. insert_row / delete_row: by a cell. join: p8 into \
-    p7. split: after find. equation N / insert_equation: from latex. replace_figure / delete_figure: \
+    p7. split: after find. equation N / insert_equation: from latex. replace_figure / delete_figure / move_figure: \
     image N. edit_comment / withdraw_comment: your or the user's comment. draft_reply: a \
-    card draft the user sends.",
+    draft the user sends.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -257,14 +257,15 @@ pub fn docx_tool_definition() -> Value {
                 "from": { "type": "integer", "description": "read / images: first paragraph number" },
                 "to": { "type": "integer", "description": "read / images: last paragraph number" },
                 "start": { "type": "integer", "description": "images: resume at figure N (4 per call)" },
-                "paragraph": { "type": "string", "description": "p12 (from read); images: only this paragraph's figures; optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7)" },
+                "paragraph": { "type": "string", "description": "p12 (from read); images: only this paragraph's figures; optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7); move_figure: the paragraph holding the figure alone, its caption follows, tracked as one change" },
                 "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
                 "with": { "type": "string", "description": "edit: replacement text (empty = delete)" },
                 "equation": { "type": "integer", "description": "equation: N of {équation N : …} in the paragraph (1 if alone); Word equations are objects, never edit them with edit" },
                 "latex": { "type": "string", "description": "equation / insert_equation: the whole equation in LaTeX (\\alpha_{rzt}, \\tau^{a}_{z}, \\frac, \\sum, \\left(…\\right)); only what changes is tracked" },
                 "display": { "type": "boolean", "description": "insert_equation: alone and centred in a new paragraph after paragraph, instead of inline after find" },
-                "after": { "type": "string", "description": "insert_paragraph / bibliography: goes after this paragraph (p12); bibliography defaults to the end" },
+                "after": { "type": "string", "description": "insert_paragraph / bibliography / move_figure: goes after this paragraph (p12); bibliography defaults to the end" },
+                "before": { "type": "string", "description": "move_figure: goes in front of this paragraph (p12), instead of after" },
                 "text": { "type": "string", "description": "insert_paragraph / comment / insert_note: the text; edit_comment: the whole corrected comment, same voice and length as the user's; reply / draft_reply: written as the user to their supervisor, in French, one or two short sentences, natural and casual, with « … » where one trails off, a small typo now and then is fine; no list, bold, greeting, signature or rewritten passage (show a correction in your chat answer first); insert_figure / replace_figure: alt text (replace_figure keeps the old one by default)" },
                 "figure": { "type": "string", "description": "insert_figure / replace_figure: PNG/JPEG/GIF/PDF path in the project (PDF: page 1)" },
                 "image": { "type": "integer", "description": "replace_figure / delete_figure: N of {image N : …} in the paragraph (1 if alone); the new figure keeps the old one's place, width and paragraph style" },

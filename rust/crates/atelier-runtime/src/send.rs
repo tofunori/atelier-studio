@@ -295,7 +295,9 @@ Windows EMF/WMF pictures and the text boxes and shapes the author laid over a fi
 (a text box often holds the author's own values on top of a diagram; read shows its text as \
 {{zone de texte : …}}). Look at them before discussing or grading a figure, a chart or an \
 equation pasted as an image; never judge one from its alt text, never extract it from the package by \
-hand, and never say you cannot see it. Word equations (OMML objects, shown by read as \
+hand, and never say you cannot see it. To move a figure that sits alone in its paragraph, \
+action=move_figure (paragraph = the figure's, after=p12 or before=p12): its caption follows, tracked like \
+Word as one change; never cut it and insert it again elsewhere. Word equations (OMML objects, shown by read as \
 {{équation N : LaTeX}}) are yours to fix too: action=equation with paragraph, equation=N and the whole \
 corrected latex, tracked like Word (only the changed symbols); a new one is action=insert_equation \
 (latex, inline after find, or display=true to centre it in a new paragraph after paragraph); never \

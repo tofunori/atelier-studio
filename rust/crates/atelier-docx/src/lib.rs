@@ -34,6 +34,7 @@ pub mod drafts;
 pub mod marks;
 pub mod edit;
 pub mod feedback;
+pub mod figure;
 pub mod layout;
 pub mod math;
 mod math_track;

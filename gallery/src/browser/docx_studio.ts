@@ -51,6 +51,9 @@
     id: string; para_id?: string; style?: string; heading?: number; list?: boolean; align?: string;
     cell?: [number, number, number]; mark_change?: number; text: string; segments: Seg[]; look?: Look;
     shapes?: Shape[];
+    /** Figure qui se déplace d'un bloc : seule dans son paragraphe (ou avec
+     *  sa légende) ; `caption` est le paragraphe de légende voisin. */
+    figure?: { caption?: string };
     /** Ajouté ici : histoire du paragraphe (« » corps, n1, e1, header1…). */
     story?: string;
     /** Ajouté ici : marque de paragraphe ajoutée ou barrée par un geste pas encore confirmé. */
@@ -69,7 +72,9 @@
   };
   type Note = { id: string; kind: string; number?: number; paragraphs: Para[] };
   type HeaderFooter = { id: string; kind: string; which: string; paragraphs: Para[] };
-  type Change = { id: number; kind: string; author: string; date?: string; paragraph?: string; text: string };
+  /** `group` : meneur d'un geste fait de plusieurs suivis (figure déplacée :
+   *  ancienne place barrée, nouvelle ajoutée) ; ils se décident ensemble. */
+  type Change = { id: number; kind: string; author: string; date?: string; paragraph?: string; text: string; group?: number };
   type Comment = {
     id: number; author: string; initials: string; date?: string; text: string; parent?: number;
     done: boolean; paragraph?: string; quote: string;
@@ -204,6 +209,8 @@
     alBoth: '<path d="M3 12h18"/><path d="M3 18h18"/><path d="M3 6h18"/>',
     list: '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
     more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    // Poignée d'un bloc qu'on glisse (figure et légende).
+    grip: '<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>',
     check: '<path d="M20 6 9 17l-5-5"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
@@ -640,6 +647,8 @@
     if (mark) {
       el.classList.add(mark.kind === "paragraph-del" ? "mark-del" : "mark-ins");
       el.dataset.ch = String(mark.id);
+      // Figure déplacée : l'ancienne place disparaît en Lecture, la nouvelle en Original.
+      if (mark.group !== undefined) el.classList.add(mark.kind === "paragraph-del" ? "mv-old" : "mv-new");
     }
     if (p.pend_mark) {
       el.classList.remove("mark-del", "mark-ins");
@@ -746,6 +755,8 @@
         node.classList.add(removed ? "del" : "ins");
         node.dataset.ch = String(s.change);
         node.style.setProperty("--rev-color", authorColor(c ? shownAuthor(c) : ""));
+        // Ancienne place d'une figure déplacée : réduite, la nouvelle se lit d'abord.
+        if (removed && s.media && c && c.group !== undefined) el.classList.add("fg-old");
         changed = changed || c;
       }
       if (s.kind === "break" && s.label === "page") node.classList.add("pbr");
@@ -1555,6 +1566,7 @@
     if (caret) setCaret(caret.a, collapsed(caret) ? undefined : caret.b);
     rebaseDraft();
     renderCards();
+    figSync();
     renderStatus();
     syncToolbar();
     if (findOpen()) runFind(false);
@@ -3128,6 +3140,7 @@
     if (dv.textContent !== label) dv.textContent = label;
     paper.contentEditable = view === "original" ? "false" : "true";
     hideBubble();
+    if (view === "original") figClear(); else figQueue();
     renderCards();
     scheduleLines();
   }
@@ -3343,7 +3356,7 @@
   // ------------------------------------------------------- marge de revue
   // À droite de la page : une fiche par commentaire, alignée sur son passage,
   // et une rangée par paragraphe retouché, qui s'ouvre sur ses modifications.
-  type LaneItem = { key: string; kind: "chip" | "comment" | "draft"; idx: number; anchor: HTMLElement | null; ids: number[]; author: string; done?: boolean };
+  type LaneItem = { key: string; kind: "chip" | "comment" | "draft"; idx: number; anchor: HTMLElement | null; ids: number[]; author: string; done?: boolean; move?: boolean };
   let lane: LaneItem[] = [];
   let navOrder: string[] = [];
   let changeMap = new Map<number, Change>();
@@ -3401,7 +3414,11 @@
   const isTop = (c: Comment) => c.parent === undefined || c.parent === null;
   const avatar = (name: string, small = false, initials?: string) =>
     `<span class="av${small ? " s" : ""}" style="--who:${uiColor(name)}">${esc(initials || initialsOf(name || "?"))}</span>`;
-  const kindLabel = (c: Change) => (c.kind === "ins" ? "Insertion" : c.kind === "del" ? "Suppression" : c.kind.startsWith("move") ? "Déplacement" : KIND[c.kind] || c.kind);
+  /** Suivi qui n'est qu'une part d'un geste groupé (son meneur le représente). */
+  const follower = (c: Change) => c.group !== undefined && c.group !== c.id;
+  /** Suivis comptés et parcourus : un geste groupé compte pour un. */
+  const shownChanges = () => (model ? model.changes.filter((c) => !follower(c)) : []);
+  const kindLabel = (c: Change) => (c.group !== undefined ? "Figure déplacée" : c.kind === "ins" ? "Insertion" : c.kind === "del" ? "Suppression" : c.kind.startsWith("move") ? "Déplacement" : KIND[c.kind] || c.kind);
 
   function collectLane(): LaneItem[] {
     if (!model) return [];
@@ -3413,6 +3430,14 @@
     // Modifications groupées par paragraphe, dans l'ordre du texte.
     const per = new Map<number, number[]>();
     const seen = new Set<number>();
+    // Figure déplacée : une seule fiche, en face de sa nouvelle place.
+    for (const c of m.changes) {
+      if (c.group === undefined) continue;
+      seen.add(c.id);
+      if (c.group !== c.id) continue;
+      const idx = m.paragraphs.findIndex((p) => !p.story && p.segments.some((s) => s.change === c.id));
+      items.push({ key: `g${c.id}`, kind: "chip", idx: idx >= 0 ? idx : 1e9, anchor: idx >= 0 ? nodes.get(idx) || null : null, ids: [c.id], author: shownAuthor(c), move: true });
+    }
     const add = (idx: number, id: number) => {
       if (seen.has(id) || !changeMap.has(id)) return;
       seen.add(id);
@@ -3544,6 +3569,12 @@
       <div class="ac"><button class="btn q" data-act="cancel">Annuler</button><button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer le passage et la note au chat">${ic("chat", 14)}</button><button class="btn p" data-act="post">Commenter</button></div></div>`;
   }
   function chipHTML(it: LaneItem, open: boolean): string {
+    if (it.move) {
+      const c = changeMap.get(it.ids[0]);
+      const at = c?.date ? `${dateFr(c.date)}, ${timeFr(c.date)}` : "";
+      return `<div class="ch mv"><div class="row" data-act="show" role="button" tabindex="0" aria-label="Figure déplacée : la montrer dans la page">${avatar(it.author, true)}<span class="lbl"><b>Figure déplacée</b>${at ? `<small>${at}</small>` : ""}</span>
+        <span class="gr"><button class="mini no" data-act="rejectAll" aria-label="Refuser : remettre la figure à sa place" data-tooltip="Remettre à sa place">${ic("x", 14)}</button><button class="mini ok" data-act="acceptAll" aria-label="Accepter le déplacement" data-tooltip="Accepter le déplacement">${ic("check", 14)}</button></span></div></div>`;
+    }
     const list = it.ids.map((id) => changeMap.get(id)).filter(Boolean) as Change[];
     const n = list.length;
     // Fermée, la rangée est un seul arrêt du clavier ; ouverte, ses boutons aussi.
@@ -4066,7 +4097,7 @@
     });
     const paraOf = new Map<number, number>();
     for (const it of lane) if (it.kind === "chip") for (const id of it.ids) paraOf.set(id, it.idx);
-    const out = Array.from(changeMap.keys()).map((id) => {
+    const out = shownChanges().map((c) => c.id).map((id) => {
       const k = paraOf.get(id);
       return { id, el: first.get(id) || (k !== undefined && k < 1e9 ? paper.querySelector<HTMLElement>(`.d-p[data-idx="${k}"]`) : null) };
     });
@@ -4398,6 +4429,11 @@
     if (t.closest(".tx") && readBubbleSel()) return;
     if (it.kind === "chip") {
       const row = t.closest(".cr") as HTMLElement | null;
+      if (it.move) {
+        if (act === "acceptAll" || act === "rejectAll") decide(it.ids, act === "acceptAll" ? "accept" : "reject", act === "acceptAll" ? "Déplacement accepté" : "Figure remise à sa place");
+        else { setCurCh(it.ids[0]); showChange(it.ids[0]); updateNav(); }
+        return;
+      }
       if (act === "acceptAll" || act === "rejectAll") {
         openChips.delete(it.key);
         decide(it.ids, act === "acceptAll" ? "accept" : "reject", act === "acceptAll" ? "Paragraphe accepté" : "Paragraphe refusé");
@@ -4638,7 +4674,15 @@
     const w = bub.offsetWidth, h = bub.offsetHeight;
     let y = q.top - h - 6;
     if (y < sr.top + 8) y = q.bottom + 6;
-    bub.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, q.left + q.width / 2 - w / 2))}px`;
+    let x = q.left + q.width / 2 - w / 2;
+    // Figure prise : sa capsule tient le coin haut gauche du cadre ; la bulle
+    // prend le coin droit, ou passe dessous si le cadre est étroit.
+    if (fig && figLayer.classList.contains("on") && figChip(fig) === el) {
+      const fr = (figFrame.classList.contains("on") ? figFrame : figBox).getBoundingClientRect();
+      x = fr.right - w;
+      y = x < figCap.getBoundingClientRect().right + 8 ? fr.bottom + 8 : fr.top - h - 8;
+    }
+    bub.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, x))}px`;
     bub.style.top = `${y}px`;
   }
   bub.addEventListener("mousedown", (e) => e.preventDefault());
@@ -4675,6 +4719,513 @@
       renderCards();
     }
   });
+
+  // ------------------------------------------------- figure à la main
+  // Un clic sur une figure la sélectionne : cadre fin autour d'elle et de sa
+  // légende, capsule (poignée, ⌥↑ ⌥↓, menu) et quatre poignées de taille. On
+  // la glisse entre deux paragraphes (barre d'atterrissage) ; en suivi, comme
+  // Word : ancienne place barrée, nouvelle ajoutée, un seul geste à décider.
+  // La taille et le texte de remplacement ne se suivent pas (Word non plus).
+  type FigSel = { idx: number; index: number; key: string };
+  type FigBlock = { fig: number; first: number; last: number };
+  type FigSlot = { x: number; y: number; w: number; to: number; after: boolean; noop: boolean };
+  type FigDrag = {
+    kind: "move" | "size"; x0: number; y0: number; x: number; y: number; on: boolean; raf: number;
+    blk: FigBlock | null; slots: FigSlot[]; slot: FigSlot | null;
+    corner: string; img: HTMLElement | null; css0: string; w0: number; h0: number; w: number; unit: number; max: number;
+  };
+  let fig: FigSel | null = null;
+  let figDrag: FigDrag | null = null;
+  const figLayer = document.createElement("div");
+  figLayer.id = "figui";
+  figLayer.innerHTML = `<div class="fg-frame"></div><div class="fg-was"></div><div class="fg-box"><i class="fg-h tl" data-h="tl"></i><i class="fg-h tr" data-h="tr"></i><i class="fg-h bl" data-h="bl"></i><i class="fg-h br" data-h="br"></i></div><div class="fg-bar"></div><div class="fg-cap" role="toolbar" aria-label="Figure sélectionnée"></div>`;
+  scroller.appendChild(figLayer);
+  const [figFrame, figWas, figBox, figBar, figCap] = Array.from(figLayer.children) as HTMLElement[];
+  const figGhost = document.createElement("div");
+  figGhost.className = "fg-ghost";
+  figGhost.setAttribute("aria-hidden", "true");
+  const figTip = document.createElement("div");
+  figTip.className = "fg-tip";
+  figTip.setAttribute("role", "status");
+  document.body.append(figGhost, figTip);
+  const FIG_INLINE = "Cette figure est dans une ligne de texte : elle ne se déplace pas d'un bloc.";
+
+  const paraNode = (idx: number) => paper.querySelector<HTMLElement>(`.d-p[data-idx="${idx}"]`);
+  const figKey = (idx: number) => { const p = model!.paragraphs[idx]; return `${p.story || ""}|${p.para_id || p.id}`; };
+  const figIdxOf = (key: string) => (model ? model.paragraphs.findIndex((_, k) => figKey(k) === key) : -1);
+  /** Figures d'un paragraphe qu'on peut prendre : celles qui ne sont pas barrées. */
+  const figChips = (p: Element) => (Array.from(p.querySelectorAll(":scope > .chip.fig")) as HTMLElement[]).filter((c) => !c.dataset.del);
+  const figChipAt = (t: EventTarget | null): HTMLElement | null => {
+    const el = t instanceof Element ? (t.closest(".chip.fig") as HTMLElement | null) : null;
+    return el && paper.contains(el) && !el.dataset.del && el.querySelector("img") ? el : null;
+  };
+  const figChip = (f: FigSel) => { const p = paraNode(f.idx); return p ? figChips(p)[f.index] || null : null; };
+  /** Le morceau du modèle de la figure sélectionnée (largeur, texte de remplacement). */
+  const figSeg = (f: FigSel) => virtualSegments(f.idx).filter((s) => s.media && s.rev !== "del" && s.rev !== "moveFrom")[f.index] || null;
+  const figCm = (px: number) => (px * 2.54 / 96).toLocaleString("fr-CA", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  /** Bloc qui se déplace d'un coup : le paragraphe de la figure et celui de
+   *  sa légende ; null pour une figure prise dans une ligne de texte. */
+  function figBlock(idx: number): FigBlock | null {
+    const p = model?.paragraphs[idx];
+    if (!p || p.story || !p.figure) return null;
+    let cap = -1;
+    const c = p.figure.caption;
+    if (c && /^p\d+$/.test(c)) {
+      const k = Number(c.slice(1));
+      const q = model!.paragraphs[k];
+      if (q && !q.story && q.id === c && Math.abs(k - idx) === 1) cap = k;
+    }
+    return { fig: idx, first: cap >= 0 ? Math.min(idx, cap) : idx, last: cap >= 0 ? Math.max(idx, cap) : idx };
+  }
+  /** Figure du bloc qui contient le paragraphe `k` (−1 : aucun). */
+  function figOwner(k: number): number {
+    const p = model?.paragraphs[k];
+    if (!p || p.story) return -1;
+    if (p.figure) return k;
+    for (const j of [k - 1, k + 1]) {
+      const b = figBlock(j);
+      if (b && k >= b.first && k <= b.last) return j;
+    }
+    return -1;
+  }
+  /** Paragraphe entièrement barré (l'ancienne place d'une figure déplacée). */
+  function figGone(k: number): boolean {
+    const p = model!.paragraphs[k];
+    const m = p.mark_change !== undefined ? changeMap.get(p.mark_change) : undefined;
+    return !!m && m.kind === "paragraph-del" && p.segments.every((s) => s.rev === "del" || s.rev === "moveFrom" || !s.text);
+  }
+  type Box = { l: number; t: number; r: number; b: number };
+  /** Ce qui est dessiné dans un paragraphe : images, zones de texte, lettres
+   *  (pas ses marges, ni l'intervalle qui le repousse à la page suivante). */
+  function figInk(el: HTMLElement, box: Box | null): Box | null {
+    const add = (q: DOMRect) => {
+      if (q.width < 0.5 || q.height < 0.5) return;
+      box = box ? { l: Math.min(box.l, q.left), t: Math.min(box.t, q.top), r: Math.max(box.r, q.right), b: Math.max(box.b, q.bottom) } : { l: q.left, t: q.top, r: q.right, b: q.bottom };
+    };
+    el.querySelectorAll<HTMLElement>("img, .d-sh").forEach((n) => { if (!n.closest(".d-gap")) add(n.getBoundingClientRect()); });
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const rg = document.createRange();
+    for (let t = walk.nextNode() as Text | null; t; t = walk.nextNode() as Text | null) {
+      if (!t.data.trim() || t.parentElement?.closest(".d-gap")) continue;
+      rg.selectNodeContents(t);
+      for (const q of Array.from(rg.getClientRects())) add(q);
+    }
+    return box;
+  }
+
+  /** Capsule : poignée et raccourcis si la figure se déplace, puis le menu. */
+  function figDraw() {
+    if (!fig || !model) return;
+    const blk = figBlock(fig.idx);
+    const p = model.paragraphs[fig.idx];
+    const withCaption = !!blk && (blk.last > blk.first || p.text.replace(/￼/g, "").trim() !== "");
+    const label = withCaption ? "Figure et légende" : "Figure";
+    const html = `${blk ? `<span class="fg-grip" data-tooltip="Glisser pour déplacer">${ic("grip", 14)}</span>` : ""}<span class="fg-lb">${label}</span>${blk ? `<small aria-label="Option flèche haut ou bas pour la déplacer d'un paragraphe">⌥↑ ⌥↓</small>` : ""}<i class="fg-vs"></i><button class="mini" data-act="more" aria-label="Actions sur la figure" aria-haspopup="menu" data-tooltip="Actions sur la figure">${ic("more", 14)}</button>`;
+    if (figCap.dataset.html !== html) { figCap.innerHTML = html; figCap.dataset.html = html; }
+    figCap.classList.toggle("mv", !!blk);
+  }
+  let figRaf = 0;
+  const figQueue = () => { if (fig && !figRaf) figRaf = requestAnimationFrame(figPlace); };
+  function figPlace() {
+    if (figRaf) { cancelAnimationFrame(figRaf); figRaf = 0; }
+    const chip = fig ? figChip(fig) : null;
+    const img = chip ? (chip.querySelector("img") as HTMLElement | null) : null;
+    if (!fig || !img || !model) { figLayer.classList.remove("on"); return; }
+    const host = scroller.getBoundingClientRect();
+    const dx = scroller.scrollLeft - host.left, dy = scroller.scrollTop - host.top;
+    const put = (el: HTMLElement, l: number, t: number, w: number, h: number) => {
+      el.style.transform = `translate(${Math.round(l + dx)}px, ${Math.round(t + dy)}px)`;
+      el.style.width = `${Math.round(w)}px`;
+      el.style.height = `${Math.round(h)}px`;
+    };
+    const ir = img.getBoundingClientRect();
+    put(figBox, ir.left, ir.top, ir.width, ir.height);
+    let fr: Box = { l: ir.left, t: ir.top, r: ir.right, b: ir.bottom };
+    let framed = false;
+    const blk = figBlock(fig.idx);
+    if (blk) {
+      let ink: Box | null = null;
+      for (let k = blk.first; k <= blk.last; k++) { const n = paraNode(k); if (n) ink = figInk(n, ink); }
+      if (ink && (ink.b - ink.t > ir.height + 2 || ink.r - ink.l > ir.width + 2)) {
+        fr = { l: ink.l - 8, t: ink.t - 8, r: ink.r + 8, b: ink.b + 4 };
+        framed = true;
+      }
+    }
+    figFrame.classList.toggle("on", framed);
+    if (framed) put(figFrame, fr.l, fr.t, fr.r - fr.l, fr.b - fr.t);
+    figCap.style.transform = `translate(${Math.round(Math.max(fr.l, host.left + 8) + dx)}px, ${Math.round(fr.t - 32 + dy)}px)`;
+    figLayer.classList.add("on");
+    if (bubAnchor) placeBubble();
+  }
+  const figWatch = new MutationObserver(figQueue);
+  new ResizeObserver(figQueue).observe(paper);
+
+  /** Le curseur se range devant la figure : ⌘Z, l'alignement de la barre et
+   *  la frappe partent de là (il n'est pas dessiné tant qu'elle est prise). */
+  function figCaret() {
+    const chip = fig ? figChip(fig) : null;
+    if (!fig || !chip) return;
+    if (document.activeElement !== paper) paper.focus({ preventScroll: true });
+    setCaret({ idx: fig.idx, off: Number(chip.dataset.off) });
+  }
+  function figSelect(idx: number, index: number) {
+    if (!model || !model.paragraphs[idx] || view === "original") return;
+    fig = { idx, index, key: figKey(idx) };
+    document.body.classList.add("fig-on");
+    figWatch.observe(paper, { childList: true, subtree: true });
+    figCaret();
+    figDraw();
+    figPlace();
+  }
+  function figClear() {
+    if (!fig) return;
+    if (figDrag) figEnd(true);
+    fig = null;
+    document.body.classList.remove("fig-on");
+    figWatch.disconnect();
+    figLayer.classList.remove("on");
+    if (openTrigger && figCap.contains(openTrigger)) closeMenu();
+  }
+  /** Après chaque modèle : la figure prise le reste si elle existe encore. */
+  function figSync() {
+    if (figDrag) figEnd(true);
+    if (!fig || !model) return;
+    let idx = fig.idx;
+    if (!model.paragraphs[idx] || figKey(idx) !== fig.key) idx = figIdxOf(fig.key);
+    const p = idx >= 0 ? paraNode(idx) : null;
+    if (!p || !figChips(p)[fig.index] || view === "original") { figClear(); return; }
+    fig.idx = idx;
+    if ((document.activeElement === paper || document.activeElement === document.body) && !caretNode()) figCaret();
+    figDraw();
+    figQueue();
+  }
+
+  /** Où poser le bloc : entre deux paragraphes de son conteneur, jamais entre
+   *  une autre figure et sa légende. `noop` : la place qu'il occupe déjà. */
+  function figSlots(blk: FigBlock): FigSlot[] {
+    const host = paraNode(blk.first)?.parentElement;
+    if (!host) return [];
+    const els = (Array.from(host.children) as HTMLElement[]).filter((el) => el.matches(".d-p") && el.getClientRects().length);
+    const hr = scroller.getBoundingClientRect();
+    const dx = scroller.scrollLeft - hr.left, dy = scroller.scrollTop - hr.top;
+    const rects = els.map((el) => el.getBoundingClientRect());
+    const idxs = els.map((el) => Number(el.dataset.idx));
+    const owners = idxs.map(figOwner);
+    const gone = idxs.map(figGone);
+    const mine = (k: number) => k >= blk.first && k <= blk.last;
+    const out: FigSlot[] = [];
+    for (let i = 0; i <= els.length; i++) {
+      const a = i > 0 ? i - 1 : -1, b = i < els.length ? i : -1;
+      if (a < 0 && b < 0) break;
+      if (a >= 0 && b >= 0 && ((owners[a] >= 0 && owners[a] === owners[b] && owners[a] !== blk.fig) || (gone[a] && gone[b]))) continue;
+      const noop = (a >= 0 && mine(idxs[a])) || (b >= 0 && mine(idxs[b]));
+      const q = rects[b >= 0 ? b : a];
+      let y: number;
+      if (a >= 0 && b >= 0) {
+        const gap = rects[b].top - rects[a].bottom;
+        y = gap >= 0 && gap < 48 ? rects[a].bottom + gap / 2 : rects[b].top - 6;
+      } else y = b >= 0 ? rects[b].top - 6 : rects[a].bottom + 6;
+      out.push({ x: q.left + dx, y: y + dy, w: q.width, to: idxs[b >= 0 ? b : a], after: b < 0, noop });
+    }
+    return out;
+  }
+  /** Déplace le bloc devant le paragraphe `to` (ou juste après lui). */
+  function figMoveTo(to: number, after: boolean) {
+    if (!fig || !model || !model.paragraphs[to]) return;
+    const toKey = figKey(to);
+    structural(async () => {
+      const t = figIdxOf(toKey);
+      if (!fig || !model || t < 0) return;
+      const got: { r?: { moved?: boolean; paragraph?: string; changes?: number[] } } = {};
+      const ok = await sendOp({ op: "move_figure", paragraph: ref(fig.idx), to: ref(t), after }, (_m, r) => { got.r = r; return null; });
+      const r = got.r;
+      if (!ok || !r || !model) return;
+      const k = /^p\d+$/.test(r.paragraph || "") ? Number(r.paragraph!.slice(1)) : -1;
+      if (k >= 0 && model.paragraphs[k] && !model.paragraphs[k].story) {
+        figSelect(k, 0);
+        reveal(paraNode(k));
+      }
+      if (r.moved) status(r.changes && r.changes.length ? "Figure déplacée, en suivi" : "Figure déplacée");
+    });
+  }
+  /** ⌥↑ / ⌥↓ : d'un paragraphe, en sautant une autre figure d'un bloc. */
+  function figStep(dir: number) {
+    if (!fig || !model) return;
+    const blk = figBlock(fig.idx);
+    if (!blk) { status(FIG_INLINE); return; }
+    const host = paraNode(blk.first)?.parentElement;
+    if (!host) return;
+    const sib = (Array.from(host.children) as HTMLElement[]).filter((el) => el.matches(".d-p")).map((el) => Number(el.dataset.idx));
+    let j = sib.indexOf(dir < 0 ? blk.first : blk.last) + dir;
+    while (j >= 0 && j < sib.length && figGone(sib[j])) j += dir;
+    if (j < 0 || j >= sib.length) { status(dir < 0 ? "Rien au-dessus où poser la figure" : "Rien en dessous où poser la figure"); return; }
+    const own = figOwner(sib[j]);
+    const other = own >= 0 ? figBlock(own) : null;
+    figMoveTo(other ? (dir < 0 ? other.first : other.last) : sib[j], dir > 0);
+  }
+
+  // Gestes à la souris : glisser le bloc, ou tirer un coin pour la taille.
+  function figArm(e: MouseEvent, corner = "") {
+    if (!fig || figDrag) return;
+    figDrag = { kind: corner ? "size" : "move", x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, on: false, raf: 0, blk: figBlock(fig.idx), slots: [], slot: null, corner, img: null, css0: "", w0: 0, h0: 0, w: 0, unit: 1, max: 0 };
+    if (corner) {
+      const chip = figChip(fig);
+      const img = chip ? (chip.querySelector("img") as HTMLElement | null) : null;
+      const host = chip ? (chip.closest(".d-p") as HTMLElement | null) : null;
+      if (!img || !host) { figDrag = null; return; }
+      const r = img.getBoundingClientRect();
+      const cs = getComputedStyle(host);
+      const d = figDrag;
+      d.img = img;
+      d.css0 = img.style.width;
+      d.w0 = d.w = r.width;
+      d.h0 = r.height;
+      d.unit = model!.page ? ptPx * 0.75 : 1;
+      d.max = Math.max(r.width, host.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+      const sr = scroller.getBoundingClientRect();
+      figWas.style.transform = `translate(${Math.round(r.left - sr.left + scroller.scrollLeft)}px, ${Math.round(r.top - sr.top + scroller.scrollTop)}px)`;
+      figWas.style.width = `${Math.round(r.width)}px`;
+      figWas.style.height = `${Math.round(r.height)}px`;
+    }
+    addEventListener("mousemove", figMove);
+    addEventListener("mouseup", figUp);
+  }
+  function figMove(e: MouseEvent) {
+    const d = figDrag;
+    if (!d || !fig) return;
+    d.x = e.clientX;
+    d.y = e.clientY;
+    if (d.kind === "size") { figSizing(d); return; }
+    if (!d.on) {
+      if (Math.hypot(d.x - d.x0, d.y - d.y0) < 5) return;
+      if (!d.blk) { figEnd(true); status(FIG_INLINE); return; }
+      d.on = true;
+      d.slots = figSlots(d.blk);
+      hideBubble();
+      closeMenu();
+      document.body.classList.add("fig-drag");
+      for (let k = d.blk.first; k <= d.blk.last; k++) paraNode(k)?.classList.add("fg-from");
+      const img = figChip(fig)?.querySelector("img");
+      figGhost.replaceChildren();
+      if (img) {
+        const copy = img.cloneNode() as HTMLImageElement;
+        copy.removeAttribute("style");
+        copy.alt = "";
+        figGhost.appendChild(copy);
+      }
+      figGhost.classList.add("on");
+      d.raf = requestAnimationFrame(figAuto);
+    }
+    figAim(d);
+  }
+  /** La vignette suit le pointeur ; la barre prend la place la plus proche. */
+  function figAim(d: FigDrag) {
+    const host = scroller.getBoundingClientRect();
+    figGhost.style.transform = `translate(${d.x + 12}px, ${d.y + 12}px)`;
+    const y = d.y - host.top + scroller.scrollTop;
+    let best: FigSlot | null = null;
+    for (const s of d.slots) if (!best || Math.abs(s.y - y) < Math.abs(best.y - y)) best = s;
+    d.slot = best && !best.noop ? best : null;
+    figBar.classList.toggle("on", !!d.slot);
+    if (d.slot) {
+      figBar.style.transform = `translate(${Math.round(d.slot.x)}px, ${Math.round(d.slot.y - 1)}px)`;
+      figBar.style.width = `${Math.round(d.slot.w)}px`;
+    }
+  }
+  /** Près d'un bord, la page défile sous la figure qu'on tient. */
+  function figAuto() {
+    const d = figDrag;
+    if (!d || !d.on || d.kind !== "move") return;
+    const sr = scroller.getBoundingClientRect();
+    const v = d.y < sr.top + 56 ? -(sr.top + 56 - d.y) / 4 : d.y > sr.bottom - 56 ? (d.y - sr.bottom + 56) / 4 : 0;
+    if (v) {
+      scroller.scrollTop += Math.max(-24, Math.min(24, Math.round(v)));
+      figAim(d);
+    }
+    d.raf = requestAnimationFrame(figAuto);
+  }
+  /** Un coin tiré : proportions gardées, largeur annoncée en centimètres. */
+  function figSizing(d: FigDrag) {
+    if (!d.img) return;
+    const sx = d.corner.includes("r") ? 1 : -1, sy = d.corner.includes("b") ? 1 : -1;
+    const kx = (d.w0 + sx * (d.x - d.x0)) / d.w0, ky = (d.h0 + sy * (d.y - d.y0)) / d.h0;
+    d.w = Math.max(24 * d.unit, Math.min(d.max, d.w0 * (Math.abs(kx - 1) > Math.abs(ky - 1) ? kx : ky)));
+    if (!d.on) {
+      if (Math.abs(d.w - d.w0) < 2) return;
+      d.on = true;
+      hideBubble();
+      closeMenu();
+      document.body.classList.add("fig-size");
+      figWas.classList.add("on");
+      figTip.classList.add("on");
+    }
+    d.img.style.width = `${d.w}px`;
+    figTip.textContent = `${figCm(d.w / d.unit)} cm`;
+    figTip.style.transform = `translate(${d.x + 14}px, ${d.y + 14}px)`;
+    figPlace();
+  }
+  function figUp() {
+    const d = figDrag;
+    if (!d) return;
+    if (d.kind === "size") {
+      const changed = d.on && Math.abs(d.w - d.w0) >= 2;
+      const width = Math.round(d.w / d.unit);
+      figEnd(!changed);
+      if (changed) figResize(width);
+      return;
+    }
+    const slot = d.on ? d.slot : null;
+    figEnd(false);
+    if (slot) figMoveTo(slot.to, slot.after);
+  }
+  /** Fin d'un geste ; `cancel` : la taille en cours revient à ce qu'elle était. */
+  function figEnd(cancel: boolean) {
+    const d = figDrag;
+    if (!d) return;
+    figDrag = null;
+    removeEventListener("mousemove", figMove);
+    removeEventListener("mouseup", figUp);
+    cancelAnimationFrame(d.raf);
+    document.body.classList.remove("fig-drag", "fig-size");
+    paper.querySelectorAll(".fg-from").forEach((x) => x.classList.remove("fg-from"));
+    for (const el of [figGhost, figBar, figWas, figTip]) el.classList.remove("on");
+    if (d.kind === "size" && cancel && d.img) { d.img.style.width = d.css0; figQueue(); }
+  }
+  function figResize(width: number) {
+    structural(async () => {
+      if (!fig || !model) return;
+      const ok = await sendOp({ op: "resize_image", paragraph: ref(fig.idx), index: fig.index, width }, () => null);
+      // Refusée, ou ramenée à la même largeur : la page reprend la taille du document.
+      if (fig) { repaint(fig.idx); figSync(); }
+      if (ok) status(tracked ? `Figure à ${figCm(width)} cm de large. Word ne suit pas les tailles : ⌘Z pour revenir.` : `Figure à ${figCm(width)} cm de large`);
+    });
+  }
+
+  // Menu de la figure : remplacer, aligner, texte de remplacement, supprimer.
+  function figMenu(trigger: HTMLElement) {
+    if (!fig || !model) return;
+    const p = model.paragraphs[fig.idx];
+    const cur = p.align || p.look?.align || "left";
+    const align = (a: string) => () => structural(async () => {
+      if (fig) await sendOp({ op: "format_paragraph", paragraph: ref(fig.idx), props: { align: a } }, () => null);
+    });
+    showMenu(trigger, [
+      { label: "Remplacer par une figure du projet…", run: () => void figReplace(trigger) },
+      { label: "", sep: true },
+      { label: "Aligner à gauche", on: cur === "left" || cur === "both", run: align("left") },
+      { label: "Centrer", on: cur === "center", run: align("center") },
+      { label: "Aligner à droite", on: cur === "right", run: align("right") },
+      { label: "", sep: true },
+      { label: "Texte de remplacement…", run: figAlt },
+      { label: "", sep: true },
+      { label: "Supprimer la figure", html: `<span>Supprimer la figure</span>${hint("⌫")}`, danger: true, run: figDelete },
+    ]);
+  }
+  async function figReplace(trigger: HTMLElement) {
+    let list: { path: string }[] = [];
+    try { list = (await api("/docx/figures")).figures || []; } catch (err: any) { status(err.message || String(err), true); return; }
+    if (!fig) return;
+    const items: Item[] = list.length
+      ? list.map((f) => ({
+        label: f.path,
+        html: `<span class="mi-fig"><img src="/${f.path.split("/").map(enc).join("/")}" alt="" loading="lazy"><span>${esc(f.path)}</span></span>`,
+        run: () => structural(async () => {
+          if (!fig) return;
+          const ok = await sendOp({ op: "replace_image", paragraph: ref(fig.idx), index: fig.index, path: f.path }, () => null);
+          if (ok) status(tracked ? "Figure remplacée, en suivi" : "Figure remplacée");
+        }),
+      }))
+      : [{ label: "Aucune image PNG, JPEG ou GIF dans le projet" }];
+    showMenu(trigger, items);
+  }
+  function figAlt() {
+    if (!fig || !model) return;
+    const seg = figSeg(fig);
+    showPopAt(figCap.getBoundingClientRect(), `<label>Texte de remplacement (lu par les lecteurs d'écran, gardé dans le .docx)<input value="${esc(seg?.alt || "")}"></label><div class="c-foot"><button class="btn" data-x="cancel">Annuler</button><button class="btn primary" data-x="send">Enregistrer</button></div>`);
+    const input = pop.querySelector("input")!;
+    input.focus();
+    input.select();
+    const save = () => {
+      const alt = input.value.trim();
+      hidePop();
+      structural(async () => {
+        if (!fig) return;
+        const ok = await sendOp({ op: "set_image_alt", paragraph: ref(fig.idx), index: fig.index, alt }, () => null);
+        if (ok) status("Texte de remplacement enregistré");
+      });
+    };
+    pop.querySelector('[data-x="send"]')!.addEventListener("click", save);
+    pop.querySelector('[data-x="cancel"]')!.addEventListener("click", hidePop);
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") save();
+      else if (ev.key === "Escape") { ev.stopPropagation(); hidePop(); }
+    });
+  }
+  function figDelete() {
+    if (!fig || !model || view === "original") return;
+    const at = { idx: fig.idx, index: fig.index };
+    figClear();
+    structural(async () => {
+      const ok = await sendOp({ op: "delete_image", paragraph: ref(at.idx), index: at.index }, () => null);
+      if (ok) status(tracked ? "Figure supprimée, en suivi" : "Figure supprimée");
+    });
+  }
+
+  paper.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || view === "original" || !model) return;
+    const chip = figChipAt(e.target);
+    const p = chip ? (chip.closest(".d-p") as HTMLElement | null) : null;
+    if (!chip || !p || p.dataset.idx === undefined) return;
+    const index = figChips(p).indexOf(chip);
+    if (index < 0) return;
+    // Ni sélection native ni glisser natif : la figure se prend d'un bloc.
+    e.preventDefault();
+    const idx = Number(p.dataset.idx);
+    if (!fig || fig.idx !== idx || fig.index !== index) figSelect(idx, index); else figCaret();
+    figArm(e);
+  });
+  figLayer.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || !fig) return;
+    const t = e.target as HTMLElement;
+    const h = t.closest<HTMLElement>(".fg-h");
+    e.preventDefault();
+    if (h) figArm(e, h.dataset.h || "br");
+    else if (t.closest(".fg-cap") && !t.closest("button")) figArm(e);
+  });
+  figCap.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act="more"]');
+    if (b) figMenu(b);
+  });
+  // Un clic ailleurs dans la page ou la marge la lâche.
+  document.addEventListener("mousedown", (e) => {
+    if (!fig) return;
+    const t = e.target as HTMLElement;
+    if (figChipAt(t) || t.closest("#figui,.menu,.pop,#bub,#toast")) return;
+    figClear();
+  });
+  // Clavier : Échap lâche, ⌥↑ ⌥↓ déplacent, ⌫ supprime ; toute autre touche
+  // rend la main au curseur.
+  document.addEventListener("keydown", (e) => {
+    if (!fig || e.isComposing) return;
+    if (figDrag) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); figEnd(true); }
+      return;
+    }
+    const t = e.target as HTMLElement | null;
+    if (openMenu || (t && t !== paper && t !== document.body && !figLayer.contains(t))) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); figClear(); hideBubble(); placeCaret(); return; }
+    if (e.altKey && !mod && !e.shiftKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
+      e.preventDefault();
+      e.stopPropagation();
+      figStep(e.code === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (!mod && !e.altKey && (e.key === "Backspace" || e.key === "Delete")) { e.preventDefault(); e.stopPropagation(); figDelete(); return; }
+    if (mod || ["Shift", "Alt", "Meta", "Control", "CapsLock"].includes(e.key)) return;
+    figClear();
+    placeCaret();
+  }, true);
 
   // ------------------------------------------------- équation en LaTeX
   // Un clic sur une équation (ou Entrée quand elle est sélectionnée) ouvre sa
@@ -5264,7 +5815,7 @@
     if (rm.dataset.html !== head) { rm.innerHTML = head; rm.dataset.html = head; }
     ($("revBar") as HTMLElement).style.width = `${tops.length ? (100 * done / tops.length).toFixed(1) : 0}%`;
     $("revDone").textContent = tops.length ? `${nf(done)} réglé${done > 1 ? "s" : ""} sur ${nf(tops.length)}` : "Aucun commentaire";
-    $("revCh").textContent = pl(model.changes.length, "modif", "modifs");
+    $("revCh").textContent = pl(shownChanges().length, "modif", "modifs");
     $("tabComN").textContent = tops.length - done ? String(tops.length - done) : "";
     // L'onglet Commentaires de la surface Documents affiche le même compte.
     if (HOSTED && sentCount !== tops.length - done) {
@@ -6005,7 +6556,7 @@
     $("laneN").textContent = open ? nf(open) : "";
     $("ftOpen").innerHTML = [
       pl(open, "commentaire ouvert", "commentaires ouverts"),
-      pl(model.changes.length, "modification", "modifications"),
+      pl(shownChanges().length, "modification", "modifications"),
       ...(pending.length ? [`${nf(pending.length)} de ${esc(agentNames.join(", "))} en attente`] : []),
       ...(other ? [`<span data-tooltip="Notes de bas de page, en-têtes ou pieds de page : à traiter dans Word">${nf(other)} hors du texte</span>`] : []),
     ].join(" · ");
