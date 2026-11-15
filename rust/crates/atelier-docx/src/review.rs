@@ -32,6 +32,10 @@ pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
 /// [`decide`], qui rend les suivis décidés avec `id` (son geste dans une
 /// équation, `id` compris) : une suite de décisions saute ceux-là.
 pub fn decide_group(docx: &mut Docx, id: u32, decision: Decision) -> Result<Vec<u32>> {
+    // Figure déplacée : l'ancienne place et la nouvelle se décident ensemble.
+    if let Some(ids) = crate::figure::settle(docx, id, decision)? {
+        return Ok(ids);
+    }
     let mut group = math_group(docx, id)?;
     decide_one(docx, id, decision)?;
     for other in group.iter().copied().filter(|o| *o != id) {
@@ -60,7 +64,7 @@ fn math_group(docx: &mut Docx, id: u32) -> Result<Vec<u32>> {
     Ok(Vec::new())
 }
 
-fn decide_one(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
+pub(crate) fn decide_one(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
     // La partie (corps, note, en-tête) qui porte ce suivi.
     let mut found = None;
     for part in docx.story_parts() {
@@ -105,7 +109,12 @@ fn decide_one(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
 /// imbriqué, paragraphes fusionnés à la suite) attendent la passe suivante,
 /// qui les voit dans le XML déjà retouché, comme un traitement un par un.
 pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> Result<Batch> {
-    decide_where(docx, decision, &|n: Node| author.is_none_or(|a| w_attr(n, "author") == Some(a)))
+    // Les figures déplacées d'abord, chacune d'un bloc : refusée, elle
+    // retrouve sa place avec ses signets et ses commentaires.
+    let moved = crate::figure::settle_all(docx, decision, author)?;
+    let mut batch = decide_where(docx, decision, &|n: Node| author.is_none_or(|a| w_attr(n, "author") == Some(a)))?;
+    batch.done += moved;
+    Ok(batch)
 }
 
 /// Les suivis `ids` d'un coup (« accepter les retouches mineures ») : même

@@ -152,6 +152,17 @@ fn op_of(action: &str, req: &Value) -> Result<Op, String> {
             paragraph: paragraph.ok_or("paragraph manquant : le paragraphe de la figure (p65)")?,
             index: figure_index(req)?,
         },
+        // Figure seule dans son paragraphe, déplacée avec sa légende devant ou
+        // après un autre paragraphe ; en suivi comme Word (ancienne place
+        // barrée, nouvelle ajoutée), décidé d'un seul geste par l'utilisateur.
+        "move_figure" => {
+            let figure = paragraph.ok_or("paragraph manquant : le paragraphe de la figure (p65)")?;
+            match (str_arg(req, "after"), str_arg(req, "before")) {
+                (Some(to), None) => Op::MoveFigure { paragraph: figure, to: to.to_string(), after: true },
+                (None, Some(to)) => Op::MoveFigure { paragraph: figure, to: to.to_string(), after: false },
+                _ => return Err("after ou before manquant : le paragraphe après lequel (after=p12) ou devant lequel (before=p12) poser la figure, un seul des deux".into()),
+            }
+        }
         // Réunit `paragraph` au paragraphe qui le précède (sa marque de fin
         // est supprimée en suivi), comme Suppr en fin du paragraphe d'avant.
         "join" => Op::Join { paragraph: paragraph.ok_or("paragraph manquant : le second des deux paragraphes à réunir (p8 pour réunir p7 et p8)")? },
@@ -856,6 +867,10 @@ fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: 
         "Figure remplacée en suivi, à la même place et à la même largeur, dans le même paragraphe (même style) : l'ancienne barrée, la nouvelle ajoutée juste après. Regarde-la avec images (paragraph) avant de le dire à l'utilisateur ; il accepte ou refuse."
     } else if action == "delete_figure" {
         "Figure effacée en suivi (barrée) : l'utilisateur accepte ou refuse. Sa légende et le paragraphe restent : retouche-les à part si besoin."
+    } else if action == "move_figure" && out["result"]["moved"] == json!(false) {
+        "La figure est déjà à cette place : rien n'a changé dans le document."
+    } else if action == "move_figure" {
+        "Figure déplacée en suivi avec sa légende : ancienne place barrée, nouvelle ajoutée (`now` = son nouveau paragraphe). L'utilisateur accepte ou refuse le déplacement d'un seul geste ; les numéros de figure se recalculent dans Word."
     } else if action == "edit_comment" {
         "Commentaire de l'utilisateur corrigé dans le .docx, toujours à son nom : dis-lui en une phrase ce que tu as changé."
     } else if action == "withdraw_comment" {
@@ -1330,6 +1345,59 @@ mod tests {
         let figs: Vec<_> = m.paragraphs.iter().find(|x| x.id == p).unwrap().segments.iter().filter(|s| s.media.is_some()).map(|s| s.rev).collect();
         assert_eq!(figs, [Some("del")]);
         assert!(run(root, "claude", "delete_figure", &json!({"path": "article.docx"})).unwrap_err().contains("paragraph manquant"));
+    }
+
+    /// Thierry, 2026-11-15 : « pour que l'agent puisse la déplacer aussi ».
+    #[test]
+    fn l_agent_deplace_une_figure_en_suivi() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let (fi, fig) = m.paragraphs.iter().enumerate().find(|(_, p)| p.figure.is_some()).expect("une figure seule dans son paragraphe");
+        let p = fig.id.clone();
+        assert!(fi > 0, "la figure n'ouvre pas le document");
+
+        // La légende porte un suivi du relecteur : refusé, avec la marche à suivre.
+        let before = std::fs::read(&path).unwrap();
+        let e = run(root, "claude", "move_figure", &json!({"path": "article.docx", "paragraph": p, "before": "p0"})).unwrap_err();
+        assert!(e.contains("modifications en attente"), "{e}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        // Une fois ces suivis décidés par l'utilisateur, la figure se déplace.
+        let sig = Signature::now("Thierry");
+        let origin = atelier_docx::history::Origin { source: "user", author: "Thierry", label: "revue" };
+        atelier_docx::edit_file_as(&path, None, &origin, |d| ops::apply(d, &serde_json::from_value(json!({"op": "accept_all"})).unwrap(), false, &sig)).unwrap();
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        let (fi, fig) = m.paragraphs.iter().enumerate().find(|(_, p)| p.figure.is_some()).expect("la figure est toujours là");
+        let p = fig.id.clone();
+
+        // Sans destination, ou avec les deux : rien n'est écrit.
+        let before = std::fs::read(&path).unwrap();
+        assert!(run(root, "claude", "move_figure", &json!({"path": "article.docx", "paragraph": p})).unwrap_err().contains("after ou before"));
+        assert!(run(root, "claude", "move_figure", &json!({"path": "article.docx", "paragraph": p, "after": "p0", "before": "p0"})).unwrap_err().contains("un seul des deux"));
+        assert!(run(root, "claude", "move_figure", &json!({"path": "article.docx", "after": "p0"})).unwrap_err().contains("paragraph manquant"));
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        // Déjà devant ce paragraphe : dit, sans rien écrire.
+        let r = run(root, "claude", "move_figure", &json!({"path": "article.docx", "paragraph": p, "after": format!("p{}", fi - 1)})).unwrap();
+        assert!(r["note"].as_str().unwrap().contains("déjà à cette place"), "{r}");
+
+        // En tête du document, en suivi au nom de l'utilisateur, d'un geste.
+        let r = run(root, "claude", "move_figure", &json!({"path": "article.docx", "paragraph": p, "before": "p0"})).unwrap();
+        assert_eq!(r["author"], "Thierry", "{r}");
+        assert_eq!(r["result"]["paragraph"], "p0", "{r}");
+        assert!(r["now"].as_str().unwrap().starts_with("p0 "), "{r}");
+        assert!(r["note"].as_str().unwrap().contains("ancienne place barrée"), "{r}");
+        let m = Docx::open(&path).unwrap().model().unwrap();
+        assert!(m.paragraphs[0].segments.iter().any(|s| s.media.is_some() && s.rev == Some("ins")));
+        let ids: Vec<u32> = r["result"]["changes"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u32).collect();
+        assert_eq!(ids.len(), 4);
+        let group: Vec<_> = m.changes.iter().filter(|c| ids.contains(&c.id)).map(|c| c.group).collect();
+        assert!(group.iter().all(|g| g.is_some() && *g == group[0]), "un seul geste : {group:?}");
+        // Les suivis sont notés comme venant de l'agent.
+        assert!(atelier_docx::marks::list(&path, &m).unwrap().len() >= 4);
     }
 
     #[test]

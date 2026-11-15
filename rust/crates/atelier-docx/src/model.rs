@@ -82,6 +82,10 @@ pub struct Para {
     /// seule : elles se modifient dans Word).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shapes: Vec<Shape>,
+    /// Figure seule dans son paragraphe : elle se déplace d'un bloc, avec
+    /// sa légende (corps du document seulement).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub figure: Option<crate::figure::FigureBlock>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -167,6 +171,11 @@ pub struct Change {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paragraph: Option<String>,
     pub text: String,
+    /// Figure déplacée : l'ancienne place barrée et la nouvelle ajoutée ne
+    /// font qu'un geste. Tous ses suivis portent l'identifiant du premier
+    /// de la nouvelle place, et se décident ensemble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<u32>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -300,6 +309,8 @@ struct Acc {
     by_id: HashMap<u32, usize>,
     quotes: BTreeMap<u32, String>,
     anchors: HashMap<u32, String>,
+    /// Styles de légende (identifiants).
+    captions: std::collections::HashSet<String>,
 }
 
 /// Paragraphes d'une histoire (corps, note, en-tête), suivis compris.
@@ -329,6 +340,7 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
                 date: w_attr(node, "date").unwrap_or("").to_string(),
                 paragraph: None,
                 text,
+                group: None,
             });
         }
     }
@@ -358,9 +370,12 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
     }
 
     let mut paragraphs = Vec::new();
+    // Conteneur de chaque paragraphe : une figure et sa légende partagent le leur.
+    let mut parents: Vec<Option<roxmltree::NodeId>> = Vec::new();
     let mut state = walk::State::default();
     for (index, pref) in para_nodes.into_iter().enumerate() {
         let p = pref.node;
+        parents.push(p.parent().map(|n| n.id()));
         let id = format!("{prefix}p{index}");
         let inline = walk::inline(src, p, &mut state);
         let ppr = w_child(p, "pPr");
@@ -452,7 +467,12 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
             segments,
             look: styles.paragraph(p),
             shapes,
+            figure: None,
         });
+    }
+    if *scope == Scope::Body {
+        crate::figure::blocks(&mut paragraphs, &parents, &acc.captions, &acc.changes);
+        crate::figure::pair(&paragraphs, &mut acc.changes);
     }
     // Espacement contextuel : rien entre deux paragraphes du même style.
     for k in 1..paragraphs.len() {
@@ -476,7 +496,7 @@ pub fn build(docx: &mut Docx) -> Result<DocModel> {
     let src = docx.document_xml().to_string();
     // Chaque partie n'est analysée qu'une fois : c'est l'essentiel du coût.
     let body_doc = xml::parse(&src)?;
-    let mut acc = Acc::default();
+    let mut acc = Acc { captions: crate::figure::caption_styles(styles.as_deref()), ..Acc::default() };
     let page = crate::layout::page_in(&body_doc, &looks);
     let palette = shapes::Palette::read(theme.as_deref());
     let draw = shapes::Cx { styles: &looks, palette: &palette, page: page.as_ref() };

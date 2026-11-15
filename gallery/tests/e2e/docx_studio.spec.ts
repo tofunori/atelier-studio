@@ -1239,6 +1239,155 @@ test("docx: une figure remplacée par l'agent : l'ancienne barrée, la nouvelle 
   expect(errors).toEqual([]);
 });
 
+// Figure à la main : la copie de Christophe porte une retouche en attente
+// dans la légende ; on règle tout d'abord, comme avant de bouger une figure.
+async function settled(page: Page, project: {url: string; doc: string}) {
+  const m = await disk(page, project);
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', tracked: false, op: {op: 'accept_all'}}});
+  expect(r.ok(), await r.text()).toBe(true);
+  await open(page, project);
+  return disk(page, project);
+}
+const figAt = (m: Model, live = true) => m.paragraphs.findIndex(p => p.segments.some(s => s.media && (live ? s.rev !== 'del' : s.rev === 'del')));
+
+test("docx: une figure se déplace à la main avec sa légende, en suivi, et se règle d'un seul geste", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const m0 = await settled(page, project);
+  const from = figAt(m0);
+  expect(m0.paragraphs[from + 1].text).toContain('Figure 2.4');
+  expect(m0.changes).toEqual([]);
+
+  // Un clic la prend : cadre, poignées, capsule « Figure et légende ».
+  await page.locator(`.d-p[data-idx="${from}"] .chip.fig img`).click();
+  await expect(page.locator('body')).toHaveClass(/fig-on/);
+  await expect(page.locator('#figui .fg-cap')).toContainText('Figure et légende');
+  await expect(page.locator('#figui .fg-h')).toHaveCount(4);
+
+  // ⌥↑ : un paragraphe plus haut, la légende suit, l'ancienne place reste barrée.
+  await page.keyboard.press('Alt+ArrowUp');
+  await expect.poll(async () => figAt(await disk(page, project))).toBeLessThan(from);
+  let m = await disk(page, project);
+  const to = figAt(m);
+  expect(m.paragraphs[to + 1].text).toContain('Figure 2.4');
+  expect(figAt(m, false)).toBeGreaterThan(to);
+  expect(m.changes.length).toBe(4);
+  expect(new Set(m.changes.map(c => (c as {group?: number}).group)).size).toBe(1);
+  // Une seule fiche dans la marge, une seule modification au compteur.
+  await expect(page.locator('#cards .ch.mv')).toHaveCount(1);
+  await expect(page.locator('#cards .ch.mv')).toContainText('Figure déplacée');
+  await expect(page.locator('#cards .it.grp')).toHaveCount(1);
+  await expect(page.locator('#ftOpen')).toContainText('1 modification');
+  // Elle reste prise à sa nouvelle place.
+  await expect(page.locator('body')).toHaveClass(/fig-on/);
+  await expect(page.locator(`.d-p[data-idx="${to}"] .chip.fig.ins img`)).toBeVisible();
+
+  // Lecture : l'ancienne place ne laisse ni figure ni ligne vide.
+  await page.locator('#ddView').click();
+  await page.locator('.menu.show .mi', {hasText: 'Lecture'}).click();
+  await expect(page.locator('#paper .d-p.mv-old').first()).toBeHidden();
+  await expect(page.locator('#paper .chip.fig img:visible')).toHaveCount(1);
+  await page.locator('#ddView').click();
+  await page.locator('.menu.show .mi', {hasText: 'Révision'}).click();
+  await expect(page.locator('#paper .d-p.mv-old').first()).toBeVisible();
+
+  // Refuser la fiche la remet à sa place, sans trace.
+  await page.locator('#cards .ch.mv [data-act="rejectAll"]').click();
+  await expect.poll(async () => (await disk(page, project)).changes.length).toBe(0);
+  m = await disk(page, project);
+  expect(figAt(m)).toBe(from);
+  expect(m.paragraphs.map(p => p.text)).toEqual(m0.paragraphs.map(p => p.text));
+
+  // Glisser à la souris : la barre d'atterrissage suit, le lâcher la pose.
+  const img = page.locator(`.d-p[data-idx="${from}"] .chip.fig img`);
+  await expect(img).toBeVisible();
+  await page.locator('#scroll').evaluate(el => { el.scrollTop = 0; });
+  const a = (await img.boundingBox())!;
+  const dest = (await page.locator('.d-p[data-idx="1"]').boundingBox())!;
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2 - 20, {steps: 4});
+  await page.mouse.move(dest.x + 80, dest.y + 4, {steps: 8});
+  await expect(page.locator('body')).toHaveClass(/fig-drag/);
+  await expect(page.locator('.fg-ghost')).toHaveClass(/on/);
+  await expect(page.locator('#figui .fg-bar')).toBeVisible();
+  await page.mouse.up();
+  await expect.poll(async () => figAt(await disk(page, project))).toBe(1);
+  await expect(page.locator('body')).not.toHaveClass(/fig-drag/);
+  // Accepter : la figure et sa légende à la nouvelle place, plus rien à l'ancienne.
+  await page.locator('#cards .ch.mv [data-act="acceptAll"]').click();
+  await expect.poll(async () => (await disk(page, project)).changes.length).toBe(0);
+  m = await disk(page, project);
+  expect(figAt(m)).toBe(1);
+  expect(m.paragraphs[2].text).toContain('Figure 2.4');
+  expect(m.paragraphs.filter(p => p.segments.some(s => s.media)).length).toBe(1);
+  expect(m.paragraphs.length).toBe(m0.paragraphs.length);
+  await expect(page.locator('#paper .chip.fig img')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test("docx: une figure prise à la main : taille par un coin, texte de remplacement, alignement, suppression", async ({page, project}) => {
+  const errors: string[] = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const m0 = await settled(page, project);
+  const idx = figAt(m0);
+  const seg = async () => (await disk(page, project)).paragraphs[idx].segments.find(s => s.media && s.rev !== 'del') as {width?: number; height?: number; alt?: string} | undefined;
+  const w0 = (await seg())!.width!;
+  const h0 = (await seg())!.height!;
+  const img = page.locator(`.d-p[data-idx="${idx}"] .chip.fig:not(.del) img`);
+  await img.click();
+  await expect(page.locator('body')).toHaveClass(/fig-on/);
+
+  // Tirer le coin bas-droit vers l'intérieur : plus petite, mêmes proportions.
+  const h = (await page.locator('#figui .fg-h.br').boundingBox())!;
+  const b = (await img.boundingBox())!;
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(h.x + h.width / 2 - b.width / 4, h.y + h.height / 2 - b.height / 4, {steps: 6});
+  await expect(page.locator('.fg-tip')).toHaveClass(/on/);
+  await expect(page.locator('.fg-tip')).toContainText('cm');
+  await page.mouse.up();
+  await expect.poll(async () => (await seg())!.width!).toBeLessThan(w0 - 4);
+  const s1 = (await seg())!;
+  expect(Math.abs(s1.width! / s1.height! - w0 / h0)).toBeLessThan(0.05);
+  await expect(page.locator('body')).toHaveClass(/fig-on/);
+  // Échap pendant un geste l'annule : la taille ne bouge pas.
+  const h2 = (await page.locator('#figui .fg-h.br').boundingBox())!;
+  await page.mouse.move(h2.x + h2.width / 2, h2.y + h2.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(h2.x + 40, h2.y + 40, {steps: 4});
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  expect((await seg())!.width).toBe(s1.width);
+
+  // Menu de la figure : texte de remplacement.
+  await page.locator('#figui .fg-cap [data-act="more"]').click();
+  await expect(page.locator('.menu.show .mi')).toHaveCount(6);
+  await page.locator('.menu.show .mi', {hasText: 'Texte de remplacement'}).click();
+  await page.getByRole('textbox', {name: /Texte de remplacement/}).fill('Fraction de glace par zone, 2019');
+  await page.keyboard.press('Enter');
+  await expect.poll(async () => (await seg())!.alt).toBe('Fraction de glace par zone, 2019');
+  await expect(img).toHaveAttribute('alt', 'Fraction de glace par zone, 2019');
+
+  // Alignement : la coche suit.
+  await page.locator('#figui .fg-cap [data-act="more"]').click();
+  await page.locator('.menu.show .mi', {hasText: 'Aligner à droite'}).click();
+  await expect.poll(async () => (await disk(page, project)).paragraphs[idx].align).toBe('right');
+  await page.locator('#figui .fg-cap [data-act="more"]').click();
+  await expect(page.locator('.menu.show .mi', {has: page.locator('svg')})).toHaveText('Aligner à droite');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu.show')).toHaveCount(0);
+  await expect(page.locator('body')).toHaveClass(/fig-on/);
+
+  // Retour arrière : supprimée en suivi, plus rien de pris.
+  await page.keyboard.press('Backspace');
+  await expect.poll(async () => figAt(await disk(page, project))).toBe(-1);
+  expect(figAt(await disk(page, project), false)).toBe(idx);
+  await expect(page.locator('body')).not.toHaveClass(/fig-on/);
+  expect(errors).toEqual([]);
+});
+
 test('docx: lignes et colonnes de tableau depuis la barre', async ({page, project}) => {
   await open(page, project);
   const cells = async () => (await disk(page, project)).paragraphs.filter(p => (p as {cell?: number[]}).cell).length;

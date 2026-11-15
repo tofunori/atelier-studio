@@ -16,7 +16,7 @@ const REL_ENDNOTES: &str = "http://schemas.openxmlformats.org/officeDocument/200
 const REL_IMAGE: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
 pub(crate) const STYLES: &str = "word/styles.xml";
 /// Pixels → EMU (96 ppp).
-const EMU_PX: u64 = 9525;
+pub(crate) const EMU_PX: u64 = 9525;
 
 #[derive(Debug, Serialize)]
 pub struct Inserted {
@@ -378,7 +378,7 @@ fn sniff(b: &[u8]) -> Option<(&'static str, u32, u32)> {
 }
 
 /// Largeur du texte (EMU) : page moins marges de la dernière section.
-fn text_width(docx: &mut Docx) -> Result<u64> {
+pub(crate) fn text_width(docx: &mut Docx) -> Result<u64> {
     let src = docx.part(DOCUMENT)?.unwrap_or_default();
     let doc = xml::parse(&src)?;
     let twips = |n: Option<roxmltree::Node>, a: &str| n.and_then(|n| w_attr(n, a)).and_then(|v| v.parse::<u64>().ok());
@@ -390,7 +390,7 @@ fn text_width(docx: &mut Docx) -> Result<u64> {
 }
 
 /// Plus grand `wp:docPr/@id` du document : chaque dessin a le sien.
-fn max_docpr(docx: &mut Docx) -> Result<u64> {
+pub(crate) fn max_docpr(docx: &mut Docx) -> Result<u64> {
     let mut max = 0;
     for part in docx.story_parts() {
         let src = docx.part(&part)?.unwrap_or_default();

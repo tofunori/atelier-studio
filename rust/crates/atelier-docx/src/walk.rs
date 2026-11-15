@@ -175,6 +175,8 @@ pub struct Media {
     pub crop: Option<[f64; 4]>,
     /// Graphique d'Excel (`c:chart`) plutôt qu'une image.
     pub chart: bool,
+    /// Position dans le XML du `w:drawing`, `w:pict` ou `w:object` qui la porte.
+    pub at: Range<usize>,
 }
 
 #[derive(Default)]
@@ -708,7 +710,7 @@ fn media_of(node: Node) -> Option<Media> {
         let c = [frac("l"), frac("t"), frac("r"), frac("b")].map(|v| v.unwrap_or(0.0));
         c.iter().any(|v| *v != 0.0).then_some(c)
     });
-    Some(Media { rel, cx, cy, descr, crop, chart: is_chart })
+    Some(Media { rel, cx, cy, descr, crop, chart: is_chart, at: node.range() })
 }
 
 fn push(ctx: &Ctx, state: &State, out: &mut Inline, text: String, kind: Kind, fmt: Fmt, run: Option<(usize, usize)>) {

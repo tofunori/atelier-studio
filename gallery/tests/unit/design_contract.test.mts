@@ -258,8 +258,9 @@ test("l'infobulle commune est chargée partout où le pont de thème l'est, et d
 // jamais à l'encre (--text-primary / --txt = blanc en sombre).
 test("aucun bouton des éditeurs ne prend l'encre comme fond : jetons --fill-*", () => {
   const inkFill = /background(?:-color)?:\s*var\(--(?:text-primary|txt|fg)\b/;
-  // marques non cliquables : caret du .docx, trait de lecture LaTeX
-  const allowed = new Set(["#caret", ".tr-mark[data-here] .tr-mark-sign"]);
+  // marques non cliquables : caret du .docx, trait de lecture LaTeX, barre
+  // d'atterrissage d'une figure qu'on glisse (.docx)
+  const allowed = new Set(["#caret", ".tr-mark[data-here] .tr-mark-sign", ".fg-bar", ".fg-bar::before,.fg-bar::after"]);
   const files = ["assets/latex_studio.css", "assets/pdf_viewer.html", "assets/docx_studio.css",
     "assets/annotation_ui.css", "src/browser/annot_kit.ts", "src/browser/diff_versions.ts", "react-ui/styles.css"];
   const offenders: string[] = [];

@@ -174,6 +174,7 @@ mod tests {
             segments,
             look: Look::default(),
             shapes: vec![],
+            figure: None,
         }
     }
 
