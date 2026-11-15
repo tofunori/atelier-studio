@@ -391,7 +391,11 @@ body.lane-over #leader{display:none}
 .c-field:not(.ask) .c-input:placeholder-shown + .ic{display:none}
 .cc .in{position:absolute;top:4px;right:4px;height:28px;padding:0 8px;gap:6px;font-size:12px;transition:opacity 120ms ease-out,background-color 120ms ease-out,color 120ms ease-out}
 .c-wait{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;margin-top:12px;padding:0 8px;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-muted);font-size:12px}
+.c-wait{padding-right:44px}
 .c-wait .in{top:4px}
+/* Arrêter le brouillon : carré plein sur fond neutre, à la place du robot. */
+.cc .in.ic .sp{background:var(--press)}
+.cc .in.ic .sp:hover,.cc .in.ic .sp:focus-visible{background:color-mix(in srgb,var(--text-primary) 16%,transparent)}
 .c-wait .dots{display:inline-flex;gap:4px}
 .c-wait .dots i{width:4px;height:4px;border-radius:999px;background:currentColor;opacity:.3;animation:c-dot 1.2s ease-in-out infinite}
 .c-wait .dots i:nth-child(2){animation-delay:.2s}

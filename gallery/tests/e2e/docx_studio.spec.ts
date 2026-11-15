@@ -823,6 +823,13 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   // Le texte tapé part comme consigne, puis s'efface.
   await thread.locator('[data-act="propose"]').click();
   await expect(thread.locator('.c-wait')).toBeVisible();
+  // Arrêter : un bouton icône (carré), plus de mot, et il ne chevauche pas les trois points.
+  const stop = thread.locator('.c-wait [data-act="stop"]');
+  await expect(stop).toBeVisible();
+  await expect(stop).toHaveAttribute('aria-label', 'Arrêter le brouillon');
+  await expect(thread.locator('.c-wait')).not.toContainText('Arrêter');
+  const [dots, sq] = await Promise.all([thread.locator('.c-wait .dots').boundingBox(), stop.boundingBox()]);
+  expect(dots!.x + dots!.width).toBeLessThanOrEqual(sq!.x);
   await expect(thread.locator('[data-act="reply"]')).toHaveCount(0);
   const sent = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean; path: string}}).__sent);
   expect(sent.text).toContain('Ma consigne pour cette réponse : « réponds que le seuil vient de la littérature »');
@@ -845,6 +852,43 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   await expect(thread.locator('.c-wait')).toHaveCount(0);
   expect((await disk(page, project)).revision).toBe(before);
   await expect(thread.locator('.c-fix')).toContainText('1 correction en suivi');
+
+  // Un passage du brouillon s'annote comme le texte des bulles : même capsule.
+  const pick = async (word: string) => field.evaluate((ta: HTMLTextAreaElement, w) => {
+    ta.focus();
+    const k = ta.value.indexOf(w);
+    ta.setSelectionRange(k, k + w.length);
+  }, word);
+  const bar = page.locator('#bubbar.atelier-selection');
+  await pick('annexe B');
+  await expect(bar).toBeVisible();
+  await expect(page.locator('#selbar')).toBeHidden();
+  // La capsule se pose au-dessus du champ, pas ailleurs dans la page.
+  const [bb, fb] = await Promise.all([bar.boundingBox(), field.boundingBox()]);
+  expect(bb!.y + bb!.height).toBeLessThanOrEqual(fb!.y + fb!.height);
+  expect(bb!.y + bb!.height).toBeGreaterThan(fb!.y - 48);
+  await bar.locator('[aria-label="Ajouter au chat"]').click();
+  await expect(page.locator('.nbox .nb-src')).toContainText('Brouillon de réponse');
+  await expect(page.locator('.nbox .nb-src')).toContainText('« annexe B »');
+  await expect(page.locator('.nbox [data-act="doc"]')).toContainText('Retoucher');
+  await page.locator('.nbox.show textarea').fill('Laquelle exactement ?');
+  await page.locator('.nbox.show textarea').press('Enter');
+  await expect(page.locator('.nbox.show')).toHaveCount(0);
+  const toChatSent = await page.evaluate(() => (window as unknown as {__sent: {text: string}}).__sent);
+  expect(toChatSent.text).toMatch(/brouillon de réponse à Christophe\) : « annexe B »\nCommentaire : Laquelle exactement \?$/);
+  await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.");
+  // ⌘Entrée : l'agent retouche son brouillon selon la note sur le passage.
+  await pick('annexe B');
+  await bar.locator('[aria-label="Annoter"]').click();
+  await page.locator('.nbox.show textarea').fill('cite plutôt la section 4.2');
+  await page.locator('.nbox.show textarea').press('ControlOrMeta+Enter');
+  await expect(thread.locator('.c-wait')).toBeVisible();
+  const redo = await page.evaluate(() => (window as unknown as {__sent: {text: string; direct: boolean}}).__sent);
+  expect(redo.direct).toBe(true);
+  expect(redo.text).toContain("Bonne remarque, j'ajoute l'analyse en annexe B.");
+  expect(redo.text).toContain('Dans ton brouillon, le passage « annexe B » : cite plutôt la section 4.2');
+  await writeFile(file, JSON.stringify({1: {text: "Bonne remarque, j'ajoute l'analyse en annexe B.", author: 'Claude', at: Date.now() + 1}}));
+  await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.", {timeout: 6000});
 
   // Relu et retouché, il part signé Thierry ; le brouillon disparaît.
   await field.fill("Bonne remarque, j'ajoute l'analyse en annexe B. Merci !");
