@@ -6909,6 +6909,40 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   background-clip: padding-box; }
 .rail-clean .rail-thread:hover > .rail-signal.sig-dot { border-color: var(--surface-hover); }
 .rail-clean .rail-thread > .rail-signal.sig-run { top: 1px; right: 5px; width: 10px; height: 10px; }
+/* Sous-fils sous leur conversation (2026-11-15, variante A « Branches ») :
+   une ligne de 22 px chacun, en retrait, reliés par un guide et un coude au
+   filet du parent ; la marque est l'état du sous-fil (anneau, point ambre,
+   point bleu, rouge, coche), le fond se peint en retrait comme pour les fils. */
+.rail-subthreads { position: relative; width: 100%; flex: none; display: flex; flex-direction: column;
+  align-items: center; }
+.rail-subthreads::before { content: ""; position: absolute; left: 13px; top: 0; bottom: 11px; width: 1px;
+  background: var(--border); pointer-events: none; }
+.rail-clean .rail-subthread { position: relative; width: 38px; height: 22px; min-width: 0; padding: 0; flex: none;
+  border-radius: var(--r-s); color: var(--text-muted); background: transparent !important;
+  transition: color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-subthread::before { content: ""; position: absolute; top: 1px; bottom: 1px; left: 13px; right: 1px;
+  border-radius: var(--r-s); transition: background-color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-subthread::after { content: ""; position: absolute; left: 9px; top: 11px; width: 4px; height: 1px;
+  background: var(--border); pointer-events: none; }
+.rail-clean .rail-subthread:hover::before { background: var(--surface-hover); }
+.rail-clean .rail-subthread.on::before { background: var(--bg-ctl); }
+.rail-clean .rail-subthread:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); }
+.rail-sub-glyph { position: relative; flex: none; transform: translateX(6px); }
+/* l'anneau des signaux, posé dans la ligne au lieu du coin */
+.rail-clean .rail-subthread > .rail-signal.sig-run { position: relative; top: auto; right: auto; width: 10px; height: 10px;
+  margin-left: 12px; }
+.rail-sub-dot { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--text-muted); }
+.rail-sub-dot.is-waiting { background: var(--status-warning); }
+.rail-sub-dot.is-review { background: var(--info); }
+.rail-sub-dot.is-fail { background: var(--status-error); }
+.rail-sub-dot.is-queued { width: 8px; height: 8px; background: transparent; border: 1px solid var(--text-muted); }
+.rail-sub-check { color: var(--text-disabled); transition: color var(--motion-fast) var(--ease-out); }
+.rail-clean .rail-subthread:hover .rail-sub-check, .rail-clean .rail-subthread.on .rail-sub-check { color: var(--text-muted); }
+.rail-sub-count { position: relative; transform: translateX(6px); font-size: var(--fs-xs); font-weight: 500;
+  line-height: 1; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rail-clean .rail-sub-more:hover .rail-sub-count { color: var(--text-primary); }
+@media (prefers-reduced-motion: reduce) {
+  .rail-clean .rail-subthread, .rail-clean .rail-subthread::before, .rail-sub-check { transition: none; } }
 /* Jauge du quota au-dessus des Réglages : un trait qui se remplit par le bas
    (translateY, jamais de géométrie animée). Piste = celle de l'anneau. */
 .rail-clean .rail-usage { width: 38px; height: 38px; flex: none; display: flex; align-items: center;

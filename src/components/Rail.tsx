@@ -287,7 +287,7 @@ export default function Rail(p: {
   // Le vide (2026-11-12) : double-clic déplie la colonne, clic droit ouvre
   // Nouveau chat / Ajouter un projet. Seulement sur le fond, jamais sur un
   // bouton, et sans rien dessiner : le geste reste à portée sans un pixel.
-  const isVoid = (e: MouseEvent) => e.target instanceof HTMLElement && e.target.matches(".rail, .rail-scroll, .rail-projects, .rail-threads, .rail-pinned");
+  const isVoid = (e: MouseEvent) => e.target instanceof HTMLElement && e.target.matches(".rail, .rail-scroll, .rail-projects, .rail-threads, .rail-subthreads, .rail-pinned");
 
   const favoriteActive = p.activeView === "chats" && Boolean(
     p.favorites?.threads.some(th => th.id === p.favorites?.activeId),
@@ -361,7 +361,8 @@ export default function Rail(p: {
               activeId={p.activeView === "chats" ? p.activeId ?? null : null}
               signals={p.favorites.signals}
               seals={p.favorites.seals}
-              onOpen={p.favorites.onOpen} />
+              onOpen={p.favorites.onOpen}
+              onExpand={p.onExpand} />
           ) : null}
         />
       </div>{/* fin rail-scroll */}

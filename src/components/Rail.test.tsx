@@ -349,6 +349,25 @@ describe("vide de la barre compacte (option A, 2026-11-12)", () => {
     expect(container.querySelector(".rail-proj.on")?.getAttribute("data-signal")).toBe("wait");
   });
 
+  it("montre les sous-fils sous leur conversation, avec leur état, et les ouvre", () => {
+    const link = { parentThreadId: "a", role: "thread", access: "read_write", createdAt: ago(2), createdBy: "user",
+      autoDeliveryLimit: 0, autoDeliveryUsed: 0, paused: false };
+    const sub = (id: string, title: string, extra: Record<string, unknown> = {}) =>
+      ({ ...th(id, title, 2), agentLink: { ...link, createdAt: ago(10 - id.length) }, delegue: { fil: true }, ...extra });
+    const k1 = sub("k1", "Facteur de précip");
+    const k2 = sub("k22", "Bilan des bandes", { rapportA: "fini" });
+    const fav = favorites({ signals: { k1: "run", k22: "unread" } as any });
+    const { container } = renderUi(<Rail {...makeProps({ threads: [...threads, k1, k2], activeId: "k1", favorites: fav })} />);
+    const rows = [...container.querySelectorAll(".rail-subthreads .rail-subthread")];
+    expect(rows.map(el => el.getAttribute("data-state"))).toEqual(["running", "review"]);
+    expect(container.querySelector(".rail-subthread.on")?.getAttribute("aria-label")).toBe("Facteur de précip — En cours");
+    // l'anneau a quitté le parent : il est sur la ligne du sous-fil
+    expect(container.querySelector(".rail-thread[aria-label^='Analyse']")?.getAttribute("data-signal")).toBeNull();
+    expect(container.querySelector(".rail-thread.on")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Bilan des bandes — À relire" }));
+    expect(fav.onOpen).toHaveBeenCalledWith(k2);
+  });
+
   it("le clic droit dans le vide ouvre Nouveau chat / Ajouter un projet, le double-clic déplie", async () => {
     const props = makeProps({ threads, favorites: favorites() });
     const { container } = renderUi(<Rail {...props} />);
