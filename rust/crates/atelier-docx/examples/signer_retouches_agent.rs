@@ -1,15 +1,15 @@
 //! Réparation ponctuelle d'un .docx retouché par l'agent avant que ses
 //! suivis soient signés du nom de l'utilisateur (2026-11-13) :
 //!
-//!     cargo run -p atelier-docx --example signer_retouches_agent -- <fichier.docx> "<Nom>" [--rouvrir] [--brouillons] [--essai]
+//!     cargo run -p atelier-docx --example signer_retouches_agent -- <fichier.docx> "<Nom>" [--brouillons] [--essai]
 //!
 //! - toujours : les suivis signés « Claude », « Codex »… passent au nom
 //!   donné ; Atelier garde en mémoire qu'ils viennent de l'agent ; leurs
 //!   commentaires et réponses aussi (auteur et initiales) ;
-//! - `--rouvrir` : rouvre les fils où `<Nom>` a répondu (Word replie les
-//!   fils résolus, et leurs réponses avec) ;
 //! - `--brouillons` : les brouillons de réponse restés dans la carte
-//!   deviennent des réponses signées `<Nom>`, fil rouvert, puis s'effacent ;
+//!   deviennent des réponses signées `<Nom>`, puis s'effacent ;
+//! - aucun fil résolu n'est rouvert (`--rouvrir` n'existe plus : il avait
+//!   rouvert 24 commentaires que Thierry avait résolus, 2026-11-13).
 //! - `--essai` : compte sans rien écrire.
 //!
 //! Comme toute retouche : refus si Word a le fichier ouvert, contrôle du
@@ -21,17 +21,21 @@ use std::path::PathBuf;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
-    let (dry, reopen, send_drafts) = (flag("--essai"), flag("--rouvrir"), flag("--brouillons"));
+    if flag("--rouvrir") {
+        eprintln!("--rouvrir n'existe plus : un fil résolu ne se rouvre que dans le panneau, par l'utilisateur");
+        std::process::exit(2);
+    }
+    let (dry, send_drafts) = (flag("--essai"), flag("--brouillons"));
     let pos: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
     let (Some(path), Some(name)) = (pos.first(), pos.get(1)) else {
-        eprintln!("usage : signer_retouches_agent <fichier.docx> \"<Nom>\" [--rouvrir] [--brouillons] [--essai]");
+        eprintln!("usage : signer_retouches_agent <fichier.docx> \"<Nom>\" [--brouillons] [--essai]");
         std::process::exit(2);
     };
     let name = name.trim().to_string();
     let path = PathBuf::from(path);
     let pending = if send_drafts { drafts::list(&path).unwrap_or_default() } else { Default::default() };
 
-    let repair = |d: &mut Docx| marks::repair(d, &name, &pending, reopen);
+    let repair = |d: &mut Docx| marks::repair(d, &name, &pending);
 
     let run = || -> atelier_docx::Result<()> {
         if dry {
@@ -41,8 +45,7 @@ fn main() {
             let notes = m.comments.iter().filter(|c| marks::is_agent(&c.author)).count();
             let done = repair(&mut d)?;
             println!(
-                "essai : {agent} suivis et {notes} commentaires signés par un agent passeraient à {name} ; {} fils rouverts ; {} brouillons envoyés ; rien d'écrit",
-                done.reopened,
+                "essai : {agent} suivis et {notes} commentaires signés par un agent passeraient à {name} ; {} brouillons envoyés ; rien d'écrit",
                 done.replied.len()
             );
             return Ok(());
@@ -65,8 +68,7 @@ fn main() {
             .filter(|p| model.comments.iter().any(|x| x.id == *p && x.done))
             .count();
         println!(
-            "écrit (révision {rev}) : {kept} suivis à ton nom marqués « proposé par l'agent », {left} suivis ou commentaires encore signés par un agent ; {} fils rouverts ; {} brouillons envoyés ; {mine} réponses à ton nom, dont {hidden} sous un fil résolu",
-            done.reopened,
+            "écrit (révision {rev}) : {kept} suivis à ton nom marqués « proposé par l'agent », {left} suivis ou commentaires encore signés par un agent ; {} brouillons envoyés ; {mine} réponses à ton nom, dont {hidden} sous un fil résolu",
             done.replied.len()
         );
         Ok(())

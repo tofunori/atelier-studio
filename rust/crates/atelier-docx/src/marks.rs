@@ -184,21 +184,22 @@ pub fn adopt_comments(docx: &mut crate::Docx, to: &str) -> Result<usize> {
 pub struct Repair {
     /// Signatures des suivis repris au nom de l'utilisateur (pour [`remember`]).
     pub stamps: Vec<Stamp>,
-    /// Fils rouverts.
-    pub reopened: usize,
     /// Commentaires qui ont reçu leur brouillon comme réponse.
     pub replied: Vec<u32>,
 }
 
 /// Remet d'aplomb un .docx retouché avant la signature au nom de
 /// l'utilisateur : suivis de l'agent repris sous `name` ([`adopt`]) ;
-/// brouillons de réponse (`drafts`) envoyés comme réponses de `name` ; avec
-/// `reopen`, fils rouverts là où `name` a répondu (Word replie les fils
-/// résolus et leurs réponses). Les brouillons envoyés restent à effacer.
-pub fn repair(docx: &mut crate::Docx, name: &str, drafts: &crate::drafts::Drafts, reopen: bool) -> Result<Repair> {
+/// brouillons de réponse (`drafts`) envoyés comme réponses de `name`. Les
+/// brouillons envoyés restent à effacer.
+///
+/// Un fil résolu le reste : seul l'utilisateur rouvre un fil. (La réparation
+/// de revCK du 2026-11-13 rouvrait les fils où il avait répondu, pour que
+/// Word montre ses réponses ; il a retrouvé 24 commentaires qu'il avait
+/// résolus ouverts, et l'a pris pour une perte à la réouverture.)
+pub fn repair(docx: &mut crate::Docx, name: &str, drafts: &crate::drafts::Drafts) -> Result<Repair> {
     let stamps = adopt(docx, name)?;
     let sig = Signature::now(name);
-    let mut parents = Vec::new();
     let mut replied = Vec::new();
     for (id, draft) in drafts {
         let text = draft.text.trim();
@@ -207,22 +208,8 @@ pub fn repair(docx: &mut crate::Docx, name: &str, drafts: &crate::drafts::Drafts
         }
         crate::comments::reply(docx, *id, text, &sig)?;
         replied.push(*id);
-        parents.push(*id);
     }
-    let m = docx.model()?;
-    if reopen {
-        parents.extend(m.comments.iter().filter(|c| c.author == name).filter_map(|c| c.parent));
-    }
-    parents.sort_unstable();
-    parents.dedup();
-    let mut reopened = 0;
-    for id in parents {
-        if m.comments.iter().any(|c| c.id == id && c.done) {
-            crate::comments::resolve(docx, id, false)?;
-            reopened += 1;
-        }
-    }
-    Ok(Repair { stamps, reopened, replied })
+    Ok(Repair { stamps, replied })
 }
 
 /// « claude » → « Claude » : le nom d'agent tel que le panneau l'affiche.

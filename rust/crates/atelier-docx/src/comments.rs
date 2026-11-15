@@ -193,19 +193,25 @@ fn set_ext(docx: &mut Docx, para_id: &str, parent: Option<&str>, done: Option<bo
     };
     let doc = xml::parse(&text)?;
     let prefix = doc.root_element().lookup_prefix(W15).unwrap_or("w15").to_string();
-    let existing = doc.descendants().find(|n| n.tag_name().name() == "commentEx" && n.attribute((W15, "paraId")) == Some(para_id));
-    let new_text = match existing {
-        Some(node) => {
+    // Toutes les entrées de ce paraId (un paquet abîmé peut en avoir deux :
+    // la lecture garde la dernière, l'écriture les met donc toutes à jour).
+    let existing: Vec<_> = doc.descendants().filter(|n| n.tag_name().name() == "commentEx" && n.attribute((W15, "paraId")) == Some(para_id)).collect();
+    let new_text = if existing.is_empty() {
+        let parent_attr = parent.map(|p| format!(" {prefix}:paraIdParent=\"{p}\"")).unwrap_or_default();
+        let done_v = if done == Some(true) { "1" } else { "0" };
+        let entry = format!("<{prefix}:commentEx {prefix}:paraId=\"{para_id}\"{parent_attr} {prefix}:done=\"{done_v}\"/>");
+        append_child(&text, &entry)?
+    } else {
+        let mut edits = Vec::new();
+        for node in existing {
             let range = node.range();
             let mut tag = text[range.clone()].to_string();
             if let Some(d) = done {
                 let v = if d { "1" } else { "0" };
-                match node.attribute((W15, "done")) {
-                    Some(_) => {
-                        let attr = node.attributes().find(|a| a.namespace() == Some(W15) && a.name() == "done").unwrap();
+                match node.attributes().find(|a| a.namespace() == Some(W15) && a.name() == "done") {
+                    Some(attr) => {
                         let vr = attr.range_value();
-                        let (vs, ve) = (vr.start - range.start, vr.end - range.start);
-                        tag.replace_range(vs..ve, v);
+                        tag.replace_range(vr.start - range.start..vr.end - range.start, v);
                     }
                     None => {
                         let at = tag.rfind("/>").unwrap_or(tag.len());
@@ -213,14 +219,9 @@ fn set_ext(docx: &mut Docx, para_id: &str, parent: Option<&str>, done: Option<bo
                     }
                 }
             }
-            xml::splice(&text, vec![(range, tag)])?
+            edits.push((range, tag));
         }
-        None => {
-            let parent_attr = parent.map(|p| format!(" {prefix}:paraIdParent=\"{p}\"")).unwrap_or_default();
-            let done_v = if done == Some(true) { "1" } else { "0" };
-            let entry = format!("<{prefix}:commentEx {prefix}:paraId=\"{para_id}\"{parent_attr} {prefix}:done=\"{done_v}\"/>");
-            append_child(&text, &entry)?
-        }
+        xml::splice(&text, edits)?
     };
     docx.set_part(COMMENTS_EXT, new_text);
     Ok(())
