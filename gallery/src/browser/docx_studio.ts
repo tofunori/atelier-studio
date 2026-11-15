@@ -213,6 +213,10 @@
     verif: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/><path d="m8.5 11 1.8 1.8 3.2-3.4"/>',
     // Ouvrir ailleurs (Microsoft Word).
     ext: '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>',
+    // Arrêter (brouillon de l'agent) : carré plein, comme l'arrêt du chat.
+    again: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+    pen: '<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.4 18.6a2 2 0 0 1-.9.5l-2.9.8.8-2.9a2 2 0 0 1 .5-.9z"/>',
+    stop: '<rect width="12" height="12" x="6" y="6" rx="2.5" fill="currentColor" stroke="none"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
   const ic = (k: keyof typeof PATHS, size = 16) => svg(PATHS[k], size);
@@ -3471,18 +3475,24 @@
       const ad = c.done || muted.has(c.id) ? null : agentDrafts[String(c.id)] || null;
       const waiting = !c.done && asking.has(c.id);
       if (waiting) {
-        h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><button class="btn q in" data-act="stop">Arrêter</button></div>`;
+        h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="in ic"><button class="mini sp" data-act="stop" aria-label="Arrêter le brouillon" data-tooltip="Arrêter le brouillon">${ic("stop", 16)}</button></span></div>`;
       } else if (ad) {
-        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field">${field}<span class="in ic">${send}</span></div>`;
+        // Le brouillon est simplement dans le champ : ↻ en redemande un autre,
+        // la flèche l'envoie. Aucune ligne de plus autour.
+        const again = `<button class="mini ag" data-act="redo" aria-label="Demander une autre formulation" data-tooltip="Autre formulation">${ic("again", 16)}</button>`;
+        const dfield = field.replace(/aria-label="[^"]*"/, `aria-label="Brouillon de ${esc(firstName(ad.author))} à relire, réponse à ${esc(firstName(c.author))}"`);
+        h += `<div class="c-field ad">${dfield}<span class="in ic">${again}${send}</span></div>`;
       } else {
         h += `<div class="c-field${c.done ? "" : " ask"}">${field}<span class="in ic">${send}${c.done ? "" : bot}</span></div>`;
       }
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
+      // Rappel discret au bout de la rangée : crayon + nombre, clic = voir dans le texte.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
-      if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
+      const fixTip = fixed === 1 ? "1 correction de Claude en suivi · voir" : `${fixed} corrections de Claude en suivi · voir`;
+      const fix = fixed ? `<button class="mini fx" data-act="see-fix" aria-label="${fixTip}" data-tooltip="${fixTip}">${ic("pen", 14)}<span>${fixed}</span></button>` : "";
       h += `<div class="ac"><button class="btn q" data-act="${c.done ? "reopen" : "resolve"}"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
-        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
+        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>${fix}</div>`;
     }
     const cls = `cc${q || nl ? "" : " nq"}${col ? " bm" : ""}`;
     return on ? `<div class="${cls}">${h}</div>` : `<div class="${cls}" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
@@ -4196,7 +4206,7 @@
   }
 
   /** Ce que l'agent lit : le commentaire, son fil, et la consigne. */
-  function replyPrompt(c: Comment, previous?: string, note?: string): string {
+  function replyPrompt(c: Comment, previous?: string, note?: string, retouch = false): string {
     const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
     const who = firstName(c.author);
     return `${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}\n\n`
@@ -4205,7 +4215,7 @@
       + `Si le passage mérite une correction, montre-la-moi ici dans le chat (avant / après) sans toucher au document : `
       + `je te dirai si tu la poses en suivi (action=edit).`
       + (note ? ` Ma consigne pour cette réponse : « ${note} ».` : "")
-      + (previous ? ` Une autre formulation que celle-ci : « ${previous} ».` : "");
+      + (previous ? retouch ? ` Retouche ce brouillon selon ma consigne et garde le reste tel quel : « ${previous} ».` : ` Une autre formulation que celle-ci : « ${previous} ».` : "");
   }
 
   /** Ce qui a changé d'un texte à l'autre, entouré pour luire un instant. */
@@ -4258,7 +4268,7 @@
       .catch((e: Error) => { checking.delete(c.id); renderCards(); status(e.message, true); });
   }
 
-  function proposeReply(c: Comment, previous?: string, note?: string) {
+  function proposeReply(c: Comment, previous?: string, note?: string, retouch = false) {
     const core = W.AtelierStudioCore;
     if (!W.__atelierPost || !core || !core.requestChatAttachment) {
       status("Le chat d'Atelier n'est pas joignable depuis cette page.", true);
@@ -4268,7 +4278,7 @@
     asking.set(c.id, Date.now());
     fixBase.set(c.id, new Set(model!.changes.map((ch) => ch.id)));
     renderCards();
-    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous, note), path: PATH, name: NAME, direct: true } })
+    core.requestChatAttachment({ postToHost: W.__atelierPost, payload: { type: "atelier-add-to-chat", text: replyPrompt(c, previous, note, retouch), path: PATH, name: NAME, direct: true } })
       .then(() => status("Demandé au chat : le brouillon arrive dans la carte"))
       .catch((e: Error) => { asking.delete(c.id); renderCards(); status(e.message, true); });
   }
@@ -5423,7 +5433,7 @@
     onAdd: () => openBubbleNote(),
     onAnnotate: () => openBubbleNote(),
     onAsk: W.__atelierPost ? () => {
-      const bub = readBubbleSel();
+      const bub = bubbleSelAt()?.bub;
       const c = bub ? commentMap.get(bub.cid) : undefined;
       if (!bub || !c) return;
       bubbar.classList.remove("show");
@@ -5448,7 +5458,7 @@
   scroller.appendChild(chatNums);
   /** Passage choisi dans le texte d'une bulle (tête ou réponse) : bornes en
    *  unités de chaîne dans le texte du message. */
-  type Bub = { cid: number; s: number; e: number; quote: string; lost?: boolean };
+  type Bub = { cid: number; s: number; e: number; quote: string; lost?: boolean; draft?: boolean };
   let noting: { sel: Sel | null; segs: Span[]; bub?: Bub } | null = null;
   let toChatList: { text: string; segs: Span[]; bub?: Bub }[] = [];
   const pidOfIdx = (idx: number) => model!.paragraphs[idx].para_id || model!.paragraphs[idx].id;
@@ -5503,6 +5513,73 @@
     while (b > a && /\s/.test(full[b - 1])) b--;
     return b > a ? { cid: Number(tx.dataset.cid), s: a, e: b, quote: full.slice(a, b) } : null;
   }
+  /** Brouillon de l'agent (« à relire ») : le champ est une zone de texte, sa
+   *  sélection ne passe pas par getSelection(). Même capsule (2026-11-15). */
+  function draftField(): HTMLTextAreaElement | null {
+    const ta = document.activeElement as HTMLTextAreaElement | null;
+    if (!ta || ta.tagName !== "TEXTAREA" || !cardsEl.contains(ta) || !ta.closest(".it.on .c-field.ad")) return null;
+    return ta;
+  }
+  function readDraftSel(): Bub | null {
+    const ta = draftField();
+    const key = ta?.closest<HTMLElement>(".it")?.dataset.key || "";
+    if (!ta || !/^c\d+$/.test(key)) return null;
+    let a = ta.selectionStart, b = ta.selectionEnd;
+    const full = ta.value;
+    while (a < b && /\s/.test(full[a])) a++;
+    while (b > a && /\s/.test(full[b - 1])) b--;
+    return b > a ? { cid: Number(key.slice(1)), s: a, e: b, quote: full.slice(a, b), draft: true } : null;
+  }
+  /** Rectangle du début de la sélection dans la zone de texte : un double
+   *  invisible aux mêmes métriques, mesuré puis retiré. */
+  function mirrorRects(ta: HTMLTextAreaElement, a: number, b: number): DOMRect[] {
+    const cs = getComputedStyle(ta);
+    const box = ta.getBoundingClientRect();
+    const m = document.createElement("div");
+    for (const k of ["font", "letterSpacing", "lineHeight", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth", "boxSizing", "wordSpacing", "fontKerning", "textIndent", "tabSize"] as const) m.style[k] = cs[k];
+    Object.assign(m.style, { position: "fixed", visibility: "hidden", top: `${box.top - ta.scrollTop}px`, left: `${box.left}px`, width: `${box.width}px`, whiteSpace: "pre-wrap", overflowWrap: "anywhere", borderStyle: "solid", borderColor: "transparent" });
+    m.textContent = ta.value.slice(0, a);
+    const mark = document.createElement("span");
+    mark.textContent = ta.value.slice(a, b) || "\u200b";
+    m.appendChild(mark);
+    document.body.appendChild(m);
+    const rs = Array.from(mark.getClientRects()).filter((r) => r.width > 0);
+    m.remove();
+    // Bornées au champ : ce qui défile hors de vue ne se dessine pas.
+    return rs.map((r) => {
+      const top = Math.max(box.top, r.top), bottom = Math.min(box.bottom, r.bottom);
+      return new DOMRect(r.left, top, r.width, bottom - top);
+    }).filter((r) => r.height > 0);
+  }
+  function draftSelRect(ta: HTMLTextAreaElement): DOMRect {
+    const r = mirrorRects(ta, ta.selectionStart, ta.selectionEnd)[0];
+    return r || ta.getBoundingClientRect();
+  }
+  /** Le passage noté reste visible dans le brouillon quand le focus passe à
+   *  la ligne de note (une zone de texte n'affiche plus sa sélection). */
+  const draftMarks = document.createElement("div");
+  draftMarks.id = "draftmarks";
+  draftMarks.setAttribute("aria-hidden", "true");
+  document.body.appendChild(draftMarks);
+  function paintDraftMarks() {
+    const d = noting?.bub?.draft ? noting.bub : null;
+    const ta = d ? cardsEl.querySelector<HTMLTextAreaElement>(`[data-key="c${d.cid}"] .c-field.ad textarea`) : null;
+    if (!d || !ta || ta.value.slice(d.s, d.e) !== d.quote) { draftMarks.replaceChildren(); return; }
+    draftMarks.replaceChildren(...mirrorRects(ta, d.s, d.e).map((r) => {
+      const el = document.createElement("i");
+      Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+      return el;
+    }));
+  }
+  /** Sélection de bulle (message ou brouillon) et son rectangle d'ancrage. */
+  function bubbleSelAt(): { bub: Bub; rect: DOMRect } | null {
+    const bub = readBubbleSel();
+    const sl = getSelection();
+    if (bub && sl && sl.rangeCount) return { bub, rect: sl.getRangeAt(0).getBoundingClientRect() };
+    const d = readDraftSel();
+    const ta = draftField();
+    return d && ta ? { bub: d, rect: draftSelRect(ta) } : null;
+  }
   /** Le message a pu être modifié : le passage retrouve sa place, au plus près. */
   function rebaseBub(d: Bub) {
     const text = txOf(d.cid)?.textContent;
@@ -5527,7 +5604,7 @@
     }
     return null;
   }
-  const bubRanges = (d?: Bub) => { if (!d) return []; rebaseBub(d); const r = bubRange(d); return r ? [r] : []; };
+  const bubRanges = (d?: Bub) => { if (!d || d.draft) return []; rebaseBub(d); const r = bubRange(d); return r ? [r] : []; };
   /** Repère d'une bulle : le paragraphe de sa tête de fil (`p12`). */
   const bubPara = (c: Comment) => c.paragraph || threadOf(c.id)?.paragraph || "";
   function paintNotes() {
@@ -5561,6 +5638,7 @@
     noting = null;
     nbox.classList.remove("show");
     paintNotes();
+    paintDraftMarks();
   }
   function openNote() {
     const s = getSelection();
@@ -5572,6 +5650,7 @@
     selbar.classList.remove("show");
     s.removeAllRanges();
     noting = { sel, segs };
+    nbox.classList.remove("line");
     // Même repère que dans la boîte du chat : le numéro du paragraphe.
     const n = /p(\d+)$/.exec(model.paragraphs[segs[0].idx].id)?.[1] ?? String(segs[0].idx + 1);
     const word = view !== "original";
@@ -5591,15 +5670,29 @@
     requestAnimationFrame(() => (nbox.querySelector("textarea") as HTMLTextAreaElement | null)?.focus({ preventScroll: true }));
   }
   function openBubbleNote() {
-    const sl = getSelection();
-    const bub = readBubbleSel();
+    const at = bubbleSelAt();
+    const bub = at?.bub;
     const c = bub ? commentMap.get(bub.cid) : undefined;
-    if (!sl || !bub || !c || !model) return;
-    const rect = sl.getRangeAt(0).getBoundingClientRect();
+    if (!at || !bub || !c || !model) return;
+    const rect = at.rect;
     bubbar.classList.remove("show");
-    sl.removeAllRanges();
+    if (!bub.draft) getSelection()?.removeAllRanges();
     noting = { sel: null, segs: [], bub };
     const n = /p(\d+)$/.exec(bubPara(c))?.[1];
+    if (bub.draft) {
+      // Brouillon de l'agent (variante A, 2026-11-15) : une ligne et deux
+      // icônes, le passage reste sélectionné dans le champ. Le robot (↵)
+      // fait retoucher le brouillon ; la bulle (⌘↵) l'envoie au chat.
+      nbox.classList.add("line");
+      nbox.innerHTML = `<textarea class="c-input" rows="1" placeholder="Ta note…" aria-label="${esc(`Ta note sur « ${clip(oneLine(bub.quote), 60)} »`)}"></textarea><span class="sep" aria-hidden="true"></span>`
+        + `<button class="mini on" data-act="doc" aria-label="Faire retoucher par Claude" data-tooltip="Faire retoucher par Claude ↵">${ic("bot", 14)}</button>`
+        + `<button class="mini" data-act="chat" aria-label="Ajouter au chat" data-tooltip="Ajouter le passage et ta note au chat ⌘↵">${ic("chat", 14)}</button>`;
+      const f = draftField()?.getBoundingClientRect();
+      showNbox(f ? new DOMRect(f.left - 4, f.top, f.width, f.height) : rect);
+      paintDraftMarks();
+      return;
+    }
+    nbox.classList.remove("line");
     nbox.innerHTML = `<div class="nb-src">${ic("chat", 12)}<span>Bulle de ${esc(firstName(c.author))}${n ? ` · ¶ ${n}` : ""} · « ${esc(clip(oneLine(bub.quote), 90))} »</span></div>
       <textarea class="c-input" rows="2" placeholder="Ta note…" aria-label="Ta note"></textarea>
       <div class="ac"><button class="btn q" data-act="doc" data-tooltip="Répondre dans ce fil en citant le passage">${ic("undo", 14)}Répondre<kbd>⌘↵</kbd></button>
@@ -5615,6 +5708,20 @@
       const c = commentMap.get(bub.cid);
       const head = threadOf(bub.cid);
       if (!c || !head) { closeNote(); return; }
+      if (bub.draft && dest === "doc") {
+        // Retoucher : le brouillon tel qu'il est dans le champ repart à l'agent,
+        // avec le passage visé et la note pour consigne.
+        if (!note) { ta.focus(); status("Écris ta note pour la retouche."); return; }
+        closeNote();
+        const key = `c${head.id}`;
+        const field = cardsEl.querySelector<HTMLTextAreaElement>(`[data-key="${key}"] .c-field.ad textarea`);
+        const previous = field?.value || agentDrafts[String(head.id)]?.text;
+        if (field) field.value = "";
+        replyDrafts.delete(key);
+        clearAgentDraft(head.id);
+        proposeReply(head, previous, `Dans ton brouillon, le passage « ${oneLine(bub.quote)} » : ${note}`, true);
+        return;
+      }
       if (dest === "doc") {
         // Réponse dans le fil, signée de l'auteur, qui cite le passage visé.
         if (!note) { ta.focus(); status("Écris ta note pour la réponse."); return; }
@@ -5626,7 +5733,8 @@
         return;
       }
       const para = bubPara(c);
-      const text = `${PATH} (${para ? `${para}, ` : ""}bulle de ${firstName(c.author)}) : « ${bub.quote} »\nCommentaire : ${note || "(voir passage)"}`;
+      const where = bub.draft ? `brouillon de réponse à ${firstName(c.author)}` : `bulle de ${firstName(c.author)}`;
+      const text = `${PATH} (${para ? `${para}, ` : ""}${where}) : « ${bub.quote} »\nCommentaire : ${note || "(voir passage)"}`;
       closeNote();
       if (!toChatList.some((it) => it.text === text)) toChatList.push({ text, segs: [], bub: { ...bub } });
       paintNotes();
@@ -5669,7 +5777,12 @@
   });
   nbox.addEventListener("keydown", (e) => {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeNote(); paper.focus({ preventScroll: true }); return; }
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); commitNote(e.metaKey || e.ctrlKey ? "doc" : "chat"); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      // Une ligne (brouillon) : Entrée fait retoucher, ⌘Entrée part au chat.
+      const cmd = e.metaKey || e.ctrlKey;
+      commitNote(nbox.classList.contains("line") ? (cmd ? "chat" : "doc") : (cmd ? "doc" : "chat"));
+    }
   });
   document.addEventListener("mousedown", (e) => { if (noting && !nbox.contains(e.target as Node)) closeNote(); });
   // La boîte du chat dit quels passages y attendent encore : envoyés ou
@@ -5774,12 +5887,34 @@
   document.fonts?.ready.then(() => scheduleLines()).catch(() => undefined);
   paper.addEventListener("blur", () => caret.classList.remove("on"));
   addEventListener("resize", placeCaret);
+  /** Capsule des bulles (message ou brouillon) : vrai si elle est montrée. */
+  function syncBubbar(): boolean {
+    const at = bubbleSelAt();
+    if (!at) { bubbar.classList.remove("show"); return false; }
+    selbar.classList.remove("show");
+    const r = at.rect;
+    bubbar.classList.add("show");
+    bubbar.style.top = `${Math.max(8, r.top - bubbar.offsetHeight - 8)}px`;
+    bubbar.style.left = `${Math.max(8, Math.min(innerWidth - bubbar.offsetWidth - 8, r.left))}px`;
+    return true;
+  }
+  // La sélection d'une zone de texte ne passe pas toujours par selectionchange
+  // (WebKit) : la souris et le clavier la relisent aussi. WebKit ne renvoie pas
+  // non plus « select » quand on revient dans le champ sur la même sélection :
+  // l'entrée du focus la relit.
+  const draftSelSync = () => { if (draftField()) requestAnimationFrame(() => { syncBubbar(); }); };
+  cardsEl.addEventListener("select", draftSelSync, true);
+  cardsEl.addEventListener("focusin", draftSelSync);
+  cardsEl.addEventListener("mouseup", draftSelSync);
+  cardsEl.addEventListener("keyup", (e) => { if (e.shiftKey || e.key === "a") draftSelSync(); });
+  cardsEl.addEventListener("focusout", () => requestAnimationFrame(() => { if (!bubbleSelAt() && !bubbar.matches(":hover")) bubbar.classList.remove("show"); }));
   document.addEventListener("selectionchange", () => {
     placeCaret();
     paintSel();
     syncToolbar();
     const s = getSelection();
     const bub = readBubbleSel();
+    if (!bub && readDraftSel()) { syncBubbar(); return; }
     if (bub && s) {
       selbar.classList.remove("show");
       const r = s.getRangeAt(0).getBoundingClientRect();
