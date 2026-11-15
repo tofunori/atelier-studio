@@ -181,6 +181,8 @@ fn session_model_json(g: &mut Session) -> Result<Value, String> {
     v["agentChanges"] = json!(agent);
     // Fils que l'agent a touchés et que l'utilisateur n'a pas ouverts.
     v["unreadComments"] = json!(unread);
+    // Signet « où j'en étais » et dernier fil ouvert.
+    v["bookmark"] = json!(atelier_docx::bookmark::place(g.path(), g.model()));
     v["styles"] = g.styles().clone();
     v["mtime"] = json!(mtime_ms(g.path()));
     v["openInWord"] = json!(atelier_docx::open_in_word(g.path()));
@@ -255,9 +257,11 @@ fn model_value(docx: &mut Docx, model: atelier_docx::DocModel, path: &Path) -> R
     let styles = format::styles(docx).map_err(|e| e.0)?;
     let agent = atelier_docx::marks::list(path, &model).unwrap_or_default();
     let unread = atelier_docx::unread::list(path, &model).unwrap_or_default();
+    let place = atelier_docx::bookmark::place(path, &model);
     let mut v = serde_json::to_value(model).map_err(|e| e.to_string())?;
     v["agentChanges"] = json!(agent);
     v["unreadComments"] = json!(unread);
+    v["bookmark"] = json!(place);
     v["styles"] = json!(styles);
     v["mtime"] = json!(mtime_ms(path));
     v["openInWord"] = json!(atelier_docx::open_in_word(path));
@@ -341,6 +345,53 @@ pub async fn flush(State(state): State<AppState>, headers: HeaderMap, Json(body)
     match tokio::task::spawn_blocking(job).await {
         Ok(Ok(v)) => (StatusCode::OK, Json(v)).into_response(),
         Ok(Err((status, e))) => json_error(status, e),
+        Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct BookmarkBody {
+    path: String,
+    /// `set`, `clear` ou `opened`.
+    action: String,
+    #[serde(default)]
+    comment: Option<u32>,
+}
+
+/// `POST /docx/bookmark` — `{path, action, comment?}` : pose (`set`) ou
+/// retire (`clear`) le signet « où j'en étais », ou note le dernier fil
+/// ouvert (`opened`). Rend `{manual?, last?}`. Rien n'est écrit dans le .docx.
+pub async fn bookmark(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<BookmarkBody>) -> impl IntoResponse {
+    if !request_allowed(&headers, &state) {
+        return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
+    }
+    let path = match docx_path(&state, &body.path) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    use atelier_docx::bookmark::Action;
+    let action = match (body.action.as_str(), body.comment) {
+        ("set", Some(id)) => Action::Set(id),
+        ("opened", Some(id)) => Action::Opened(id),
+        ("clear", _) => Action::Clear,
+        _ => return json_error(StatusCode::BAD_REQUEST, "action inconnue (set, clear ou opened, avec comment)"),
+    };
+    let job = move || -> Result<atelier_docx::bookmark::Place, String> {
+        // Les numéros du panneau sont ceux de sa séance quand il y en a une.
+        match existing(&path) {
+            Some(s) => {
+                let g = lock_session(&s);
+                atelier_docx::bookmark::update(&path, g.model(), action).map_err(|e| e.0)
+            }
+            None => {
+                let model = Docx::open(&path).and_then(|mut d| d.model()).map_err(|e| e.0)?;
+                atelier_docx::bookmark::update(&path, &model, action).map_err(|e| e.0)
+            }
+        }
+    };
+    match tokio::task::spawn_blocking(job).await {
+        Ok(Ok(place)) => (StatusCode::OK, Json(json!(place))).into_response(),
+        Ok(Err(e)) => json_error(StatusCode::UNPROCESSABLE_ENTITY, e),
         Err(e) => json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }

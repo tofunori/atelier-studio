@@ -2862,6 +2862,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/docx/decide-set", post(docx::decide_set))
         .route("/docx/flush", post(docx::flush))
         .route("/docx/seen", post(docx::seen))
+        .route("/docx/bookmark", post(docx::bookmark))
         .route("/docx/open-word", post(docx::open_word))
         .route("/docx/undo", post(docx::undo))
         .route("/docx/history", get(docx::history_status))

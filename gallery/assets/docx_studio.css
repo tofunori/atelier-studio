@@ -331,7 +331,7 @@ body.lane-over #cards .cc{box-shadow:var(--elev-soft)}
 body.lane-over #cards .it.on .cc{box-shadow:var(--elev)}
 body.lane-over #leader{display:none}
 .it{position:absolute;left:0;right:0;top:0;will-change:transform;transition:transform 140ms ease-out,opacity 140ms ease-out}
-.cc{padding:12px;border-radius:10px;background:var(--card-up);box-shadow:var(--lift-up);font-size:12px;line-height:1.5;cursor:pointer;transition:box-shadow 140ms ease-out}
+.cc{position:relative;padding:12px;border-radius:10px;background:var(--card-up);box-shadow:var(--lift-up);font-size:12px;line-height:1.5;cursor:pointer;transition:box-shadow 140ms ease-out}
 .cc:hover,.it.on .cc{box-shadow:var(--lift-on)}
 /* Rappel du passage commenté, pastille à la couleur de l'auteur. */
 .cc .qt{display:flex;align-items:center;gap:6px;height:16px;margin-bottom:8px;font-size:11px;color:var(--text-muted);white-space:nowrap}
@@ -340,6 +340,17 @@ body.lane-over #leader{display:none}
 .nl{flex:none;display:inline-block;width:6px;height:6px;border-radius:999px;background:var(--accent);animation:nl-in 140ms ease-out}
 @keyframes nl-in{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:none}}
 .cl .x small .nl{margin-right:6px;vertical-align:1px}
+/* Signet « où j'en étais » (2026-11-15) : un ruban gris pend du bord haut
+   de la carte, comme le signet d'un livre. Un seul par document ; au survol
+   d'une autre carte, son contour propose de le déplacer là. Gris du texte,
+   jamais l'accent (déjà pris par le point « non lu »). */
+.cc .rb{position:absolute;top:-4px;right:16px;width:12px;height:20px;padding:0;border:0;border-radius:2px 2px 0 0;background:var(--text-secondary);clip-path:polygon(0 0,100% 0,100% 100%,50% 72%,0 100%);cursor:pointer;opacity:0;transition:opacity 120ms ease-out}
+.cc:hover .rb,.cc .rb:focus-visible{opacity:.3}
+.cc .rb:hover{opacity:.6}
+.cc .rb.on{opacity:1}
+.cc .qt,.cc.nq .hd{padding-right:24px}
+.cc.dn .rb{display:none}
+.cl .x small .sgl{display:inline-block;width:8px;height:12px;margin-left:6px;vertical-align:-2px;background:var(--text-secondary);clip-path:polygon(0 0,100% 0,100% 100%,50% 72%,0 100%)}
 .lanebtn.unread::after{content:"";position:absolute;top:4px;right:3px;width:6px;height:6px;border-radius:999px;background:var(--accent);box-shadow:0 0 0 2px var(--surface-header,var(--bg))}
 .cc .qt span{min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:italic}
 .it.on .cc{cursor:default}
@@ -368,7 +379,7 @@ body.lane-over #leader{display:none}
 /* Le passage corrigé par l'agent luit un instant. */
 .cc .tx .chg{animation:c-glow 1.5s ease-out}
 @keyframes c-glow{0%{background:transparent}10%,85%{background:color-mix(in srgb,var(--text-primary) 12%,transparent)}100%{background:transparent}}
-@media (prefers-reduced-motion: reduce){.cc .vf .dots i{animation:none;opacity:.6}.cc .tx .chg{animation:none}.nl{animation:none}}
+@media (prefers-reduced-motion: reduce){.cc .vf .dots i{animation:none;opacity:.6}.cc .tx .chg{animation:none}.nl{animation:none}.cc .rb{transition:none}}
 /* Ses propres messages s'ouvrent d'un clic pour être modifiés. */
 .cc .tx.mine{margin-left:-4px;margin-right:-4px;padding:0 4px;border-radius:6px;cursor:text;transition:background-color 120ms ease-out}
 .cc .tx.mine:hover{background:var(--surface-hover)}

@@ -93,6 +93,8 @@
 
 
 
+
+
   const W = window
 
 
@@ -299,6 +301,10 @@
    *  `seenNow` : ouvertes ici, l'avis au serveur encore en route. */
   let unread = new Set        ();
   const seenNow = new Set        ();
+  /** Signet « où j'en étais » (Thierry, 2026-11-15) : un ruban gris au bord
+   *  haut d'une carte, un seul par document, gardé par Atelier (rien dans le
+   *  .docx). `last` : dernier fil ouvert, où ⇧⌘D ramène sans signet. */
+  let bookmark                                                 = { manual: null, last: null };
   /** Commentaires dont la résolution (ou réouverture) est en route : un
    *  deuxième clic sur la même carte est ignoré jusqu'à la réponse. */
   const resolving = new Set        ();
@@ -308,6 +314,7 @@
     // Tout modèle complet du serveur porte la liste ; un modèle recalculé ici n'y touche pas.
     if (m.agentChanges) agentMarks = m.agentChanges;
     if (m.unreadComments) unread = new Set(m.unreadComments.filter((id) => !seenNow.has(id)));
+    if (m.bookmark) bookmark = { manual: m.bookmark.manual ?? null, last: m.bookmark.last ?? null };
     if (m.body !== undefined) return m;
     const body         = m.paragraphs.map((p) => ({ ...p, story: "" }));
     const rest         = [];
@@ -3397,7 +3404,10 @@
     // Le point de tête ne dit qu'une chose : l'agent a touché ce fil et la
     // carte n'a pas encore été ouverte (l'avatar porte déjà la couleur de l'auteur).
     const nl = unread.has(c.id) && !on ? `<i class="nl" data-tooltip="Touchée par l'agent, pas encore lue"></i>` : "";
-    let h = q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
+    // Signet : ruban au bord haut, plein sur le fil marqué, en contour au survol des autres.
+    const bm = bookmark.manual === c.id;
+    let h = `<button class="rb${bm ? " on" : ""}" data-act="bookmark" aria-pressed="${bm}" aria-label="${bm ? "Retirer le signet" : "Garder ma place ici"}" data-tooltip="${bm ? "Retirer le signet (⌘D)" : "Garder ma place ici (⌘D)"}"></button>`;
+    h += q ? `<div class="qt">${nl}<span>« ${esc(clip(q, 120))} »</span></div>` : nl ? `<div class="qt">${nl}</div>` : "";
     // Ses propres messages s'ouvrent d'un clic pour être modifiés en place.
     const text = (x         ) => {
       if (on && editing?.id === x.id) {
@@ -3444,7 +3454,8 @@
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
         <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
     }
-    return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
+    const cls = `cc${q || nl ? "" : " nq"}${bm ? " bm" : ""}`;
+    return on ? `<div class="${cls}">${h}</div>` : `<div class="${cls}" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }
   function draftHTML()         {
     return `<div class="cc"><div class="hd">${avatar(author)}<span class="nm">${esc(firstName(author))}</span><span class="dt">Brouillon</span></div>
@@ -3495,6 +3506,7 @@
     settleChecks();
     lane = collectLane();
     navOrder = lane.filter((it) => it.kind === "comment" && !it.done).sort(byPosition).map((it) => it.key);
+    slideBookmark();
     if (focusKey && !lane.some((it) => it.key === focusKey)) focusKey = "";
     // Les fiches inchangées gardent leur élément (et leur hauteur mesurée) :
     // une réponse du disque ne reconstruit que ce qui a bougé.
@@ -3517,7 +3529,7 @@
     for (const it of lane) {
       if (it.kind === "chip" && view !== "revue") continue;
       const on = it.key === focusKey;
-      if (on && it.kind === "comment") markSeen(it.ids[0]);
+      if (on && it.kind === "comment") { markSeen(it.ids[0]); noteOpened(it.ids[0]); }
       const html = it.kind === "chip" ? chipHTML(it, openChips.has(it.key)) : it.kind === "draft" ? draftHTML() : commentHTML(commentMap.get(it.ids[0]) , on);
       let el = prev.get(it.key);
       if (!el) {
@@ -3800,6 +3812,52 @@
       .catch(() => { /* le point reviendra au prochain modèle : rien de perdu */ })
       .finally(() => seenNow.delete(id));
   }
+  /** Pose (ou retire, `null`) le signet ; un seul par document. */
+  function setBookmark(id               ) {
+    const prev = bookmark.manual;
+    if (prev === id) return;
+    bookmark = { ...bookmark, manual: id };
+    renderCards();
+    renderSide();
+    api("/docx/bookmark", id === null ? { path: PATH, action: "clear" } : { path: PATH, action: "set", comment: id })
+      .then((r) => {
+        if (bookmark.manual !== id) return; // un autre geste est passé depuis
+        bookmark = { manual: r?.manual ?? null, last: r?.last ?? bookmark.last };
+        renderCards();
+        renderSide();
+      })
+      .catch(() => {
+        if (bookmark.manual === id) { bookmark = { ...bookmark, manual: prev }; renderCards(); renderSide(); }
+        status("Signet non enregistré", true);
+      });
+  }
+  /** Dernier fil ouvert : là où ⇧⌘D ramène quand aucun signet n'est posé. */
+  function noteOpened(id        ) {
+    if (bookmark.last === id) return;
+    bookmark = { ...bookmark, last: id };
+    api("/docx/bookmark", { path: PATH, action: "opened", comment: id }).catch(() => { /* simple repli : rien de perdu */ });
+  }
+  /** Fil marqué réglé (ici ou dans Word) : le signet passe au fil ouvert
+   *  suivant dans l'ordre du document, c'est là qu'on en est. */
+  let sliding = false;
+  function slideBookmark() {
+    const id = bookmark.manual;
+    if (id === null || sliding || !model) return;
+    const c = commentMap.get(id);
+    if (!c || !c.done) return;
+    const order = lane.filter((it) => it.kind === "comment").sort(byPosition);
+    const k = order.findIndex((it) => it.key === `c${id}`);
+    const after = order.slice(k + 1).concat(order.slice(0, k)).find((it) => !it.done);
+    sliding = true;
+    queueMicrotask(() => { sliding = false; setBookmark(after ? after.ids[0] : null); });
+  }
+  /** ⇧⌘D : retourne au signet, sinon au dernier fil ouvert. */
+  function goBookmark() {
+    const id = [bookmark.manual, bookmark.last].find((x) => x !== null && lane.some((it) => it.key === `c${x}`));
+    if (id === undefined || id === null) { status("Aucun signet dans ce document"); return; }
+    if (document.body.classList.contains("no-lane")) openLane();
+    focusCard(`c${id}`, true);
+  }
   function askPane(action                     , px        ) {
     clearTimeout(paneWait);
     paneAction = action;
@@ -4048,6 +4106,13 @@
     } else if (e.shiftKey && !e.altKey && e.code === "KeyE" && !typing) {
       e.preventDefault();
       $("btnTrack").click();
+    } else if (!e.altKey && e.code === "KeyD") {
+      // ⌘D pose ou retire le signet sur la carte ouverte ; ⇧⌘D y ramène.
+      e.preventDefault();
+      if (e.shiftKey) { goBookmark(); return; }
+      const id = focusKey.startsWith("c") ? Number(focusKey.slice(1)) : NaN;
+      if (commentMap.has(id) && !commentMap.get(id) .done) setBookmark(bookmark.manual === id ? null : id);
+      else status("Ouvre un commentaire pour y poser le signet");
     }
   });
 
@@ -4236,6 +4301,7 @@
     }
     const c = commentMap.get(it.ids[0]);
     if (!c) return;
+    if (act === "bookmark") { setBookmark(bookmark.manual === c.id ? null : c.id); return; }
     const ta = host.querySelector("textarea");
     if (act === "propose") {
       // Ce qui est tapé sert de consigne à l'agent, puis s'efface : le brouillon prend sa place.
@@ -5105,7 +5171,7 @@
         const s = it.idx < 1e9 ? sectionOf(it.idx) : "Hors du texte";
         if (s !== sec) { sec = s; if (s) html += `<div class="sect">${esc(s)}</div>`; }
         const replies = model.comments.filter((r) => r.parent === c.id).length;
-        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}</small></span></button>`;
+        html += `<button class="cl${c.done ? " done" : ""}${focusKey === it.key ? " on" : ""}" data-key="${it.key}">${avatar(c.author, true, c.initials)}<span class="x"><p>${esc(oneLine(c.text))}</p><small>${unread.has(c.id) ? `<i class="nl" aria-label="Pas encore lu"></i>` : ""}${dateFr(c.date)}${replies ? ` · ${pl(replies, "réponse", "réponses")}` : ""}${bookmark.manual === c.id ? `<i class="sgl" role="img" aria-label="Signet"></i>` : ""}</small></span></button>`;
       }
       if (!items.length) html = `<div class="more">Aucun commentaire dans ce document.</div>`;
     }
