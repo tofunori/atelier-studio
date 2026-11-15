@@ -51,11 +51,21 @@
      décolle en sombre ; ce qui flotte au-dessus d'un panneau (compositeur)
      prend une ombre plus haute. Jamais une bordure de plus. */
   --sheet-lift: 0 0 0 .5px rgba(0,0,0,.6), 0 1px 2px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.40);
-  --panel-edge: inset 0 0 0 .5px rgba(255,255,255,.06), inset 0 1px 0 rgba(255,255,255,.05);
-  /* onglet actif posé sur son panneau (barre du haut, 2026-11-09) : le même
-     liseré que le haut du panneau, rien sur les flancs (ils se raccordent au
-     panneau par des pieds arrondis, languette d'un seul tenant) */
-  --tab-lift: inset 0 1px 0 rgba(255,255,255,.05);
+  /* Panneaux flottants (variante 4, 2026-11-15, choix de Thierry) : le chat
+     et l'atelier se détachent du sol. Trois rôles, un seul contour :
+     - --panel-ring : filet sombre 0,5 px juste DEHORS (net sur le sol pâle) ;
+     - --panel-hi : liseré de lumière juste DEDANS, 1 px en haut, 0,5 px sur
+       les flancs, rien en bas (anneau de 0,5 px décalé de 0,5 px vers le bas) ;
+     - --panel-float : contact court + ombre portée vers le BAS, qui tombe
+       dans la gouttière de 12 px sans la noyer (l'ambiance 12/32 de
+       --sheet-lift la ramenait au ton des panneaux).
+     L'onglet actif et ses pieds reprennent le même filet et le même liseré
+     (languette d'un seul tenant, local-headers.css). */
+  --panel-ring: rgba(0,0,0,.70);
+  --panel-hi: rgba(255,255,255,.14);
+  --panel-edge: inset 0 .5px 0 .5px var(--panel-hi);
+  --panel-float: 0 0 0 .5px var(--panel-ring), 0 1px 1px rgba(0,0,0,.55), 0 10px 16px rgba(0,0,0,.38);
+  --tab-lift: var(--panel-edge);
   --float-lift: inset 0 0 0 .5px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.30), 0 12px 28px rgba(0,0,0,.36);
   /* rangée sélectionnée posée sur le sol de la colonne (jamais un bouton) */
   --ground-raised: var(--bg-ctl);
@@ -107,8 +117,9 @@
   --scroll-shade: rgba(20, 28, 38, .13);
   --card-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
   --sheet-lift: 0 0 0 .5px rgba(20,28,38,.07), 0 1px 2px rgba(20,28,38,.06), 0 10px 28px rgba(20,28,38,.08);
-  --panel-edge: inset 0 1px 0 rgba(255,255,255,.7);
-  --tab-lift: inset 0 1px 0 rgba(255,255,255,.7), 0 -.5px 0 rgba(20,28,38,.07);
+  --panel-ring: rgba(40,34,20,.10);
+  --panel-hi: rgba(255,255,255,.95);
+  --panel-float: 0 0 0 .5px var(--panel-ring), 0 1px 1px rgba(40,34,20,.08), 0 10px 18px rgba(40,34,20,.15);
   --float-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 2px 4px rgba(20,28,38,.06), 0 12px 28px rgba(20,28,38,.10);
   /* en clair, --bg-ctl se confond avec le sol : la sélection monte au ton de
      la feuille (gris clair, jamais blanc) */
@@ -144,10 +155,18 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    la gouttière remplace le trait. Ne s'applique QU'aux divisions permanentes
    (rail ↔ conversations ↔ atelier ↔ chat) ; les splits internes gardent leur
    poignée fine, sinon on paierait 8 px à chaque division. */
-.app-row { background: var(--surface-canvas); padding: var(--gutter); }
+.app-row { background: var(--surface-canvas);
+  padding: var(--gutter) var(--panel-gutter) var(--panel-gutter) var(--gutter); }
 /* sous la barre du haut, pas de gouttière : l'onglet actif se pose sur le
-   panneau qu'il pilote (onglets posés, 2026-11-09) */
-.topbar + .app-row { padding-top: 0; }
+   panneau qu'il pilote (onglets posés, 2026-11-09).
+   Panneaux flottants (2026-11-15) : le filet sombre du HAUT des panneaux
+   tombe dans le dernier demi-pixel de la barre. Elle le laisse voir (son fond
+   s'arrête 0,5 px plus haut) et la rangée prolonge son sol de 1 px dessous
+   (une ombre, pas une boîte : aucune mesure ne bouge, rien à arrondir). Le
+   contour des panneaux est ainsi complet, y compris en haut. */
+.topbar:has(+ .app-row) {
+  background: linear-gradient(var(--surface-canvas), var(--surface-canvas)) top / 100% calc(100% - .5px) no-repeat; }
+.topbar + .app-row { padding-top: 0; box-shadow: 0 -1px 0 var(--surface-canvas); }
 .app { height: 100%; }
 
 /* Option 4 (2026-08-16) — le séparateur horizontal naît du DÉFILEMENT : au
@@ -176,13 +195,27 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
    au lieu de laisser voir le sol. */
 .main-card { background: transparent; }
 .app { background: transparent; }
-.app > [data-panel] { background: var(--bg); border-radius: var(--r-m);
-  overflow: hidden; box-shadow: var(--panel-edge), var(--card-lift); }
+/* Panneaux flottants (variante 4, 2026-11-15) : chaque panneau porte SA
+   propre ombre, qui tombe dans la gouttière et les marges. Ni .main-card ni
+   le groupe ne la rognent (le groupe pose overflow: hidden en style en
+   ligne ; chaque panneau rogne déjà son contenu). */
+.app { overflow: visible !important; }
+.app > [data-panel] { position: relative; background: var(--bg); border-radius: var(--r-m);
+  overflow: hidden; box-shadow: var(--panel-float); }
+/* le liseré de lumière passe AU-DESSUS du contenu (barres d'outils, iframes
+   et fonds opaques couvraient l'ombre intérieure du panneau), mais sous la
+   barre du haut (z-index 2), dont l'onglet actif couvre le raccord */
+.app > [data-panel]::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit;
+  box-shadow: var(--panel-edge); pointer-events: none; }
 /* languette d'un seul tenant (2026-11-09) : l'onglet actif part du bord du
    panneau → coin haut gauche carré (data-tab-edge posé par syncTabEdges) */
 .app > [data-panel][data-tab-edge],
 .app > [data-panel][data-tab-edge] .pane-row > .workspace-root:first-child { border-top-left-radius: 0; }
-.app > .handle, .app-row > .side-handle { width: var(--gutter); flex: 0 0 var(--gutter); }
+.app-row > .side-handle { width: var(--gutter); flex: 0 0 var(--gutter); }
+.app > .handle { width: var(--panel-gutter); flex: 0 0 var(--panel-gutter); }
+/* atelier seul : le chat est masqué, son séparateur ne sépare plus rien. Sans
+   ça l'atelier gardait la gouttière entière entre lui et la colonne. */
+.app > .handle.handle-idle { display: none; }
 /* La gouttière est trop fine pour être visée au pixel : la cible de pointage
    déborde de 3 px de chaque côté SANS déplacer les cartes (le ::after, lui,
    reste centré dans la gouttière). */
@@ -1652,7 +1685,7 @@ button.kernel-file:hover { color: var(--text-primary); }
    puis les contrôles au bord. min-width 0 pour que les onglets tronquent
    au lieu de décentrer les surfaces. */
 .topbar-right { display: flex; align-items: center; gap: 4px; height: 100%;
-  min-width: 0; padding-right: 12px; padding-left: calc(var(--gutter) / 2 + 8px); }
+  min-width: 0; padding-right: 12px; padding-left: calc(var(--panel-gutter) / 2 + 8px); }
 .tb-seg { display: inline-flex; background: var(--bg-ctl); border-radius: var(--r-m); padding: 4px; gap: 2px; }
 .tb-seg button { display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: var(--control-height-s); background: transparent; border: none; color: var(--text-muted);
@@ -1662,7 +1695,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .app-row { display: flex; height: calc(100vh - 38px); background: var(--surface-canvas); }
 /* conteneur pur : un fond ici découperait les coins arrondis des cartes
    au lieu de laisser voir le sol (option 3) */
-.main-card { flex: 1; min-width: 0; height: 100%; overflow: hidden;
+.main-card { flex: 1; min-width: 0; height: 100%;
   background: transparent; position: relative; }
 /* rail = activity bar, 48px — carte flottante depuis 2026-08-16 : sa gouttière
    le sépare, un filet suivrait le rayon du coin en arc de 1px */
@@ -7026,8 +7059,6 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .app-row.unified .sidebar, .app-row.unified .pnav-header { background: transparent; }
 .app-row.unified .side-scroll { --shade-bg: var(--surface-canvas); }
 .app-row.unified .sidebar.pnav { padding: 4px 8px 0; }
-.app-row.unified > .main-card { border-radius: var(--r-m); box-shadow: var(--sheet-lift); }
-.app-row.unified > .main-card[data-tab-edge] { border-top-left-radius: 0; }
 /* sélection posée sur le sol : elle se soulève (fond + filet), la pilule
    d'accent du repère A13 reste le seul signe de couleur */
 .app-row.unified .sidebar li.active:not(.multi-sel), .app-row.unified .scol-row.on {
