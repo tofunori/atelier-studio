@@ -87,7 +87,7 @@
   html{background:var(--bg);color-scheme:dark}
   body{margin:0;font-family:var(--ui-font);
        background:var(--bg);color:var(--txt);font-size:var(--fs-body, 13px)}
-  header{position:sticky;top:0;z-index:10;background:var(--card);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);
+  header{position:sticky;top:0;z-index:10;background:var(--surface-header,var(--card));background:color-mix(in srgb,var(--surface-header,var(--card)) 92%,transparent);backdrop-filter:blur(8px);
          border-bottom:1px solid var(--border);padding:10px 16px 9px}
   .brand{display:flex;align-items:center;gap:9px;margin-bottom:9px;flex-wrap:wrap}
   .brand-sp{flex:1}
@@ -673,7 +673,11 @@
     --control-h:30px;
   }
   body{letter-spacing:-.004em;background:var(--bg)}
-  header{background:var(--card);backdrop-filter:none;box-shadow:none}
+  /* ton des barres d'outils de l'app (--surface-header) : l'onglet actif de
+     l'atelier, posé dessus, s'y fond (Graphite, 2026-11-15) */
+  header{background:var(--surface-header,var(--card));backdrop-filter:none;box-shadow:none}
+  /* ses filets et fonds de contrôle suivent ce ton (--chrome-*, translucides en sombre) */
+  header{--border:var(--chrome-line);--border-subtle:var(--chrome-line);--bg-ctl:var(--chrome-fill);--surface-inset:var(--chrome-fill);--card2:var(--chrome-fill)}
   /* PIÈGE : cette règle posait aussi `padding:8px 12px`, à spécificité égale
      avec celle du bloc « mode embarqué » plus haut — et gagnait, étant après.
      Avec `height:44px`, 8 + 36 (barre) = 44 : le padding du bas était écrasé à

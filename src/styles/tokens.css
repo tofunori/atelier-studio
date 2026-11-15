@@ -19,7 +19,12 @@
    * conversations, chat, atelier, panneaux — partagent EXACTEMENT le fond du
    * contenu. Ce qui divise, c'est la gouttière et elle seule ; un écart de
    * ton entre panneaux réintroduisait des bandes que l'œil relit comme des
-   * traits. Ne pas redonner au chrome sa propre teinte. */
+   * traits. Ne pas redonner au chrome sa propre teinte.
+   * RÉVISÉ 2026-11-15 (Graphite, demande de Thierry « trop de noir ») : en
+   * SOMBRE seulement, themeContractVars éclaircit le sol, la colonne et les
+   * barres d'outils (--surface-header) d'un cran vers --fg ; les cartes de
+   * contenu gardent toutes le même fond. Ces alias restent les valeurs par
+   * défaut, et celles du clair. */
   --surface-panel: var(--surface-app);
   --surface-header: var(--surface-panel);
   --surface-canvas: var(--canvas);

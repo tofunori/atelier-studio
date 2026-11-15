@@ -23,10 +23,17 @@
   /* Sol des gouttières (option 3). Doit être NETTEMENT sous le fond des
      cartes, sinon elles ne décollent pas : c'est l'écart de luminance qui
      porte toute la division, il n'y a plus de trait pour compenser. */
-  /* 80 % (2026-11-09, cran « anthracite ») : à 58 % le sol (#0f0f0f en
-     Claude Code) se fondait dans un fond d'écran noir ; les panneaux gardent
-     leur noir, seul le sol remonte juste assez pour décoller du bureau. */
-  --canvas: color-mix(in srgb, var(--bg) 80%, #000);
+  /* Graphite (2026-11-15, choix de Thierry) : en sombre le sol PASSE AU-DESSUS
+     du fond des cartes, d'un cran vers --fg. Le contenu garde son noir, le
+     cadre (barre du haut, colonne, gouttières) s'éclaircit, comme les apps
+     Mac en sombre. Remplace le cran « anthracite » (80 % de noir, 2026-11-09).
+     Valeurs réelles : themeContractVars (src/lib/themes.ts). */
+  --canvas: color-mix(in srgb, var(--bg) 95%, var(--fg));
+  /* la colonne d'icônes appartient au cadre en sombre : ton du sol, sans ombre */
+  --surface-rail: var(--canvas);
+  --rail-lift: none;
+  --chrome-line: color-mix(in srgb, var(--fg) 10%, transparent);
+  --chrome-fill: color-mix(in srgb, var(--fg) 9%, transparent);
   /* poignée de redimensionnement au survol — un ton de BORDURE, jamais un
      gris de texte (--muted2 peignait un fil blanc, vécu 2026-08-16) */
   --grip: color-mix(in srgb, var(--fg) 24%, var(--bg));
@@ -92,6 +99,10 @@
   --bg: #f1f4f7; --bg-side: #e3e7ec; --bg-pop: #fafcfe; --bg-card: #fafcfe;
   --bg-ctl: #dadee4; --border: #dde0e5; --border2: #b8bcc2;
   --canvas: color-mix(in srgb, var(--bg) 91%, #000);
+  --surface-rail: var(--bg);
+  --rail-lift: var(--card-lift);
+  --chrome-line: var(--border);
+  --chrome-fill: var(--bg-ctl);
   --grip: color-mix(in srgb, var(--fg) 26%, var(--bg));
   --scroll-shade: rgba(20, 28, 38, .13);
   --card-lift: 0 0 0 .5px rgba(20,28,38,.08), 0 1px 3px rgba(20,28,38,.09);
@@ -158,6 +169,7 @@ html, body, #root, .app { height: 100vh; overflow: hidden;
 }
 .side-scroll, .exp-tree { --shade-bg: var(--surface-panel); }
 .rail, .side-fixed { border-radius: var(--r-m); box-shadow: var(--card-lift); }
+.rail { box-shadow: var(--rail-lift); }
 .rail { margin-right: var(--gutter); }
 /* .main-card et .app ne sont QUE des conteneurs : s'ils peignaient un fond,
    les coins arrondis des cartes qu'ils contiennent se découperaient dessus
@@ -1501,7 +1513,7 @@ button.kernel-file:hover { color: var(--text-primary); }
 .atelier-wrap { display: flex; flex-direction: column; height: 100%; }
 .atelier-bar { display: flex; flex-direction: row; align-items: center; gap: var(--sp-1); padding: 0 var(--sp-4);
   height: var(--surface-header-height); min-height: var(--surface-header-height);
-  background: var(--surface-app); border-bottom: 1px solid var(--border-subtle); }
+  background: var(--surface-header); border-bottom: 1px solid var(--border-subtle); }
 .atelier-bar .atelier-title { font-size: var(--fs-m); color: var(--text-muted); }
 .atelier-bar .flex { flex: 1; }
 .atelier-home { flex: none; }
@@ -1654,7 +1666,7 @@ button.kernel-file:hover { color: var(--text-primary); }
   background: transparent; position: relative; }
 /* rail = activity bar, 48px — carte flottante depuis 2026-08-16 : sa gouttière
    le sépare, un filet suivrait le rayon du coin en arc de 1px */
-.rail { width: 48px; flex-shrink: 0; background: var(--surface-panel); display: flex;
+.rail { width: 48px; flex-shrink: 0; background: var(--surface-rail, var(--surface-panel)); display: flex;
   flex-direction: column; align-items: center; position: relative; }
 /* Commands and Discussions stay reachable; favorites and projects scroll
    independently when the window is short. Controls never shrink. */
@@ -1796,7 +1808,7 @@ button.kernel-file:hover { color: var(--text-primary); }
    ambre = attend ta réponse ; rouge = échec ; bleu = réponse non lue. */
 .rail-signal { position: absolute; top: 2px; right: 2px; pointer-events: none; }
 .rail-signal.sig-dot { width: 9px; height: 9px; border-radius: var(--r-pill);
-  border: 2px solid var(--surface-panel); }
+  border: 2px solid var(--surface-rail, var(--surface-panel)); }
 .on > .rail-signal.sig-dot, .rail-proj:hover > .rail-signal.sig-dot { border-color: var(--bg-ctl); }
 .rail-signal.sig-wait { background: var(--status-warning); }
 .rail-signal.sig-fail { background: var(--status-error); }
@@ -1813,8 +1825,8 @@ button.kernel-file:hover { color: var(--text-primary); }
 .rail-count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px;
   border-radius: var(--r-pill); background: var(--bg-ctl); color: var(--text-primary);
   font-size: var(--fs-xs); font-weight: 600; line-height: 16px; text-align: center;
-  font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--surface-panel); pointer-events: none; }
-.rail-count.wait { background: color-mix(in srgb, var(--status-warning) 24%, var(--surface-panel)); }
+  font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--surface-rail, var(--surface-panel)); pointer-events: none; }
+.rail-count.wait { background: color-mix(in srgb, var(--status-warning) 24%, var(--surface-rail, var(--surface-panel))); }
 .rail-view, .rail-inbox-btn { position: relative; }
 .rail-inbox-btn.on { background: var(--bg-ctl); color: var(--text-primary); }
 .rail-inbox-btn.on .rail-count { box-shadow: 0 0 0 2px var(--bg-ctl); }
@@ -7123,6 +7135,18 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
   width: var(--selection-marker-w); height: var(--selection-marker-h);
   border-radius: var(--radius-pill); background: var(--selection-line); pointer-events: none;
 }
+
+/* Colonne d'icônes posée sur le sol éclairci (Graphite, sombre seulement) :
+   --bg-ctl s'y confond avec le sol, survol et sélection montent donc d'un
+   voile de --text-primary, le survol restant plus léger que la sélection. */
+:root:not([data-theme="light"]) .rail :is(.rail-btn, .rail-view):hover:not(.on) {
+  background-color: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+:root:not([data-theme="light"]) .rail :is(.rail-view.on, .rail-favorite.on, .rail-inbox-btn.on) {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent); }
+:root:not([data-theme="light"]) .rail :is(.on > .rail-signal.sig-dot, .rail-proj:hover > .rail-signal.sig-dot) {
+  border-color: color-mix(in srgb, var(--text-primary) 10%, var(--surface-rail)); }
+:root:not([data-theme="light"]) .rail .rail-inbox-btn.on .rail-count {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-primary) 10%, var(--surface-rail)); }
 
 /* Automatisations (GAP-13) : rangées sans cadre, survol --bg-ctl. */
 .automation-row { padding: 4px 8px; border-radius: var(--radius-control);

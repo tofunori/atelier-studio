@@ -4485,6 +4485,7 @@ if(window.self !== window.top){
 if(window.self !== window.top){
   const st = document.createElement("style");
   st.textContent = `
+    header{--border:var(--chrome-line);--border-subtle:var(--chrome-line);--bg-ctl:var(--chrome-fill);--surface-inset:var(--chrome-fill);--card2:var(--chrome-fill)}
     header{background:var(--surface-header,#1a1d22) !important;border-bottom:1px solid var(--border,#333a45) !important;
       padding:4px 10px !important;min-height:0 !important;gap:10px}
     header #fname{font-weight:500;font-size:var(--fs-body,13px);color:var(--txt)}

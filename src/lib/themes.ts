@@ -70,17 +70,35 @@ export function themeContractVars(preset: Pick<ThemePreset, "dark" | "vars">): R
   status.warn = ensureContrast(status.warn, fg, fonds);
   status.hot = ensureContrast(status.hot, fg, fonds);
 
+  // Étagement du chrome (variante « Graphite », Thierry 2026-11-15) : en
+  // sombre, le contenu (chat, documents) garde son noir et l'outillage autour
+  // s'éclaircit d'un cran vers --fg, comme les apps Mac en sombre : le sol
+  // (barre du haut, colonne, gouttières) puis les barres d'outils et l'onglet
+  // posé dessus. En clair, rien ne change : le sol reste plus sombre que les
+  // cartes et les barres prennent le fond du panneau.
+  const canvas = dark ? `color-mix(in srgb, ${bg} 95%, ${fg})` : `color-mix(in srgb, ${bg} 91%, #000)`;
+  const header = dark ? `color-mix(in srgb, ${bg} 92%, ${fg})` : bg;
+
   return {
     ...raw,
-    "--canvas": `color-mix(in srgb, ${bg} ${dark ? 80 : 91}%, #000)`,
+    "--canvas": canvas,
     "--grip": `color-mix(in srgb, ${fg} ${dark ? 24 : 26}%, ${bg})`,
     "--scroll-shade": dark ? "rgba(0,0,0,.40)" : "rgba(20,28,38,.13)",
     "--card-lift": `0 1px 2px ${alpha}`,
 
     "--surface-app": bg,
     "--surface-panel": bg,
-    "--surface-header": bg,
-    "--surface-canvas": `color-mix(in srgb, ${bg} ${dark ? 80 : 91}%, #000)`,
+    "--surface-header": header,
+    "--surface-canvas": canvas,
+    // la colonne d'icônes fait partie du cadre en sombre (même ton que le
+    // sol, sans ombre) ; en clair elle reste une carte posée sur le sol
+    "--surface-rail": dark ? canvas : bg,
+    "--rail-lift": dark ? "none" : `0 1px 2px ${alpha}`,
+    // filets et fonds de contrôle posés sur ce cadre éclairci : translucides
+    // en sombre pour suivre le ton de la surface (un filet plein #2b2b29
+    // disparaissait sur une barre #2b2b2a) ; en clair, les valeurs pleines
+    "--chrome-line": dark ? `color-mix(in srgb, ${fg} 10%, transparent)` : border,
+    "--chrome-fill": dark ? `color-mix(in srgb, ${fg} 9%, transparent)` : ctl,
     "--surface-raised": card,
     "--surface-inset": ctl,
     "--surface-overlay": pop,

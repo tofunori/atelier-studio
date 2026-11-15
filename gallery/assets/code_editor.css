@@ -3,6 +3,8 @@
   button,input,select,textarea{font-family:var(--ui-font)}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
             font-family:var(--ui-font);display:flex;flex-direction:column}
+  /* Graphite (2026-11-15) : la barre s'éclaircit d'un cran en sombre ; ses filets et fonds de contrôle suivent son ton (--chrome-*, translucides en sombre). */
+  header{--border:var(--chrome-line);--border-subtle:var(--chrome-line);--bg-ctl:var(--chrome-fill);--surface-inset:var(--chrome-fill);--card2:var(--chrome-fill)}
   header{background:var(--surface-header,var(--card));border-bottom:1px solid var(--border-subtle,var(--border));padding:0 12px;height:var(--surface-header-height,44px);box-sizing:border-box;
          display:flex;gap:8px;align-items:center;font-size:var(--fs-body, 13px);flex-shrink:0}
   /* EDIT-10 : un seul bouton de barre, fantôme 28 px, comme .tb de docx_studio. */
