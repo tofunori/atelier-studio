@@ -848,10 +848,16 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   await writeFile(file, JSON.stringify({1: {text: "Bonne remarque, j'ajoute l'analyse en annexe B.", author: 'Claude', at: Date.now()}}));
   const field = thread.locator('textarea');
   await expect(field).toHaveValue("Bonne remarque, j'ajoute l'analyse en annexe B.", {timeout: 6000});
-  await expect(thread.locator('.c-by')).toContainText('Brouillon de Claude, à relire');
+  // Le brouillon est simplement dans le champ : aucune ligne de plus autour.
+  await expect(field).toHaveAttribute('aria-label', 'Brouillon de Claude à relire, réponse à Christophe');
+  await expect(thread.locator('.c-by, .c-fix')).toHaveCount(0);
+  await expect(thread.locator('.c-field.ad [data-act="redo"]')).toHaveAttribute('aria-label', 'Demander une autre formulation');
   await expect(thread.locator('.c-wait')).toHaveCount(0);
   expect((await disk(page, project)).revision).toBe(before);
-  await expect(thread.locator('.c-fix')).toContainText('1 correction en suivi');
+  // La correction en suivi : un crayon et son nombre au bout de la rangée du bas.
+  const fx = thread.locator('.ac [data-act="see-fix"]');
+  await expect(fx).toHaveText('1');
+  await expect(fx).toHaveAttribute('aria-label', '1 correction de Claude en suivi · voir');
 
   // Un passage du brouillon s'annote comme le texte des bulles : même capsule.
   const pick = async (word: string) => field.evaluate((ta: HTMLTextAreaElement, w) => {
@@ -906,7 +912,7 @@ test("docx: Proposer demande au chat un brouillon de réponse, que l'on relit et
   await expect.poll(async () => (await disk(page, project)).comments.some(c => c.parent === 1 && c.author === 'Thierry' && c.text.endsWith('annexe B. Merci !'))).toBe(true);
   expect((await disk(page, project)).comments.some(c => c.author === 'Claude')).toBe(false);
   await expect.poll(() => existsSync(file)).toBe(false);
-  await expect(thread.locator('.c-by')).toHaveCount(0);
+  await expect(thread.locator('.c-field.ad')).toHaveCount(0);
   await expect(thread.locator('[data-act="propose"]')).toBeVisible();
 });
 

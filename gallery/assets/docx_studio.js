@@ -213,6 +213,8 @@
     // Ouvrir ailleurs (Microsoft Word).
     ext: '<path d="M21 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>',
     // Arrêter (brouillon de l'agent) : carré plein, comme l'arrêt du chat.
+    again: '<path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>',
+    pen: '<path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.4 18.6a2 2 0 0 1-.9.5l-2.9.8.8-2.9a2 2 0 0 1 .5-.9z"/>',
     stop: '<rect width="12" height="12" x="6" y="6" rx="2.5" fill="currentColor" stroke="none"/>',
     trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
   };
@@ -3435,16 +3437,22 @@
       if (waiting) {
         h += `<div class="c-wait" role="status">${ic("bot", 14)}<span>Rédaction du brouillon</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="in ic"><button class="mini sp" data-act="stop" aria-label="Arrêter le brouillon" data-tooltip="Arrêter le brouillon">${ic("stop", 16)}</button></span></div>`;
       } else if (ad) {
-        h += `<div class="c-by">${ic("bot", 12)}<span>Brouillon de ${esc(firstName(ad.author))}, à relire</span><button class="lk" data-act="redo" data-tooltip="Demander une autre formulation">Refaire</button></div><div class="c-field ad">${field}<span class="in ic">${send}</span></div>`;
+        // Le brouillon est simplement dans le champ : ↻ en redemande un autre,
+        // la flèche l'envoie. Aucune ligne de plus autour.
+        const again = `<button class="mini ag" data-act="redo" aria-label="Demander une autre formulation" data-tooltip="Autre formulation">${ic("again", 16)}</button>`;
+        const dfield = field.replace(/aria-label="[^"]*"/, `aria-label="Brouillon de ${esc(firstName(ad.author))} à relire, réponse à ${esc(firstName(c.author))}"`);
+        h += `<div class="c-field ad">${dfield}<span class="in ic">${again}${send}</span></div>`;
       } else {
         h += `<div class="c-field${c.done ? "" : " ask"}">${field}<span class="in ic">${send}${c.done ? "" : bot}</span></div>`;
       }
       // Un remplacement = un retrait et un ajout : on compte les passages touchés.
+      // Rappel discret au bout de la rangée : crayon + nombre, clic = voir dans le texte.
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
-      if (fixed) h += `<div class="c-fix"><span>Et ${fixed === 1 ? "<b>1 correction</b>" : `<b>${fixed} corrections</b>`} en suivi dans le texte</span><button class="lk" data-act="see-fix">Voir</button></div>`;
+      const fixTip = fixed === 1 ? "1 correction de Claude en suivi · voir" : `${fixed} corrections de Claude en suivi · voir`;
+      const fix = fixed ? `<button class="mini fx" data-act="see-fix" aria-label="${fixTip}" data-tooltip="${fixTip}">${ic("pen", 14)}<span>${fixed}</span></button>` : "";
       h += `<div class="ac"><button class="btn q" data-act="${c.done ? "reopen" : "resolve"}"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
         <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
-        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button></div>`;
+        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>${fix}</div>`;
     }
     return on ? `<div class="cc">${h}</div>` : `<div class="cc" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
   }

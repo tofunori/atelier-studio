@@ -401,14 +401,13 @@ body.lane-over #leader{display:none}
 .c-wait .dots i:nth-child(2){animation-delay:.2s}
 .c-wait .dots i:nth-child(3){animation-delay:.4s}
 @keyframes c-dot{0%,100%{opacity:.3}40%{opacity:.9}}
-.c-by,.c-fix{display:flex;align-items:center;gap:6px;height:20px;font-size:11px;color:var(--text-muted);white-space:nowrap}
-.c-by{margin-top:12px}
-.c-by + .c-field{margin-top:4px}
-.c-by span,.c-fix span{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.c-fix{margin-top:8px}
-.c-fix b{font-weight:500;color:var(--text-secondary)}
-.cc .lk{margin-left:auto;height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);font:500 11px/20px var(--ui-font);cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
-.cc .lk:hover{background:var(--surface-hover);color:var(--text-primary)}
+/* Brouillon de l'agent : ↻ (autre formulation) reste visible même champ vidé. */
+.c-field.ad .c-input{padding-right:76px}
+.c-field.ad .c-input:placeholder-shown + .ic{display:flex}
+.cc .in.ic .ag{color:var(--text-muted)}
+.cc .in.ic .ag:hover,.cc .in.ic .ag:focus-visible{color:var(--text-primary)}
+/* Corrections de l'agent en suivi : crayon + nombre au bout de la rangée. */
+.cc .ac .fx{width:auto;gap:4px;margin-left:auto;padding:0 6px;font-size:11px;font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){.c-wait .dots i{animation:none;opacity:.6}}
 /* Commentaire réglé : une ligne, coche verte. */
 .cc.dn{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:transparent;box-shadow:none;color:var(--text-muted)}
