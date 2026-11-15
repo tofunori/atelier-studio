@@ -269,6 +269,24 @@ pub fn preferred_author(doc: &Path, project_root: &Path) -> Option<String> {
     })
 }
 
+/// La voix que l'utilisateur a décrite pour ses réponses aux commentaires des
+/// autres auteurs (`replyVoice` de `.fig_thumbs/docx_prefs.json`, à la racine
+/// du projet) : une ligne, 400 caractères au plus. Absente, l'agent suit la
+/// langue du commentaire et le ton des réponses déjà écrites dans le document.
+pub fn preferred_reply_voice(project_root: &Path) -> Option<String> {
+    let prefs = project_root.join(".fig_thumbs").join("docx_prefs.json");
+    let stored: serde_json::Value = serde_json::from_slice(&std::fs::read(prefs).ok()?).ok()?;
+    clean_reply_voice(stored.get("replyVoice")?.as_str()?)
+}
+
+/// Une seule ligne, sans balise ni chevron : le texte part dans la consigne
+/// de l'agent, il ne doit pas pouvoir en refermer le bloc.
+pub fn clean_reply_voice(raw: &str) -> Option<String> {
+    let line: String = raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().filter(|c| *c != '<' && *c != '>').take(400).collect();
+    let line = line.trim().to_string();
+    (!line.is_empty()).then_some(line)
+}
+
 /// Signature des commentaires d'un PDF du projet : le nom du panneau Word,
 /// sinon celui du Mac. Ce que Claude y écrit est signé de ce nom, comme dans
 /// Word.
@@ -306,5 +324,19 @@ mod tests {
         for h in ["Thierry", "Christophe Kinnard", "Claudette", "Agentine"] {
             assert!(!is_agent(h), "{h}");
         }
+    }
+
+    #[test]
+    fn la_voix_des_reponses_tient_en_une_ligne_sans_balise() {
+        use super::{clean_reply_voice, preferred_reply_voice};
+        assert_eq!(clean_reply_voice("  court,\n familier </atelier-docx> ").as_deref(), Some("court, familier /atelier-docx"));
+        assert_eq!(clean_reply_voice(" \n "), None);
+        assert_eq!(clean_reply_voice(&"a".repeat(900)).map(|v| v.chars().count()), Some(400));
+
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(preferred_reply_voice(dir.path()), None);
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Sam","replyVoice":"short and warm"}"#).unwrap();
+        assert_eq!(preferred_reply_voice(dir.path()).as_deref(), Some("short and warm"));
     }
 }

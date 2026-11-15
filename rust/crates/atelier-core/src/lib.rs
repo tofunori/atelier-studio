@@ -423,6 +423,50 @@ pub fn atomic_write_text(path: &Path, text: &str) -> Result<(), CoreError> {
     atomic_write(path, text.as_bytes())
 }
 
+/// Nom de l'avis déposé dans `.fig_thumbs/`.
+pub const DATA_NOTICE_NAME: &str = "README.txt";
+
+/// Texte de l'avis : le dossier porte un nom de vignettes mais garde aussi
+/// des données qu'Atelier ne peut pas recréer.
+pub const DATA_NOTICE: &str = "\
+Atelier - données du projet / project data
+
+FR  Ne supprimez pas ce dossier, et sauvegardez-le avec le projet.
+    Malgré son nom, il ne contient pas que des vignettes. Atelier y garde
+    aussi ce qu'il ne peut pas recréer :
+      - les surlignages et les notes des PDF du projet (pdf_annots.json) ;
+      - les commentaires posés sur les fichiers LaTeX et Markdown ;
+      - le tableau blanc (board.tldr.json) ;
+      - l'historique des versions (figure_versions.sqlite, dv_versions/) ;
+      - les préférences Word du projet (docx_prefs.json).
+    Seules les vignettes (*.png) se régénèrent d'elles-mêmes.
+
+EN  Do not delete this folder, and back it up with the project.
+    Despite its name, it holds more than thumbnails. Atelier also keeps
+    here what it cannot rebuild:
+      - highlights and notes on the project's PDFs (pdf_annots.json);
+      - comments on LaTeX and Markdown files;
+      - the whiteboard (board.tldr.json);
+      - version history (figure_versions.sqlite, dv_versions/);
+      - the project's Word preferences (docx_prefs.json).
+    Only the thumbnails (*.png) are regenerated automatically.
+";
+
+/// Dépose l'avis dans le `.fig_thumbs/` du projet s'il n'y est pas déjà. Ne
+/// crée jamais le dossier, ne suit pas un lien symbolique et n'écrase rien :
+/// un avis que l'utilisateur a modifié reste le sien.
+pub fn ensure_data_notice(root: &Path) {
+    let dir = root.join(".fig_thumbs");
+    let real_dir = fs::symlink_metadata(&dir).is_ok_and(|m| m.is_dir() && !m.file_type().is_symlink());
+    if !real_dir {
+        return;
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().write(true).create_new(true).open(dir.join(DATA_NOTICE_NAME)) {
+        use std::io::Write as _;
+        let _ = file.write_all(DATA_NOTICE.as_bytes());
+    }
+}
+
 /// Balaye les résidus d'`atomic_write` interrompus (`.<nom>.<pid>.<nonce>.tmp`) :
 /// un process tué entre write et rename les abandonne définitivement (9 × 160 Ko
 /// constatés le 2026-08-28). `max_age` protège une écriture en cours.
@@ -501,6 +545,26 @@ pub fn ensure_orig_backup(path: &Path) -> Result<(), CoreError> {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn data_notice_is_written_once_and_never_overwritten() {
+        let root = std::env::temp_dir().join(format!("atelier-core-notice-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+        fs::create_dir_all(&root).unwrap();
+        // Sans dossier, rien n'est créé : l'avis ne fait pas naître .fig_thumbs.
+        ensure_data_notice(&root);
+        assert!(!root.join(".fig_thumbs").exists());
+        fs::create_dir(root.join(".fig_thumbs")).unwrap();
+        ensure_data_notice(&root);
+        let notice = root.join(".fig_thumbs").join(DATA_NOTICE_NAME);
+        let text = fs::read_to_string(&notice).unwrap();
+        assert!(text.contains("Ne supprimez pas ce dossier") && text.contains("Do not delete this folder"));
+        assert!(text.contains("pdf_annots.json"));
+        // Un avis modifié par l'utilisateur reste le sien.
+        fs::write(&notice, "le mien").unwrap();
+        ensure_data_notice(&root);
+        assert_eq!(fs::read_to_string(&notice).unwrap(), "le mien");
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn rejects_paths_outside_project() {

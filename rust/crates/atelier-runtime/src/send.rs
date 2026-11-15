@@ -284,10 +284,16 @@ outside the block. Text with no previous version is written normally.\n</atelier
 /// les suivis, les commentaires et les citations Zotero. La consigne n'est
 /// ajoutée qu'aux tours qui parlent d'un .docx (le panneau .docx cite son
 /// chemin), à chaque tour concerné : la session peut en être à son 20e tour.
-fn with_docx_instruction(prompt: String, provider: &str) -> String {
+fn with_docx_instruction(prompt: String, provider: &str, reply_voice: Option<&str>) -> String {
     if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !prompt.to_lowercase().contains(".docx") {
         return prompt;
     }
+    // La voix des réponses : celle que l'utilisateur a décrite pour ce projet,
+    // sinon la langue du commentaire et le ton de ses réponses déjà écrites.
+    let voice = match reply_voice {
+        Some(voice) => format!("in the voice the user described for this project (« {voice} »)"),
+        None => "in the tone of the user's earlier replies in the document when there are some".to_string(),
+    };
     format!(
         "{prompt}\n\n<atelier-docx>\nFor any .docx, use the MCP tool `atelier_docx` (action=read first). \
 Its figures are all visible to you: action=images renders them as on the page, Excel charts, \
@@ -306,13 +312,13 @@ action=replace_figure (paragraph, image=N, figure = a PNG/JPEG/GIF/PDF of the pr
 width and paragraph style, tracked; action=delete_figure removes one. Never insert a new figure next \
 to an old one and ask the user to delete the old one by hand; if replace_figure refuses, insert nothing \
 and tell the user its reason. Never unzip, convert or rewrite a .docx yourself (python-docx, pandoc, unzip): that breaks the \
-supervisor's tracked changes, comments and Zotero citations. Your edits become tracked changes \
+other authors' tracked changes, comments and Zotero citations. Your edits become tracked changes \
 signed with your name; only the user accepts or rejects them. Your own comments and the user's \
 you fix (edit_comment) or remove (withdraw_comment) yourself: never add a second version, never \
-ask the user to delete one; the supervisor's and other authors' stay untouched. Replies to the supervisor's \
-comments (draft_reply) are written as the user, in French: short, natural and casual, with « … », \
-a small typo now and then is fine, never a long or formal answer, and never a rewritten passage. \
-A correction you suggest for the supervisor's comment goes first in your chat answer (before / after); \
+ask the user to delete one; other authors' stay untouched. Replies to another author's \
+comments (draft_reply) are written as the user, in the language of the comment they answer: one or two \
+short, natural sentences, {voice}, never a long or formal answer, and never a rewritten passage. \
+A correction you suggest for another author's comment goes first in your chat answer (before / after); \
 make it a tracked edit in the .docx only once the user says so.\n</atelier-docx>"
     )
 }
@@ -1575,7 +1581,8 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
         let p = with_revision_instruction(p);
         with_compute_instruction(p, &provider)
     };
-    let provider_prompt = with_docx_instruction(provider_prompt, &provider);
+    let reply_voice = atelier_docx::marks::preferred_reply_voice(std::path::Path::new(&project_root));
+    let provider_prompt = with_docx_instruction(provider_prompt, &provider, reply_voice.as_deref());
     let provider_prompt = with_pdf_pages_instruction(provider_prompt, &provider);
     let turn_tools_stamp = crate::agent_mcp::should_launch_mcp(&provider)
         .then(|| crate::agent_mcp::tools_stamp(state.server_dir()))
@@ -3998,17 +4005,27 @@ mod tests {
 
     #[test]
     fn docx_instruction_only_when_a_docx_is_in_play() {
-        let enriched = with_docx_instruction("Réponds aux commentaires de Christophe dans Chapitre2.DOCX".into(), "codex");
+        let enriched = with_docx_instruction("Réponds aux commentaires de Christophe dans Chapitre2.DOCX".into(), "codex", None);
         assert!(enriched.contains("atelier_docx") && enriched.contains("Never unzip"));
-        assert!(enriched.contains("short, natural and casual"), "consigne de style des réponses");
+        assert!(enriched.contains("in the language of the comment they answer"), "la réponse suit la langue du commentaire");
+        assert!(enriched.contains("the user's earlier replies in the document"), "sans voix décrite, le ton des réponses déjà écrites");
+        assert!(!enriched.contains("in French") && !enriched.contains("typo") && !enriched.contains("supervisor"), "plus rien de propre à un utilisateur");
         assert!(enriched.contains("only once the user says so"), "la correction passe d'abord par le chat");
         assert!(enriched.contains("withdraw_comment") && enriched.contains("never \
 ask the user to delete one"), "l'agent retire lui-même ses bulles");
         assert!(enriched.contains("action=images"), "l'agent regarde les figures au lieu de deviner");
         assert!(enriched.contains("Excel charts") && enriched.contains("EMF/WMF"), "graphiques et images Windows comprises");
         assert!(enriched.contains("never say you cannot see it"), "pas de « je ne vois pas ce graphique »");
-        assert_eq!(with_docx_instruction("relis mon intro".into(), "claude"), "relis mon intro");
-        assert_eq!(with_docx_instruction("a.docx".into(), "openrouter"), "a.docx");
+        assert_eq!(with_docx_instruction("relis mon intro".into(), "claude", None), "relis mon intro");
+        assert_eq!(with_docx_instruction("a.docx".into(), "openrouter", None), "a.docx");
+    }
+
+    #[test]
+    fn docx_instruction_carries_the_voice_the_user_described() {
+        let voice = "en français, court et familier, avec « … »";
+        let enriched = with_docx_instruction("réponds dans a.docx".into(), "claude", Some(voice));
+        assert!(enriched.contains("in the voice the user described for this project (« en français, court et familier, avec « … » »)"), "{enriched}");
+        assert!(!enriched.contains("earlier replies in the document"), "la voix décrite remplace le ton deviné");
     }
 
     #[test]

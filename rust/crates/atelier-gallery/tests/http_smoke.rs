@@ -2788,6 +2788,15 @@ fn le_panneau_docx_lit_retouche_et_refuse_une_version_perimee() {
     let (_, body) = http(srv.port, "GET", "/docx/prefs", None);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!((v["author"].as_str(), v["page"].as_str()), (Some("Thierry"), Some("theme")));
+    // La voix des réponses : une ligne, gardée avec le reste ; vide = oubliée.
+    assert!(v["replyVoice"].is_null());
+    let (st, _) = http(srv.port, "POST", "/docx/prefs", Some(r#"{"replyVoice":"court  et\nfamilier <b>"}"#));
+    assert_eq!(st, 200);
+    let v = json_of(&http(srv.port, "GET", "/docx/prefs", None).1);
+    assert_eq!((v["replyVoice"].as_str(), v["author"].as_str()), (Some("court et familier b"), Some("Thierry")));
+    let (st, _) = http(srv.port, "POST", "/docx/prefs", Some(r#"{"replyVoice":"  "}"#));
+    assert_eq!(st, 200);
+    assert!(json_of(&http(srv.port, "GET", "/docx/prefs", None).1)["replyVoice"].is_null());
 }
 
 fn json_of(body: &str) -> serde_json::Value {

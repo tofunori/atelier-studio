@@ -941,6 +941,10 @@ pub async fn figures(State(state): State<AppState>, headers: HeaderMap) -> impl 
 pub struct PrefsBody {
     author: Option<String>,
     page: Option<String>,
+    /// La voix des réponses aux commentaires des autres auteurs, décrite par
+    /// l'utilisateur ; vide = l'oublier.
+    #[serde(rename = "replyVoice")]
+    reply_voice: Option<String>,
 }
 
 fn prefs_path(root: &Path) -> PathBuf {
@@ -970,12 +974,13 @@ pub async fn get_prefs(State(state): State<AppState>, headers: HeaderMap) -> imp
     (StatusCode::OK, Json(json!({
         "author": stored.get("author").and_then(Value::as_str),
         "page": stored.get("page").and_then(Value::as_str).unwrap_or("blanche"),
+        "replyVoice": stored.get("replyVoice").and_then(Value::as_str),
         "systemAuthor": fallback,
     })))
         .into_response()
 }
 
-/// `POST /docx/prefs` — `{author?, page?: "blanche" | "theme"}`.
+/// `POST /docx/prefs` — `{author?, page?: "blanche" | "theme", replyVoice?}`.
 pub async fn post_prefs(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<PrefsBody>) -> impl IntoResponse {
     if !request_allowed(&headers, &state) {
         return json_error(StatusCode::FORBIDDEN, "cross-origin blocked");
@@ -987,6 +992,16 @@ pub async fn post_prefs(State(state): State<AppState>, headers: HeaderMap, Json(
     }
     if let Some(p) = body.page.filter(|p| p == "blanche" || p == "theme") {
         stored["page"] = json!(p);
+    }
+    if let Some(voice) = body.reply_voice {
+        match atelier_docx::marks::clean_reply_voice(&voice) {
+            Some(voice) => stored["replyVoice"] = json!(voice),
+            None => {
+                if let Some(map) = stored.as_object_mut() {
+                    map.remove("replyVoice");
+                }
+            }
+        }
     }
     match atomic_write(&path, stored.to_string().as_bytes()) {
         Ok(()) => (StatusCode::OK, Json(stored)).into_response(),

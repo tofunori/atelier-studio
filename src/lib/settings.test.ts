@@ -4,9 +4,34 @@ import { bootPromotions, DEFAULT_SETTINGS, loadSettings, migrateRetiredModels, s
 beforeEach(() => localStorage.clear());
 
 describe("settings defaults", () => {
-  it("utilise Opus 5.5 en contexte 1M et xhigh par défaut pour Claude", () => {
-    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-opus-5-5[1m]");
-    expect(DEFAULT_SETTINGS.defaultEffort.claude).toBe("xhigh");
+  it("donne Sonnet 5.5 en high à un profil neuf pour Claude", () => {
+    expect(DEFAULT_SETTINGS.defaultModel.claude).toBe("claude-sonnet-5-5");
+    expect(DEFAULT_SETTINGS.defaultEffort.claude).toBe("high");
+    expect(loadSettings()).toMatchObject({
+      defaultModel: { claude: "claude-sonnet-5-5" },
+      defaultEffort: { claude: "high" },
+    });
+  });
+
+  it("ne promeut aucun modèle Claude sur un stockage vide : le miroir disque fait foi", () => {
+    // Webview vierge (mise à jour, reset WebKit) d'un profil existant : une
+    // promotion ici écraserait, au boot, le modèle choisi relu du disque.
+    loadSettings();
+    expect(bootPromotions().defaultModel).toBeUndefined();
+    expect(withBootPromotions({ defaultModel: { claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-terra" } }).defaultModel)
+      .toEqual({ claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-terra" });
+  });
+
+  it("laisse à un profil existant son modèle et son effort enregistrés", () => {
+    localStorage.setItem("atelier-studio.settings", JSON.stringify({
+      defaultModel: { claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-sol" },
+      defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
+    }));
+    expect(loadSettings()).toMatchObject({
+      defaultModel: { claude: "claude-opus-5-5[1m]" },
+      defaultEffort: { claude: "xhigh" },
+    });
+    expect(bootPromotions().defaultModel).toBeUndefined();
   });
 
   it("utilise GPT-5.6 Sol medium par défaut pour Codex", () => {

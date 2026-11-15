@@ -91,8 +91,12 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   defaultProvider: "claude",
-  defaultModel: { claude: "claude-opus-5-5[1m]", codex: "gpt-5.6-sol" },
-  defaultEffort: { claude: "xhigh", codex: "medium", grok: "high" },
+  // Défaut d'un profil NEUF (2026-11-15, audit « nouvel utilisateur ») : un
+  // modèle et un effort qui tiennent dans un abonnement d'entrée de gamme.
+  // Opus · 1M en xhigh reste un choix d'un clic dans le sélecteur. Un profil
+  // existant garde ses valeurs enregistrées : aucune promotion ne l'accompagne.
+  defaultModel: { claude: "claude-sonnet-5-5", codex: "gpt-5.6-sol" },
+  defaultEffort: { claude: "high", codex: "medium", grok: "high" },
   defaultPermissionMode: "acceptEdits",
   threadOrder: "recent",
   chatFontSize: 13.5,
@@ -143,6 +147,10 @@ export const DEFAULT_SETTINGS: Settings = {
 const KEY = "atelier-studio.settings";
 const LEGACY_FAVORITE_MODELS_KEY = "atelier-studio.favModels";
 const CLAUDE_DEFAULTS_MIGRATION_KEY = "atelier-studio.defaults.claude-opus-5-1m";
+/** Cible des deux promotions Claude historiques (Sonnet 5 puis Opus 5 → Opus
+ * 5.5 · 1M). Figée ici : elles suivent un ANCIEN défaut enregistré et ne
+ * doivent pas se mettre à viser le défaut des profils neufs quand il change. */
+const CLAUDE_PROMOTED_FROM_OLD_DEFAULT = "claude-opus-5-5[1m]";
 const DEFAULT_MIGRATIONS_KEY = "atelier-studio.defaults.applied";
 
 /** Promotions de défauts déjà appliquées à CE profil, par id. */
@@ -216,10 +224,11 @@ const DEFAULT_MIGRATIONS: {
     // modèle choisi explicitement (Opus 4.8, Fable…) reste en place.
     id: "2026-09-25.claude-default-opus-5-5-1m",
     promote: (stored) => {
+      // Rien d'enregistré = profil neuf : il prend le défaut courant tel quel.
       const claude = stored.defaultModel?.claude;
-      const inherited = !claude || ["claude-opus-5[1m]", "claude-opus-5", "claude-sonnet-5", "claude-sonnet-5[1m]"].includes(claude);
+      const inherited = !!claude && ["claude-opus-5[1m]", "claude-opus-5", "claude-sonnet-5", "claude-sonnet-5[1m]"].includes(claude);
       return inherited
-        ? { defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel, claude: DEFAULT_SETTINGS.defaultModel.claude } }
+        ? { defaultModel: { ...DEFAULT_SETTINGS.defaultModel, ...stored.defaultModel, claude: CLAUDE_PROMOTED_FROM_OLD_DEFAULT } }
         : {};
     },
   },
@@ -339,11 +348,10 @@ export function loadSettings(): Settings {
     // Migration ponctuelle : promouvoir l'ancien défaut Sonnet vers Opus 5
     // 1M, sans écraser un modèle Claude choisi explicitement auparavant.
     const hadDefaultClaude = stored.defaultModel?.claude;
-    const isPreviousClaudeDefault = !hadDefaultClaude
-      || hadDefaultClaude === "claude-sonnet-5"
+    const isPreviousClaudeDefault = hadDefaultClaude === "claude-sonnet-5"
       || hadDefaultClaude === "claude-sonnet-5[1m]";
     if (localStorage.getItem(CLAUDE_DEFAULTS_MIGRATION_KEY) !== "1" && isPreviousClaudeDefault) {
-      storedDefaultModel.claude = DEFAULT_SETTINGS.defaultModel.claude;
+      storedDefaultModel.claude = CLAUDE_PROMOTED_FROM_OLD_DEFAULT;
       localStorage.setItem(CLAUDE_DEFAULTS_MIGRATION_KEY, "1");
     }
     // migration : ancienne clé de taille de police
@@ -404,6 +412,9 @@ export function loadSettings(): Settings {
       try {
         localStorage.setItem(KEY, JSON.stringify(settings));
       } catch {}
+    } else if (Object.keys(stored).length === 0) {
+      // Webview vierge : rien n'est promu, le miroir disque fera foi en entier.
+      lastBootPromotions = {};
     }
     return settings;
   } catch {
