@@ -504,15 +504,7 @@ fn replace_span(docx: &mut Docx, part: &str, src: &str, t: &Target, s: usize, e:
 /// de paragraphe ou de ligne, vides par nature).
 pub(crate) fn drop_empty_revisions(text: &str) -> Result<String> {
     let doc = xml::parse(text)?;
-    let edits: Vec<_> = doc
-        .descendants()
-        .filter(|n| {
-            (xml::is_w(*n, "ins") || xml::is_w(*n, "del"))
-                && n.parent().is_some_and(|p| xml::is_w(p, "p") || xml::is_w(p, "hyperlink"))
-                && !n.children().any(|c| c.is_element())
-        })
-        .map(|n| (n.range(), String::new()))
-        .collect();
+    let edits: Vec<_> = doc.descendants().filter(|n| droppable(*n)).map(|n| (n.range(), String::new())).collect();
     if edits.is_empty() {
         return Ok(text.to_string());
     }
@@ -522,9 +514,28 @@ pub(crate) fn drop_empty_revisions(text: &str) -> Result<String> {
 /// Comme [`drop_empty_revisions`], en ne relisant que `range` (un
 /// paragraphe) sous la balise racine `root_open`, qui déclare les espaces de
 /// noms ; relit tout le texte si ce fragment ne s'analyse pas seul.
+/// Suivi vide (dans un paragraphe, un lien ou une équation), ou équation
+/// que les décisions ont vidée (un ajout refusé) : le plus haut des deux.
+fn droppable(n: roxmltree::Node) -> bool {
+    let math = |n: roxmltree::Node, name: &str| n.is_element() && n.tag_name().namespace() == Some(xml::M) && n.tag_name().name() == name;
+    let empty_rev = |n: roxmltree::Node| (xml::is_w(n, "ins") || xml::is_w(n, "del")) && !n.children().any(|c| c.is_element());
+    let blank_eq = |n: roxmltree::Node| math(n, "oMath") && n.children().filter(|c| c.is_element()).all(empty_rev);
+    let blank_para = |n: roxmltree::Node| math(n, "oMathPara") && n.children().filter(|c| c.is_element()).all(|c| math(c, "oMathParaPr") || blank_eq(c)) && n.children().any(blank_eq);
+    if blank_para(n) {
+        return true;
+    }
+    if blank_eq(n) {
+        return !n.parent().is_some_and(blank_para);
+    }
+    empty_rev(n)
+        && n.parent().is_some_and(|p| {
+            xml::is_w(p, "p") || xml::is_w(p, "hyperlink") || (p.tag_name().namespace() == Some(xml::M) && !(blank_eq(p) || p.parent().is_some_and(blank_para)) && !math(p, "ctrlPr"))
+        })
+}
+
 pub(crate) fn drop_empty_revisions_in(text: String, range: Range<usize>, root_open: &str) -> Result<String> {
     let Some(slice) = text.get(range.clone()) else { return drop_empty_revisions(&text) };
-    if !slice.contains("<w:ins") && !slice.contains("<w:del") {
+    if !slice.contains("<w:ins") && !slice.contains("<w:del") && !slice.contains("oMath") {
         return Ok(text);
     }
     let close = root_open.trim_start_matches('<').split(|c: char| c.is_whitespace() || c == '>' || c == '/').next().unwrap_or("");
@@ -533,11 +544,7 @@ pub(crate) fn drop_empty_revisions_in(text: String, range: Range<usize>, root_op
     let edits: Vec<(Range<usize>, String)> = match xml::parse(&wrapped) {
         Ok(doc) => doc
             .descendants()
-            .filter(|n| {
-                (xml::is_w(*n, "ins") || xml::is_w(*n, "del"))
-                    && n.parent().is_some_and(|p| xml::is_w(p, "p") || xml::is_w(p, "hyperlink"))
-                    && !n.children().any(|c| c.is_element())
-            })
+            .filter(|n| droppable(*n))
             .filter(|n| n.range().start >= shift && n.range().end <= shift + slice.len())
             .map(|n| (n.range().start - shift + range.start..n.range().end - shift + range.start, String::new()))
             .collect(),

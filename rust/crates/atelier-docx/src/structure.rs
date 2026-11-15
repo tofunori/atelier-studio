@@ -86,19 +86,22 @@ pub fn split(docx: &mut Docx, paragraph: &str, at: usize, tracked: bool, sig: &S
     }
     if cut_at.is_none() {
         // Frontière : après le dernier morceau qui finit en `at`.
-        let mut pos = None;
-        for (piece, span) in t.inline.pieces.iter().zip(&t.spans) {
-            if let Some((ps, pe)) = span
-                && *pe <= at && pe > ps {
-                    pos = Some(match piece.run {
-                        // Champ ou objet entier : la coupe passe après sa marque de fin.
-                        _ if piece.unit.is_some() => piece.unit.as_ref().unwrap().end,
-                        Some((ri, _)) if starts[ri].is_some_and(|rs| rs + run_len(&t, ri) == *pe) => t.inline.runs[ri].range.end,
-                        Some(_) => return err("coupe impossible à cet endroit"),
-                        None => piece.top.end,
-                    });
-                }
-        }
+        // Seul le dernier compte : un jeton intérieur d'un run (tabulation
+        // suivie de texte) n'est pas une frontière, mais il n'empêche rien.
+        let last = t.inline.pieces.iter().zip(&t.spans).filter(|(_, span)| span.is_some_and(|(ps, pe)| pe <= at && pe > ps)).last();
+        let pos = match last {
+            None => None,
+            Some((piece, span)) => {
+                let pe = span.unwrap().1;
+                Some(match piece.run {
+                    // Champ ou objet entier : la coupe passe après sa marque de fin.
+                    _ if piece.unit.is_some() => piece.unit.as_ref().unwrap().end,
+                    Some((ri, _)) if starts[ri].is_some_and(|rs| rs + run_len(&t, ri) == pe) => t.inline.runs[ri].range.end,
+                    Some(_) => return err("coupe impossible à cet endroit"),
+                    None => piece.top.end,
+                })
+            }
+        };
         let content = content_after_ppr(p);
         let pos = pos.or_else(|| content.as_ref().map(|r| r.start)).unwrap_or_else(|| t.ppr_end.or(t.p_inner_end).unwrap_or(t.p_range.end));
         cut_at = Some((pos, None));

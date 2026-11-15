@@ -386,7 +386,15 @@ fn story_paragraphs(src: &str, doc: &roxmltree::Document, scope: &Scope, prefix:
         // Segment de chaque morceau.
         let mut seg_at: Vec<usize> = Vec::with_capacity(inline.pieces.len());
         for (pi, piece) in inline.pieces.iter().enumerate() {
-            if let Some((_, rid)) = piece.rev
+            if !piece.inner_revs.is_empty() {
+                // Marques dans une équation : chacune avec le texte qu'elle touche.
+                for (rid, t) in &piece.inner_revs {
+                    if let Some(&i) = acc.by_id.get(rid) {
+                        acc.changes[i].text.push_str(t);
+                        acc.changes[i].paragraph.get_or_insert_with(|| id.clone());
+                    }
+                }
+            } else if let Some((_, rid)) = piece.rev
                 && let Some(&i) = acc.by_id.get(&rid) {
                     acc.changes[i].text.push_str(&piece.text);
                     acc.changes[i].paragraph.get_or_insert_with(|| id.clone());

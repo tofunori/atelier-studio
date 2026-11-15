@@ -62,6 +62,10 @@ pub enum Op {
     /// Corrige la `index`-ième équation (depuis 0) du paragraphe d'après
     /// son LaTeX : en suivi, l'ancienne supprimée et la nouvelle insérée.
     ReplaceMath { paragraph: String, index: usize, latex: String },
+    /// Nouvelle équation écrite en LaTeX : à la position `at` du paragraphe,
+    /// ou, avec `display`, seule et centrée dans un paragraphe neuf après
+    /// `paragraph` (`at` ignoré). En suivi, notée comme Word.
+    InsertMath { paragraph: String, #[serde(default)] at: usize, latex: String, #[serde(default)] display: bool },
     /// Collage riche : morceaux mis en forme et équations, un paragraphe
     /// par élément de `paragraphs`.
     InsertRuns { paragraph: String, at: usize, paragraphs: Vec<Vec<crate::paste::RunIn>> },
@@ -99,7 +103,7 @@ impl Op {
             Op::InsertNote { .. } => "note",
             Op::InsertRow { .. } | Op::DeleteRow { .. } | Op::InsertColumn { .. } | Op::DeleteColumn { .. } => "tableau",
             Op::InsertImage { .. } => "figure",
-            Op::ReplaceMath { .. } => "équation",
+            Op::ReplaceMath { .. } | Op::InsertMath { .. } => "équation",
             Op::InsertRuns { .. } => "collage",
             Op::InsertCitation { .. } | Op::EditCitation { .. } => "citation",
             Op::InsertBibliography { .. } | Op::SetCitationStyle { .. } | Op::RefreshCitations {} => "bibliographie",
@@ -214,14 +218,8 @@ pub fn place_after(docx: &mut Docx, paragraph: Option<&str>, find: &str, occurre
 /// Applique `op` ; `tracked` = suivi des modifications, signé `sig`.
 pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result<Value> {
     Ok(match op {
-        Op::Accept { id } => {
-            review::decide(docx, *id, Decision::Accept)?;
-            json!({})
-        }
-        Op::Reject { id } => {
-            review::decide(docx, *id, Decision::Reject)?;
-            json!({})
-        }
+        Op::Accept { id } => json!({"decided": review::decide_group(docx, *id, Decision::Accept)?}),
+        Op::Reject { id } => json!({"decided": review::decide_group(docx, *id, Decision::Reject)?}),
         Op::AcceptAll { author } => json!(review::decide_all(docx, Decision::Accept, author.as_deref())?),
         Op::RejectAll { author } => json!(review::decide_all(docx, Decision::Reject, author.as_deref())?),
         Op::Replace { paragraph, find, occurrence, with } => {
@@ -310,6 +308,7 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
         Op::ReplaceMath { paragraph, index, latex } => {
             json!({"changes": crate::math::replace_math(docx, paragraph, *index, latex, tracked, sig)?})
         }
+        Op::InsertMath { paragraph, at, latex, display } => json!(crate::math::insert_math(docx, paragraph, *at, latex, *display, tracked, sig)?),
         Op::InsertRuns { paragraph, at, paragraphs } => json!(crate::paste::insert_runs(docx, paragraph, *at, paragraphs, tracked, sig)?),
         Op::InsertCitation { paragraph, at, items } => json!(crate::cite::insert_citation(docx, paragraph, *at, items, tracked, sig)?),
         Op::EditCitation { citation, items } => json!(crate::cite::edit_citation(docx, citation, items, tracked, sig)?),
@@ -320,8 +319,16 @@ pub fn apply(docx: &mut Docx, op: &Op, tracked: bool, sig: &Signature) -> Result
             // Sur une copie : une étape qui échoue n'en laisse aucune à moitié.
             let mut results = Vec::with_capacity(ops.len());
             let mut work = docx.clone();
+            // Suivis déjà décidés avec un autre (le geste d'une équation).
+            let mut decided: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
             for (k, op) in ops.iter().enumerate() {
+                if let Op::Accept { id } | Op::Reject { id } = op
+                    && decided.contains(&(*id as u64)) {
+                        results.push(json!({"decided": [], "already": id}));
+                        continue;
+                    }
                 let r = apply(&mut work, op, tracked, sig).map_err(|e| crate::DocxError(format!("étape {} ({}) : {}", k + 1, op.label(), e.0)))?;
+                decided.extend(r.get("decided").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_u64));
                 results.push(r);
             }
             *docx = work;
@@ -341,6 +348,8 @@ fn shape_note(sh: &crate::shapes::Shape) -> String {
 fn para_line(p: &crate::model::Para) -> String {
     let mut line = String::new();
     let mut open: Vec<u32> = Vec::new();
+    // Équations comptées comme `replace_math` : celles qui ne sont pas barrées.
+    let mut equations = 0;
     // Zones de texte et formes sans morceau à elles : devant le segment où
     // elles sont ancrées.
     let drawn = |line: &mut String, at: Option<usize>| {
@@ -385,6 +394,17 @@ fn para_line(p: &crate::model::Para) -> String {
                 Some(l) => format!("{{champ {l} : {}}}", s.text),
                 None => format!("{{champ : {}}}", s.text),
             },
+            // Équation de Word : son LaTeX, et son numéro dans le paragraphe
+            // pour la corriger (action equation).
+            "object" if s.latex.is_some() => {
+                let latex = s.latex.as_deref().unwrap_or("");
+                if matches!(s.rev, Some("del" | "moveFrom")) {
+                    format!("{{équation : {latex}}}")
+                } else {
+                    equations += 1;
+                    format!("{{équation {equations} : {latex}}}")
+                }
+            }
             "object" => match (s.label.as_deref(), s.number) {
                 (Some("note"), Some(k)) => format!("{{note {k} : n{}}}", s.text),
                 (Some("note de fin"), Some(k)) => format!("{{note de fin {k} : e{}}}", s.text),
@@ -456,7 +476,7 @@ pub fn outline(model: &DocModel, from: usize, to: Option<usize>, max_chars: usiz
             "Zones de texte : {boxes}. L'auteur les a posées sur la page, souvent par-dessus une figure pour y écrire ses propres valeurs : leur texte ({{zone de texte : …}}) fait partie du document au même titre que le reste, et l'action images montre chaque figure avec les zones posées dessus."
         );
     }
-    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation <id> : …}} = citation Zotero vivante (la changer avec l'action cite et son id, jamais à la main), {{objet : …}} non retouchable ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
+    let _ = writeln!(out, "Notation : [+ajout+]#id, [-suppression-]#id, ⟦c#id⟧…⟦/c#id⟧ = passage commenté, {{citation <id> : …}} = citation Zotero vivante (la changer avec l'action cite et son id, jamais à la main), {{équation N : LaTeX}} = équation Word (objet OMML), la N-ième du paragraphe, écrite en LaTeX (la corriger avec l'action equation : paragraph, equation=N, latex) ; {{objet : …}} non retouchable ; {{image : …}} et {{graphique Excel : …}} se voient avec l'action images ; {{zone de texte : …}} = texte d'un cadre posé sur la page (lignes séparées par /), non retouchable ici.\n");
     let mut shown = 0;
     let mut cut_at = None;
     for p in model.paragraphs.iter().take(to).skip(from) {

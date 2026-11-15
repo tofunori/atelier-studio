@@ -36,31 +36,41 @@ fn corriger_une_equation_en_suivi_signe() {
 
     let r = apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\alpha = 0,356\,\rho_1 + 0,130\,\rho_3"})), true, &me).unwrap();
     let ids: Vec<u32> = serde_json::from_value(r["changes"].clone()).unwrap();
-    assert_eq!(ids.len(), 2);
+    assert!(!ids.is_empty());
+    // Comme Word : les marques sont DANS l'équation, autour des m:r ajoutés ;
+    // ce qui ne change pas (« α=0,356 », ρ₁) n'est pas touché.
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap()];
+    assert!(eq.contains("><m:r><m:t>α=0,356</m:t></m:r>"), "l'ancien run reste tel quel : {eq}");
+    assert!(eq.contains("<w:ins ") && !eq.contains("<w:del "), "rien d'effacé : {eq}");
+    assert!(eq.contains("<m:sSubPr><m:ctrlPr><w:ins "), "ρ₃ ajouté comme Word marque une structure : {eq}");
     let mut d = reopen(&d);
     let m = d.model().unwrap();
     let p = m.paragraphs.iter().find(|x| x.id == p.id).unwrap();
     let eqs: Vec<_> = p.segments.iter().filter(|s| s.latex.is_some()).collect();
-    assert_eq!(eqs.len(), 2, "l'ancienne barrée, la nouvelle ajoutée");
+    assert_eq!(eqs.len(), 2, "l'ancienne version barrée, la nouvelle ajoutée");
     assert_eq!(eqs[0].rev, Some("del"));
     assert_eq!(eqs[0].latex.as_deref(), Some(before.as_str()));
     assert_eq!(eqs[1].rev, Some("ins"));
-    assert!(eqs[1].latex.as_deref().unwrap().contains(r"\rho_{3}"));
-    assert!(eqs[1].whole, "sa propre équation reste effaçable d'un bloc");
-    let mine: Vec<_> = m.changes.iter().filter(|c| c.author == "Thierry").map(|c| c.kind.as_str()).collect();
-    assert_eq!(mine, ["del", "ins"]);
+    assert!(eqs[1].latex.as_deref().unwrap().contains(r"\rho_{3}"), "{:?}", eqs[1].latex);
+    let mine: Vec<_> = m.changes.iter().filter(|c| c.author == "Thierry").collect();
+    assert_eq!(mine.len(), ids.len());
+    assert!(mine.iter().all(|c| c.kind == "ins" && c.paragraph.as_deref() == Some(p.id.as_str())), "{mine:?}");
     // Le texte courant ne compte que la nouvelle.
-    assert!(p.text.contains("α=0,356 ρ3") || p.text.contains("0,130"), "{}", p.text);
+    assert!(p.text.contains("0,130"), "{}", p.text);
 
-    // Corriger encore sa propre correction : réécrite sur place, sans nouveau suivi.
-    let r = apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\alpha = 0,36\,\rho_1"})), true, &me).unwrap();
-    assert_eq!(r["changes"], json!([]));
+    // Corriger encore sa propre correction : repartie de l'équation
+    // d'origine, un seul geste en suivi.
+    apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\alpha = 0,36\,\rho_1"})), true, &me).unwrap();
+    let mut d = reopen(&d);
     let m = d.model().unwrap();
-    assert_eq!(m.changes.iter().filter(|c| c.author == "Thierry").count(), 2);
     let p2 = m.paragraphs.iter().find(|x| x.id == p.id).unwrap();
-    let ins: Vec<_> = p2.segments.iter().filter(|s| s.rev == Some("ins") && s.latex.is_some()).collect();
-    assert_eq!(ins.len(), 1);
-    assert!(ins[0].latex.as_deref().unwrap().contains("0,36") && !ins[0].latex.as_deref().unwrap().contains("0,130"), "{:?}", ins[0].latex);
+    let eqs: Vec<_> = p2.segments.iter().filter(|s| s.latex.is_some()).collect();
+    assert_eq!(eqs.len(), 2);
+    assert_eq!(eqs[0].latex.as_deref(), Some(before.as_str()));
+    let now = eqs[1].latex.as_deref().unwrap();
+    assert!(now.contains("0,36") && !now.contains("0,130") && !now.contains("356"), "{now}");
+    assert!(m.changes.iter().filter(|c| c.author == "Thierry").all(|c| c.date == m.changes.iter().find(|c| c.author == "Thierry").unwrap().date));
 
     // Refuser l'ajout et la suppression rend l'équation d'origine.
     apply(&mut d, &op(json!({"op": "reject_all", "author": "Thierry"})), true, &me).unwrap();
@@ -204,4 +214,189 @@ fn coller_sans_suivi_et_refuser_un_collage_dont_une_equation_est_fausse() {
     assert!(m.paragraphs[2].text.starts_with("Avant Le seuil"), "{}", m.paragraphs[2].text);
     assert!(m.paragraphs[2].segments[0].i);
     assert!(m.changes.iter().all(|c| c.author != "Thierry"));
+}
+
+/// L'équation du p6 de la fixture remplacée par une équation écrite comme
+/// Word l'écrit (polices Cambria Math, marques de fin d'argument).
+fn with_word_equation(body: &str) -> atelier_docx::Docx {
+    let d = open("christophe");
+    let src = d.clone().part("word/document.xml").unwrap().unwrap();
+    let a = src.find("<m:oMath>").unwrap();
+    let b = src.find("</m:oMath>").unwrap() + "</m:oMath>".len();
+    let xml = format!("{}<m:oMath>{body}</m:oMath>{}", &src[..a], &src[b..]);
+    with_document(&d.to_bytes().unwrap(), &xml)
+}
+
+const M: &str = "http://schemas.openxmlformats.org/officeDocument/2006/math";
+
+const CAMBRIA: &str = r#"<w:rPr><w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/></w:rPr>"#;
+
+fn word_run(t: &str) -> String {
+    format!("<m:r>{CAMBRIA}<m:t>{t}</m:t></m:r>")
+}
+
+/// `y_{rzt} ∼ Student-t` comme dans le modèle de la thèse (p65).
+fn y_rzt() -> String {
+    format!(
+        "<m:sSub><m:sSubPr><m:ctrlPr>{CAMBRIA}</m:ctrlPr></m:sSubPr><m:e>{}</m:e><m:sub>{}</m:sub></m:sSub>{}",
+        word_run("y"),
+        word_run("rzt"),
+        word_run("∼Student")
+    )
+}
+
+fn eq_segments(d: &mut atelier_docx::Docx) -> Vec<atelier_docx::model::Segment> {
+    let m = d.model().unwrap();
+    m.paragraphs.into_iter().flat_map(|p| p.segments).filter(|s| s.latex.is_some()).collect()
+}
+
+#[test]
+fn une_equation_de_word_corrigee_comme_dans_word() {
+    let me = sig("Thierry");
+    let mut d = with_word_equation(&y_rzt());
+    let p = eq_para(&mut d);
+    let m = d.model().unwrap();
+    let line = atelier_docx::ops::outline(&m, 5, Some(6), 10_000);
+    assert!(line.contains(r"{équation 1 : y_{rzt}\sim Student}"), "l'agent lit le LaTeX et le numéro : {line}");
+
+    let r = apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\alpha_{rzt}\sim Student"})), true, &me).unwrap();
+    let ids: Vec<u32> = serde_json::from_value(r["changes"].clone()).unwrap();
+    assert_eq!(ids.len(), 2, "seul le y est barré, seul le α est ajouté : {r}");
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap()];
+    // Le y barré garde sa police ; le α ajouté prend celle de l'équation ; le reste ne bouge pas.
+    assert!(eq.contains(&format!(r#"<m:e><w:del w:id="{}" w:author="Thierry""#, ids[0])), "{eq}");
+    assert!(eq.contains(&format!("{CAMBRIA}<m:t xml:space=\"preserve\">y</m:t></m:r></w:del><w:ins ")), "{eq}");
+    assert!(eq.contains(&format!("{CAMBRIA}<m:t xml:space=\"preserve\">α</m:t></m:r></w:ins></m:e>")), "{eq}");
+    assert!(eq.contains(&format!("<m:sub>{}</m:sub>", word_run("rzt"))) && eq.contains(&word_run("∼Student")), "{eq}");
+    assert!(eq.contains(&format!("<m:sSubPr><m:ctrlPr>{CAMBRIA}</m:ctrlPr></m:sSubPr>")), "la structure reste : {eq}");
+
+    // Le panneau : l'ancienne version barrée, la nouvelle ajoutée ; les suivis disent ce qu'ils touchent.
+    let mut d = reopen(&d);
+    let eqs = eq_segments(&mut d);
+    assert_eq!(eqs.iter().map(|s| (s.rev, s.latex.clone().unwrap())).collect::<Vec<_>>(), [(Some("del"), r"y_{rzt}\sim Student".to_string()), (Some("ins"), r"\alpha_{rzt}\sim Student".to_string())]);
+    let m = d.model().unwrap();
+    let mine: Vec<_> = m.changes.iter().filter(|c| ids.contains(&c.id)).map(|c| (c.kind.as_str(), c.text.as_str(), c.paragraph.as_deref())).collect();
+    assert_eq!(mine, [("del", "y", Some(p.id.as_str())), ("ins", "α", Some(p.id.as_str()))]);
+    assert!(m.paragraphs.iter().find(|x| x.id == p.id).unwrap().text.contains("αrzt∼Student"));
+    let line = atelier_docx::ops::outline(&m, 5, Some(6), 10_000);
+    assert!(line.contains(r"[-{équation : y_{rzt}\sim Student}-]") && line.contains(r"[+{équation 1 : \alpha_{rzt}\sim Student}+]"), "{line}");
+
+    // Accepter l'un accepte le geste entier (l'équation est un seul objet dans le panneau).
+    let mut accepted = d.clone();
+    apply(&mut accepted, &op(json!({"op": "accept", "id": ids[1]})), true, &me).unwrap();
+    let mut accepted = reopen(&accepted);
+    let eqs = eq_segments(&mut accepted);
+    assert_eq!(eqs.iter().map(|s| (s.rev, s.latex.clone().unwrap())).collect::<Vec<_>>(), [(None, r"\alpha_{rzt}\sim Student".to_string())]);
+    let x = accepted.part("word/document.xml").unwrap().unwrap();
+    assert!(!x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap()].contains("Thierry"));
+
+    // Le paragraphe accepté d'un geste (une décision par suivi, en lot) : les
+    // suivis déjà emportés par le geste sont sautés, sans erreur.
+    let mut batch = d.clone();
+    let ops: Vec<_> = ids.iter().map(|id| json!({"op": "accept", "id": id})).collect();
+    apply(&mut batch, &op(json!({"op": "batch", "ops": ops})), true, &me).unwrap();
+    assert_eq!(eq_segments(&mut reopen(&batch)).len(), 1);
+
+    // Refuser rend l'équation de Word telle qu'elle était.
+    let mut rejected = d.clone();
+    apply(&mut rejected, &op(json!({"op": "reject", "id": ids[0]})), true, &me).unwrap();
+    let x = rejected.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap() + "</m:oMath>".len()];
+    assert_eq!(eq.replace(r#" xml:space="preserve""#, "").replace(&format!(r#" xmlns:m="{M}""#), ""), format!("<m:oMath>{}</m:oMath>", y_rzt()));
+}
+
+#[test]
+fn une_structure_ajoutee_se_refuse_et_une_structure_effacee_s_accepte_d_un_bloc() {
+    let me = sig("Thierry");
+    // τ_{za} ∼ HalfNormal → τ^{a}_{z} ∼ HalfNormal (p71) : la structure change de genre.
+    let tau = format!(
+        "<m:sSub><m:sSubPr><m:ctrlPr>{CAMBRIA}</m:ctrlPr></m:sSubPr><m:e>{}</m:e><m:sub>{}</m:sub></m:sSub>{}",
+        word_run("τ"),
+        word_run("za"),
+        word_run("∼HalfNormal")
+    );
+    let mut d = with_word_equation(&tau);
+    let p = eq_para(&mut d);
+    let r = apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\tau_{z}^{a}\sim HalfNormal"})), true, &me).unwrap();
+    let ids: Vec<u32> = serde_json::from_value(r["changes"].clone()).unwrap();
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap()];
+    // L'ancienne structure marquée effacée dans ses propriétés, sa police gardée.
+    assert!(eq.contains(&format!(r#"<m:sSubPr><m:ctrlPr><w:del w:id="{}" w:author="Thierry""#, ids[0])) && eq.contains(&format!("{CAMBRIA}</w:del></m:ctrlPr>")), "{eq}");
+    assert!(eq.contains("<m:sSubSupPr><m:ctrlPr><w:ins "), "{eq}");
+    let m = reopen(&d).model().unwrap();
+    assert!(atelier_docx::ops::outline(&m, 5, Some(6), 10_000).contains(r"{équation 1 : \tau_{z}^{a}\sim HalfNormal}"));
+
+    // Refuser une seule marque : la structure ajoutée part en entier, l'ancienne revient.
+    let mut rejected = d.clone();
+    apply(&mut rejected, &op(json!({"op": "reject", "id": *ids.last().unwrap()})), true, &me).unwrap();
+    let x = rejected.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap() + "</m:oMath>".len()];
+    assert_eq!(eq.replace(r#" xml:space="preserve""#, "").replace(&format!(r#" xmlns:m="{M}""#), ""), format!("<m:oMath>{tau}</m:oMath>"));
+
+    // Accepter : l'ancienne structure part en entier, sans case vide.
+    apply(&mut d, &op(json!({"op": "accept", "id": ids[0]})), true, &me).unwrap();
+    let mut d = reopen(&d);
+    assert_eq!(eq_segments(&mut d).iter().map(|s| (s.rev, s.latex.clone().unwrap())).collect::<Vec<_>>(), [(None, r"\tau_{z}^{a}\sim HalfNormal".to_string())]);
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.find("<m:oMath").unwrap()..x.find("</m:oMath>").unwrap()];
+    assert!(!eq.contains("<m:sSub>") && !eq.contains("w:author"), "{eq}");
+}
+
+#[test]
+fn l_equation_d_un_autre_auteur_en_suivi_attend_sa_decision() {
+    let mut d = with_word_equation(&y_rzt());
+    let p = eq_para(&mut d);
+    apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\alpha_{rzt}\sim Student"})), true, &sig("Christophe")).unwrap();
+    let e = apply(&mut d, &op(json!({"op": "replace_math", "paragraph": p.id, "index": 0, "latex": r"\beta_{rzt}\sim Student"})), true, &sig("Thierry")).unwrap_err();
+    assert!(e.0.contains("Christophe"), "{}", e.0);
+}
+
+#[test]
+fn ajouter_une_equation_en_suivi_comme_word() {
+    let me = sig("Thierry");
+    let mut d = open("christophe");
+    // En ligne, à une position du p13 (« Un texte … »).
+    let r = apply(&mut d, &op(json!({"op": "insert_math", "paragraph": "p13", "at": 9, "latex": r"a_{z}+\tau^{a}_{z}"})), true, &me).unwrap();
+    let ids: Vec<u32> = serde_json::from_value(r["changes"].clone()).unwrap();
+    assert!(ids.len() >= 4, "{r}");
+    let x = d.part("word/document.xml").unwrap().unwrap();
+    let eq = &x[x.rfind("<m:oMath").unwrap()..];
+    let eq = &eq[..eq.find("</m:oMath>").unwrap()];
+    assert!(eq.contains("<m:sSubPr><m:ctrlPr><w:ins ") && eq.matches("<m:r>").count() == eq.matches("Z\"><m:r>").count(), "chaque symbole et structure marqués : {eq}");
+    let mut d2 = reopen(&d);
+    let m = d2.model().unwrap();
+    let p = &m.paragraphs[13];
+    let eqs: Vec<_> = p.segments.iter().filter(|s| s.latex.is_some()).collect();
+    assert_eq!(eqs.iter().map(|s| (s.rev, s.latex.clone().unwrap())).collect::<Vec<_>>(), [(Some("ins"), r"a_{z}+\tau_{z}^{a}".to_string())], "rien de barré avant elle");
+    assert!(atelier_docx::ops::outline(&m, 13, Some(14), 10_000).contains(r"[+{équation 1 : a_{z}+\tau_{z}^{a}}+]"));
+
+    // Refuser : l'équation disparaît entière, sans case vide.
+    let mut rejected = d2.clone();
+    apply(&mut rejected, &op(json!({"op": "reject", "id": ids[0]})), true, &me).unwrap();
+    let x = rejected.part("word/document.xml").unwrap().unwrap();
+    assert_eq!(x.matches("<m:oMath").count(), 1, "seule celle du p5 reste");
+    // Accepter : une équation ordinaire.
+    apply(&mut d2, &op(json!({"op": "accept", "id": ids[2]})), true, &me).unwrap();
+    let mut d2 = reopen(&d2);
+    let m = d2.model().unwrap();
+    let eqs: Vec<_> = m.paragraphs[13].segments.iter().filter(|s| s.latex.is_some()).collect();
+    assert_eq!(eqs.iter().map(|s| (s.rev, s.latex.clone().unwrap())).collect::<Vec<_>>(), [(None, r"a_{z}+\tau_{z}^{a}".to_string())]);
+
+    // Seule sur sa ligne, centrée, dans un paragraphe neuf après le p13.
+    let r = apply(&mut d2, &op(json!({"op": "insert_math", "paragraph": "p13", "latex": r"\frac{a}{b}", "display": true})), true, &me).unwrap();
+    assert_eq!(r["paragraph"], "p14", "{r}");
+    let mut d3 = reopen(&d2);
+    let m = d3.model().unwrap();
+    assert_eq!(m.paragraphs.len(), 15);
+    let s = m.paragraphs[14].segments.iter().find(|s| s.latex.is_some()).unwrap();
+    assert!(s.display && s.rev == Some("ins") && s.latex.as_deref() == Some(r"\frac{a}{b}"), "{s:?}");
+    assert!(m.changes.iter().any(|c| c.kind == "paragraph-ins" && c.author == "Thierry"));
+    // Tout refuser : ni équation ni paragraphe neuf.
+    apply(&mut d3, &op(json!({"op": "reject_all", "author": "Thierry"})), true, &me).unwrap();
+    let m = reopen(&d3).model().unwrap();
+    assert_eq!(m.paragraphs.len(), 14);
+    let x = d3.part("word/document.xml").unwrap().unwrap();
+    assert!(!x.contains("oMathPara"), "{}", &x[x.len() - 2000..]);
 }

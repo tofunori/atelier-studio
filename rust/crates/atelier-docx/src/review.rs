@@ -22,8 +22,45 @@ pub struct Batch {
     pub skipped: Vec<u32>,
 }
 
-/// Accepte ou refuse le suivi `id` du corps du document.
+/// Accepte ou refuse le suivi `id` du corps du document. Dans une
+/// équation, le geste entier : les marques posées en même temps par le
+/// même auteur (une correction en LaTeX barre et ajoute en plusieurs).
 pub fn decide(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
+    decide_group(docx, id, decision).map(|_| ())
+}
+
+/// [`decide`], qui rend les suivis décidés avec `id` (son geste dans une
+/// équation, `id` compris) : une suite de décisions saute ceux-là.
+pub fn decide_group(docx: &mut Docx, id: u32, decision: Decision) -> Result<Vec<u32>> {
+    let mut group = math_group(docx, id)?;
+    decide_one(docx, id, decision)?;
+    for other in group.iter().copied().filter(|o| *o != id) {
+        // Disparue avec la structure qui la portait : rien à faire.
+        if let Err(e) = decide_one(docx, other, decision)
+            && !e.0.contains("introuvable") {
+                return Err(e);
+            }
+    }
+    if group.is_empty() {
+        group.push(id);
+    }
+    Ok(group)
+}
+
+/// Marques du même geste que `id` dans son équation (vide hors équation).
+fn math_group(docx: &mut Docx, id: u32) -> Result<Vec<u32>> {
+    for part in docx.story_parts() {
+        let Some(src) = docx.part(&part)? else { continue };
+        let doc = xml::parse(&src)?;
+        let Some(node) = doc.descendants().find(|n| n.is_element() && id_of(*n) == Some(id) && change_kind(*n).is_some()) else { continue };
+        let Some(eq) = node.ancestors().find(|a| a.tag_name().namespace() == Some(xml::M) && matches!(a.tag_name().name(), "oMath" | "oMathPara")) else { return Ok(Vec::new()) };
+        let same = |n: Node| w_attr(n, "author") == w_attr(node, "author") && w_attr(n, "date") == w_attr(node, "date");
+        return Ok(eq.descendants().filter(|n| n.is_element() && n.tag_name().namespace() == Some(W) && change_kind(*n).is_some() && same(*n)).filter_map(id_of).collect());
+    }
+    Ok(Vec::new())
+}
+
+fn decide_one(docx: &mut Docx, id: u32, decision: Decision) -> Result<()> {
     // La partie (corps, note, en-tête) qui porte ce suivi.
     let mut found = None;
     for part in docx.story_parts() {
@@ -76,7 +113,10 @@ pub fn decide_all(docx: &mut Docx, decision: Decision, author: Option<&str>) -> 
 /// identifiant et le genre de son premier élément), en quelques passes.
 /// Un identifiant introuvable est rendu dans `skipped`.
 pub fn decide_set(docx: &mut Docx, ids: &[u32], decision: Decision) -> Result<Batch> {
-    let wanted: BTreeSet<u32> = ids.iter().copied().collect();
+    let mut wanted: BTreeSet<u32> = ids.iter().copied().collect();
+    for id in ids {
+        wanted.extend(math_group(docx, *id)?);
+    }
     // Genre du premier élément de chaque suivi (LibreOffice réutilise des
     // identifiants d'un genre à l'autre).
     let mut kinds: BTreeMap<u32, String> = BTreeMap::new();
@@ -210,6 +250,18 @@ pub fn decide_all_one_by_one(docx: &mut Docx, decision: Decision, author: Option
 fn plan(src: &str, node: Node, decision: Decision) -> Result<Vec<(Range<usize>, String)>> {
     let kind = change_kind(node).unwrap_or_default();
     use Decision::*;
+    // Marque d'une structure d'équation (m:fPr/m:ctrlPr/w:ins|w:del) : la
+    // structure entière part (ajout refusé, suppression acceptée) ou reste.
+    let ctrl = node.parent().filter(|c| c.tag_name().namespace() == Some(xml::M) && c.tag_name().name() == "ctrlPr");
+    if let Some(ctrl) = ctrl {
+        let removes = matches!((kind.as_str(), decision), ("ins" | "moveTo", Reject) | ("del" | "moveFrom", Accept));
+        let structure = ctrl.parent().filter(|pr| pr.tag_name().name().ends_with("Pr")).and_then(|pr| pr.parent()).filter(|s| s.tag_name().namespace() == Some(xml::M));
+        return Ok(match (removes, structure) {
+            (true, Some(s)) => vec![(s.range(), String::new())],
+            (true, None) => vec![(node.range(), String::new())],
+            (false, _) => vec![(node.range(), inner_range(node).map(|r| src[r].to_string()).unwrap_or_default())],
+        });
+    }
     Ok(match (kind.as_str(), decision) {
         ("ins" | "moveTo", Accept) | ("del" | "moveFrom", Reject) => vec![(node.range(), unwrap(src, node, decision == Reject))],
         ("ins" | "moveTo", Reject) | ("del" | "moveFrom", Accept) => vec![(node.range(), kept_markers(src, node))],

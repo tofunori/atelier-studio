@@ -48,15 +48,15 @@ const FUNCS: &[&str] = &["sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "ar
 
 // ------------------------------------------------------------ OMML → LaTeX
 
-fn is_m(n: Node, name: &str) -> bool {
+pub(crate) fn is_m(n: Node, name: &str) -> bool {
     n.is_element() && n.tag_name().namespace() == Some(M) && n.tag_name().name() == name
 }
 
-fn child<'a, 'i>(n: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
+pub(crate) fn child<'a, 'i>(n: Node<'a, 'i>, name: &str) -> Option<Node<'a, 'i>> {
     n.children().find(|c| is_m(*c, name))
 }
 
-fn val(n: Option<Node>, prop: &str) -> Option<String> {
+pub(crate) fn val(n: Option<Node>, prop: &str) -> Option<String> {
     let p = n?.children().find(|c| is_m(*c, prop))?;
     p.attribute((M, "val")).map(str::to_string)
 }
@@ -99,7 +99,12 @@ fn arg(n: Option<Node>) -> String {
 fn seq(n: Node) -> String {
     let mut out = String::new();
     for c in n.children().filter(|c| c.is_element()) {
-        let s = elem(c);
+        if gone(c, view()) {
+            continue;
+        }
+        // Suivi dans l'équation (Word l'écrit autour des m:r) : son contenu
+        // se lit comme le reste, selon la version lue.
+        let s = if rev_name(c).is_some() { seq(c) } else { elem(c) };
         // Deux commandes collées : garder l'espace qui les sépare.
         if out.ends_with(|ch: char| ch.is_ascii_alphabetic()) && out.contains('\\') && s.starts_with(|ch: char| ch.is_ascii_alphabetic()) {
             let tail = out.rsplit('\\').next().unwrap_or("");
@@ -221,6 +226,113 @@ fn elem(n: Node) -> String {
         // Propriétés et marques sans contenu affiché.
         _ => String::new(),
     }
+}
+
+/// Version d'une équation qui porte des suivis : telle qu'elle est
+/// maintenant (ajouts compris, suppressions écartées) ou telle qu'elle était.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum View {
+    Now,
+    Before,
+}
+
+thread_local! {
+    static VIEW: std::cell::Cell<View> = const { std::cell::Cell::new(View::Now) };
+}
+
+fn view() -> View {
+    VIEW.with(|v| v.get())
+}
+
+/// `ins` / `del` (et déplacements) d'un élément de suivi WordprocessingML.
+pub(crate) fn rev_name(n: Node) -> Option<&'static str> {
+    if !n.is_element() || n.tag_name().namespace() != Some(crate::xml::W) {
+        return None;
+    }
+    match n.tag_name().name() {
+        "ins" | "moveTo" => Some("ins"),
+        "del" | "moveFrom" => Some("del"),
+        _ => None,
+    }
+}
+
+/// Structures d'une équation (fraction, indice…) : leurs propriétés
+/// (`m:fPr`…) portent dans `m:ctrlPr` le suivi de la structure entière.
+pub(crate) const STRUCTS: &[&str] = &[
+    "acc", "bar", "box", "borderBox", "d", "eqArr", "f", "func", "groupChr", "limLow", "limUpp", "m", "nary", "phant", "rad", "sPre", "sSub", "sSubSup", "sSup",
+];
+
+/// Suivi d'une structure entière (`m:xPr/m:ctrlPr/w:ins|w:del`).
+pub(crate) fn struct_mark<'a, 'i>(n: Node<'a, 'i>) -> Option<Node<'a, 'i>> {
+    if n.tag_name().namespace() != Some(M) || !STRUCTS.contains(&n.tag_name().name()) {
+        return None;
+    }
+    let pr = child(n, &format!("{}Pr", n.tag_name().name()))?;
+    child(pr, "ctrlPr")?.children().find(|c| rev_name(*c).is_some())
+}
+
+/// Élément écarté de la version `v` : suppression (maintenant) ou ajout
+/// (avant), en enveloppe ou en marque de structure.
+fn gone(n: Node, v: View) -> bool {
+    let hidden = |kind: &str| match v {
+        View::Now => kind == "del",
+        View::Before => kind == "ins",
+    };
+    rev_name(n).is_some_and(hidden) || struct_mark(n).and_then(rev_name).is_some_and(hidden)
+}
+
+/// LaTeX d'une équation dans la version `v` (voir [`View`]).
+pub fn to_latex_view(n: Node, v: View) -> String {
+    let before = VIEW.with(|c| c.replace(v));
+    let s = to_latex(n);
+    VIEW.with(|c| c.set(before));
+    s
+}
+
+/// Texte affiché (`m:t`) d'une équation dans la version `v`.
+pub fn text_view(n: Node, v: View) -> String {
+    n.descendants()
+        .filter(|t| is_m(*t, "t"))
+        .filter(|t| !t.ancestors().skip(1).take_while(|a| *a != n).any(|a| gone(a, v)))
+        .filter_map(|t| t.text())
+        .collect()
+}
+
+/// Un suivi posé à l'intérieur d'une équation (comme Word les note).
+#[derive(Clone, Debug)]
+pub struct InnerRev {
+    pub kind: &'static str,
+    pub id: u32,
+    pub author: String,
+    pub date: String,
+    /// Texte qu'il touche : ses `m:t`, ou ceux de la structure qu'il marque.
+    pub text: String,
+}
+
+/// Suivis à l'intérieur de l'équation `n`, dans l'ordre du XML.
+pub fn inner_revisions(n: Node) -> Vec<InnerRev> {
+    n.descendants()
+        .skip(1)
+        .filter_map(|d| {
+            let kind = rev_name(d)?;
+            // Marque d'une structure : m:xPr > m:ctrlPr > w:ins|w:del.
+            let whole = d.parent().filter(|c| is_m(*c, "ctrlPr")).and_then(|c| c.parent()).filter(|pr| pr.tag_name().name().ends_with("Pr")).and_then(|pr| pr.parent());
+            let over = whole.unwrap_or(d);
+            let text = over.descendants().filter(|t| is_m(*t, "t")).filter_map(|t| t.text()).collect();
+            Some(InnerRev {
+                kind,
+                id: crate::xml::id_of(d).unwrap_or(0),
+                author: crate::xml::w_attr(d, "author").unwrap_or("").to_string(),
+                date: crate::xml::w_attr(d, "date").unwrap_or("").to_string(),
+                text,
+            })
+        })
+        .collect()
+}
+
+/// Clé de comparaison d'un élément d'équation : son LaTeX.
+pub(crate) fn elem_key(n: Node) -> String {
+    elem(n)
 }
 
 /// LaTeX d'une équation (`m:oMath` ou `m:oMathPara`).
@@ -769,11 +881,48 @@ pub fn replace_math(docx: &mut crate::Docx, paragraph: &str, index: usize, latex
         let pr = child(node, "oMathParaPr").map(|n| &src[n.range()]).unwrap_or("");
         format!(r#"<m:oMathPara xmlns:m="{M}">{pr}{omml}</m:oMathPara>"#)
     } else {
-        omml
+        omml.clone()
     };
     let rev = node.ancestors().skip(1).take_while(|a| *a != p).find(|a| is_w(*a, "ins") || is_w(*a, "moveTo"));
     let attrs = |id: u32| format!(r#"w:id="{id}" w:author="{}" w:date="{}""#, escape_attr(&sig.author), escape_attr(&sig.date));
     let mut changes = Vec::new();
+    // En suivi, hors d'un ajout : noté dans l'équation, comme Word (seuls
+    // les symboles qui changent sont barrés ou ajoutés).
+    if tracked && rev.is_none() {
+        let inner = inner_revisions(node);
+        if let Some(other) = inner.iter().find(|r| r.author != sig.author) {
+            return crate::err(format!("équation déjà retouchée en suivi par {} : accepter ou refuser ce suivi d'abord", other.author));
+        }
+        if !inner.is_empty() {
+            // Sa propre correction se reprend depuis l'équation d'origine :
+            // un seul suivi, de l'ancienne à la nouvelle.
+            let ids: Vec<u32> = inner.iter().map(|r| r.id).collect();
+            drop(doc);
+            let mut work = docx.clone();
+            crate::review::decide_set(&mut work, &ids, crate::review::Decision::Reject)?;
+            let changes = replace_math(&mut work, paragraph, index, latex, tracked, sig)?;
+            *docx = work;
+            return Ok(changes);
+        }
+        let target = if is_m(node, "oMathPara") {
+            let lines: Vec<_> = node.children().filter(|c| is_m(*c, "oMath")).collect();
+            (lines.len() == 1).then(|| lines[0])
+        } else {
+            Some(node)
+        };
+        let new_doc = roxmltree::Document::parse(&omml).map_err(|e| crate::DocxError(format!("équation illisible : {e}")))?;
+        if let Some(target) = target {
+            let start = crate::edit::next_ids(docx, 1)?[0];
+            let mut marks = crate::math_track::Marks { author: sig.author.clone(), date: sig.date.clone(), next: start, ids: Vec::new() };
+            if let Some(body) = crate::math_track::merge(&src, target, &omml, new_doc.root_element(), &mut marks) {
+                // Le préfixe m: peut n'être déclaré que sur l'équation elle-même.
+                let text = crate::xml::splice(&src, vec![(target.range(), format!(r#"<m:oMath xmlns:m="{M}">{body}</m:oMath>"#))])?;
+                drop(doc);
+                docx.set_part(&story.part, text);
+                return Ok(marks.ids);
+            }
+        }
+    }
     let out = match rev {
         // Son propre ajout : se réécrit sur place.
         Some(r) if is_w(r, "ins") && w_attr(r, "author") == Some(sig.author.as_str()) => new,
@@ -802,6 +951,56 @@ pub fn replace_math(docx: &mut crate::Docx, paragraph: &str, index: usize, latex
     drop(doc);
     docx.set_part(&story.part, text);
     Ok(changes)
+}
+
+/// Une équation insérée : son paragraphe et les suivis posés.
+#[derive(Debug, serde::Serialize)]
+pub struct Inserted {
+    pub paragraph: String,
+    pub changes: Vec<u32>,
+}
+
+/// Nouvelle équation écrite en `latex`, à la position `at` de `paragraph`
+/// ou, `display`, seule et centrée dans un paragraphe neuf qui le suit
+/// (`m:oMathPara`, comme Word). En suivi, chaque symbole et chaque
+/// structure porte sa marque d'ajout, comme Word les note.
+pub fn insert_math(docx: &mut crate::Docx, paragraph: &str, at: usize, latex: &str, display: bool, tracked: bool, sig: &crate::Signature) -> crate::Result<Inserted> {
+    let omml = try_from_latex(latex)?;
+    let (target, pos) = if display {
+        // Comme Entrée en fin de paragraphe : un paragraphe neuf, puis l'équation.
+        let model = docx.model()?;
+        let Some(p) = model.all_paragraphs().find(|p| p.id == paragraph || p.para_id.as_deref() == Some(paragraph)) else {
+            return crate::err(format!("paragraphe {paragraph} introuvable"));
+        };
+        let (id, end) = (p.id.clone(), p.text.chars().count());
+        crate::structure::split(docx, &id, end, tracked, sig)?;
+        let local = id.rsplit('.').next().unwrap_or(&id);
+        let n: usize = local.trim_start_matches('p').parse().map_err(|_| crate::DocxError(format!("paragraphe {id} : rang illisible")))?;
+        (format!("{}p{}", &id[..id.len() - local.len()], n + 1), 0)
+    } else {
+        (paragraph.to_string(), at)
+    };
+    let mut changes = Vec::new();
+    let body = if tracked {
+        let doc = roxmltree::Document::parse(&omml).map_err(|e| crate::DocxError(format!("équation illisible : {e}")))?;
+        let start = crate::edit::next_ids(docx, 1)?[0];
+        let mut marks = crate::math_track::Marks { author: sig.author.clone(), date: sig.date.clone(), next: start, ids: Vec::new() };
+        let inner = crate::math_track::inserted(&omml, doc.root_element(), &mut marks);
+        changes = marks.ids;
+        format!(r#"<m:oMath xmlns:m="{M}">{inner}</m:oMath>"#)
+    } else {
+        omml
+    };
+    let raw = if display { format!(r#"<m:oMathPara xmlns:m="{M}"><m:oMathParaPr><m:jc m:val="centerGroup"/></m:oMathParaPr>{body}</m:oMathPara>"#) } else { body };
+    // Les marques sont dans l'équation : l'insertion elle-même n'en ajoute pas.
+    crate::edit::insert_raw(docx, &target, pos, &raw, false, sig)?;
+    if tracked && display {
+        let m = docx.model()?;
+        changes.extend(m.changes.iter().filter(|c| c.author == sig.author && c.date == sig.date && c.kind == "paragraph-ins").map(|c| c.id));
+        changes.sort_unstable();
+        changes.dedup();
+    }
+    Ok(Inserted { paragraph: target, changes })
 }
 
 /// Texte affiché d'une équation (positions du panneau) : celui des `m:t`.
