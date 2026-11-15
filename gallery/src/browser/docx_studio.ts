@@ -1578,8 +1578,17 @@
   }
   const toastEl = $("toast");
   let toastTimer = 0;
-  function toast(text: string, err = false, ms?: number) {
+  /** Un toast peut porter une action (« Annuler ») : il capte alors le clic. */
+  function toast(text: string, err = false, ms?: number, action?: { label: string; kbd?: string; run: () => void }) {
     toastEl.textContent = text;
+    toastEl.classList.toggle("act", !!action);
+    if (action) {
+      const b = document.createElement("button");
+      b.className = "ub";
+      b.innerHTML = `${esc(action.label)}${action.kbd ? `<kbd>${esc(action.kbd)}</kbd>` : ""}`;
+      b.addEventListener("click", () => { toastEl.classList.remove("show"); clearTimeout(toastTimer); action.run(); });
+      toastEl.append(" ", b);
+    }
     toastEl.classList.toggle("err", err);
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
@@ -2890,6 +2899,15 @@
   document.addEventListener("mousedown", (e) => {
     if (openMenu && !openMenu.contains(e.target as Node) && !(openTrigger && openTrigger.contains(e.target as Node))) closeMenu();
   });
+  // ⌘Z hors de la page (après un geste dans la marge : suppression d'un
+  // message, ruban…) : annule aussi, sauf dans un champ qui a son propre retour.
+  document.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== "z" || e.defaultPrevented) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.closest("textarea, input, [contenteditable]") || paper.contains(t))) return;
+    e.preventDefault();
+    void undo(e.shiftKey);
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     // Un seul appui ferme une seule chose : le menu d'abord.
@@ -3428,9 +3446,27 @@
 
   function commentHTML(c: Comment, on: boolean): string {
     if (c.done && !on) return `<div class="cc dn" role="button" tabindex="0">${ic("circleCheck", 14)}<span>Réglé · ${esc(oneLine(c.text))}</span></div>`;
-    const head = (who: string, ini: string, d: string) =>
-      `<div class="hd">${avatar(who, false, ini)}<span class="nm">${esc(firstName(who))}</span><span class="dt">${d}</span></div>`;
+    const head = (who: string, ini: string, d: string, id: number) =>
+      `<div class="hd">${avatar(who, false, ini)}<span class="nm">${esc(firstName(who))}</span><span class="dt">${d}</span>${on ? tools(id) : ""}</div>`;
     const replies = model!.comments.filter((r) => r.parent === c.id);
+    // Carte ouverte : au survol d'un message, ses icônes prennent la place de
+    // la date. Ce qu'on y supprime est ce message-là ; la poubelle du
+    // commentaire de tête supprime le fil (l'infobulle dit combien).
+    const tools = (id: number) => {
+      const x = commentMap.get(id);
+      if (!x) return "";
+      const root = id === c.id;
+      const mine = x.author === author;
+      const n = 1 + replies.length;
+      const del = root
+        ? (n > 1 ? `Supprimer le fil · ${pl(n, "message", "messages")}` : "Supprimer le commentaire")
+        : mine ? "Supprimer cette réponse" : `Supprimer la réponse de ${firstName(x.author)}`;
+      let b = "";
+      if (root) b += `<button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>`;
+      if (mine && !c.done) b += `<button class="mini" data-act="edit" data-cid="${id}" aria-label="Modifier ton message" data-tooltip="Modifier">${ic("pen", 14)}</button>`;
+      b += `<button class="mini no" data-act="del-msg" data-cid="${id}" aria-label="${esc(del)}" data-tooltip="${esc(del)}">${ic("trash", 14)}</button>`;
+      return `<span class="mo">${b}</span>`;
+    };
     // Rappel du passage commenté : la fiche se rattache au texte d'un coup d'œil.
     const q = oneLine(c.quote || "");
     // Le point de tête ne dit qu'une chose : l'agent a touché ce fil et la
@@ -3452,7 +3488,7 @@
       if (on && !c.done && x.author === author) return `<p class="tx mine" data-act="edit" data-cid="${x.id}" role="button" tabindex="0" aria-label="Modifier ton message">${body}</p>`;
       return `<p class="tx" data-cid="${x.id}">${body}</p>`;
     };
-    h += head(c.author, c.initials, dateFr(c.date));
+    h += head(c.author, c.initials, dateFr(c.date), c.id);
     // Son propre commentaire : une icône à côté du texte le fait vérifier
     // dans le chat ; trois points tant que l'agent n'a pas fini.
     const mineTop = on && !c.done && c.author === author && editing?.id !== c.id;
@@ -3463,7 +3499,7 @@
         : `<button class="vf" data-act="check" aria-label="Vérifier dans le chat" data-tooltip="Vérifier dans le chat">${ic("verif", 14)}</button>`;
       h += `<div class="c-line">${text(c)}${vf}</div>`;
     } else h += text(c);
-    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant")}${text(r)}</div>`;
+    if (on) for (const r of replies) h += `<div class="rp">${head(r.author, r.initials, dateFr(r.date) || "À l'instant", r.id)}${text(r)}</div>`;
     else if (replies.length) h += `<div class="meta">${pl(replies.length, "réponse", "réponses")}</div>`;
     const inEdit = on && editing !== null && (editing.id === c.id || replies.some((r) => r.id === editing!.id));
     if (on && !inEdit) {
@@ -3490,9 +3526,9 @@
       const fixed = new Set(agentFixes(c.id).map((id) => changeMap.get(id)?.paragraph ?? `#${id}`)).size;
       const fixTip = fixed === 1 ? "1 correction de Claude en suivi · voir" : `${fixed} corrections de Claude en suivi · voir`;
       const fix = fixed ? `<button class="mini fx" data-act="see-fix" aria-label="${fixTip}" data-tooltip="${fixTip}">${ic("pen", 14)}<span>${fixed}</span></button>` : "";
-      h += `<div class="ac"><button class="btn q" data-act="${c.done ? "reopen" : "resolve"}"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>
-        <button class="mini" data-act="ask" aria-label="Envoyer au chat" data-tooltip="Envoyer au chat">${ic("chat", 14)}</button>
-        <button class="mini no" data-act="delete" aria-label="Supprimer le commentaire" data-tooltip="Supprimer le commentaire et ses réponses">${ic("trash", 14)}</button>${fix}</div>`;
+      // En bas, seulement l'état du fil : Résoudre, et le crayon des corrections.
+      // Envoyer au chat, modifier et supprimer sont au survol de chaque message.
+      h += `<div class="ac"><button class="btn q" data-act="${c.done ? "reopen" : "resolve"}"${c.done ? "" : ' aria-label="Résoudre"'}>${c.done ? "Rouvrir" : `${ic("check", 14)}<span class="lb">Résoudre</span>`}</button>${fix}</div>`;
     }
     const cls = `cc${q || nl ? "" : " nq"}${col ? " bm" : ""}`;
     return on ? `<div class="${cls}">${h}</div>` : `<div class="${cls}" role="button" tabindex="0" aria-label="${nl ? "Pas encore lu. " : ""}Commentaire de ${esc(firstName(c.author))} : ${esc(clip(oneLine(c.text), 80))}">${h}</div>`;
@@ -3876,6 +3912,23 @@
         if ((ribbons.get(id) ?? null) === color) { apply(prev); renderCards(); renderSide(); }
         status("Ruban non enregistré", true);
       });
+  }
+  /** Le fil entier part au chat : commentaire, passage et réponses. */
+  function threadToChat(c: Comment) {
+    const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
+    toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
+  }
+  /** Supprime un message de la carte (une réponse seule, ou le commentaire de
+   *  tête et tout son fil). Rien ne demande confirmation : le toast (ou ⌘Z) annule. */
+  function deleteMessage(id: number, root: boolean, n: number, key: string) {
+    structural(async () => {
+      const ok = await sendOp({ op: "delete_comment", id });
+      if (!ok) return;
+      if (editing?.id === id) editing = null;
+      if (root && focusKey === key) { focusKey = ""; renderCards(); }
+      const what = !root ? "Réponse supprimée" : n > 1 ? "Fil supprimé" : "Commentaire supprimé";
+      toast(what, false, 6000, { label: "Annuler", kbd: "⌘Z", run: () => void undo(false) });
+    });
   }
   /** Clic sur un ruban posé : ses cinq couleurs et « Retirer ». */
   function ribbonMenu(trigger: HTMLElement, id: number) {
@@ -4436,13 +4489,13 @@
         if (ok) { clearAgentDraft(c.id); fixBase.delete(c.id); asking.delete(c.id); renderCards(); }
         if (!ok) { const again = cardsEl.querySelector(`[data-key="${it.key}"] textarea`) as HTMLTextAreaElement | null; if (again && !again.value) again.value = text; }
       });
-    } else if (act === "delete") {
-      structural(async () => { await sendOp({ op: "delete_comment", id: c.id }); });
+    } else if (act === "del-msg") {
+      const mid = Number((t.closest("[data-cid]") as HTMLElement).dataset.cid);
+      deleteMessage(mid, mid === c.id, 1 + model!.comments.filter((r) => r.parent === c.id).length, it.key);
     } else if (act === "check") {
       if (!checking.has(c.id) || checking.get(c.id)!.done) checkComment(c);
     } else if (act === "ask") {
-      const replies = model!.comments.filter((r) => r.parent === c.id).map((r) => `\n  ↳ ${r.author} : ${r.text}`).join("");
-      toChat(`${PATH} (commentaire c${c.id}${c.paragraph ? `, ${c.paragraph}` : ""}) — ${c.author} sur « ${c.quote} » : ${c.text}${replies}`);
+      threadToChat(c);
     } else if (focusKey !== it.key) focusCard(it.key, true);
   });
   cardsEl.addEventListener("input", (e) => {

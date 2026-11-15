@@ -1047,9 +1047,58 @@ test("docx: l'icône à côté de son commentaire le fait vérifier dans le chat
   await expect(card.locator('.c-line > .tx .chg')).toHaveCount(0, {timeout: 4000});
   const c1 = page.locator('#cards .it[data-key="c1"]');
   await c1.locator('.cc').click();
-  await expect(c1.locator('[data-act="ask"]')).toBeVisible();
+  // Commentaire de Christophe : pas de vérification ; « Envoyer au chat » est au survol de son en-tête.
+  await c1.locator('.cc > .hd').hover();
+  await expect(c1.locator('.cc > .hd [data-act="ask"]')).toBeVisible();
   await expect(c1.locator('[data-act="check"]')).toHaveCount(0);
   await rm(await draftsFile(project.doc, 'checks'), {force: true});
+});
+
+test('docx: au survol d\'un message, ses icônes l\'effacent seul ou tout le fil, et le toast annule', async ({page, project}) => {
+  await open(page, project);
+  const before = await disk(page, project);
+  const c1 = before.comments.find(c => c.id === 1)!;
+  const reply = before.comments.find(c => c.parent === 1)!;
+  expect(reply).toBeTruthy();
+  const card = page.locator('#cards .it[data-key="c1"]');
+  await card.locator('.cc').click();
+  // Plus de poubelle ni de bulle dans la rangée du bas : Résoudre seul.
+  await expect(card.locator('.ac [data-act="delete"], .ac [data-act="ask"]')).toHaveCount(0);
+  // Les icônes sont invisibles au repos, posées sur la date au survol ; rien ne bouge.
+  const rp = card.locator('.rp').first();
+  const more = rp.locator('.mo');
+  const dt = rp.locator('.dt');
+  const gap = async () => (await rp.boundingBox())!.x + (await rp.boundingBox())!.width - (await dt.boundingBox())!.x;
+  await page.mouse.move(5, 5);
+  await expect(more).toHaveCSS('opacity', '0');
+  await page.waitForTimeout(400); // la carte finit de se placer
+  const g0 = await gap();
+  await rp.hover();
+  await expect(more).toHaveCSS('opacity', '1');
+  expect(await gap()).toBe(g0);
+  // Sa propre réponse : crayon et poubelle, pas de bulle (elle est au commentaire de tête).
+  await expect(more.locator('[data-act]')).toHaveCount(2);
+  await expect(more.locator('[data-act="del-msg"]')).toHaveAttribute('aria-label', 'Supprimer cette réponse');
+  await more.locator('[data-act="del-msg"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.map(c => c.id)).not.toContain(reply.id);
+  expect((await disk(page, project)).comments.some(c => c.id === 1)).toBe(true);
+  await expect(card.locator('.rp')).toHaveCount(0);
+  // Le toast annule : la réponse revient.
+  const toast = page.locator('#toast.show');
+  await expect(toast).toContainText('Réponse supprimée');
+  await toast.locator('.ub').click();
+  await expect.poll(async () => (await disk(page, project)).comments.map(c => c.id)).toContain(reply.id);
+  // La poubelle du commentaire de tête supprime tout le fil (l'infobulle dit combien).
+  await card.locator('.cc').click();
+  const hd = card.locator('.cc > .hd');
+  await hd.hover();
+  const n = 1 + before.comments.filter(c => c.parent === 1).length;
+  await expect(hd.locator('[data-act="del-msg"]')).toHaveAttribute('aria-label', `Supprimer le fil · ${n} messages`);
+  await hd.locator('[data-act="del-msg"]').click();
+  await expect.poll(async () => (await disk(page, project)).comments.filter(c => c.id === 1 || c.parent === 1).length).toBe(0);
+  await expect(page.locator('#toast.show')).toContainText('Fil supprimé');
+  await page.keyboard.press('Meta+z');
+  await expect.poll(async () => (await disk(page, project)).comments.some(c => c.id === c1.id)).toBe(true);
 });
 
 test('docx: notes, en-tête, pied de page et figures se retouchent dans la page', async ({page, project}) => {

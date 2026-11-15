@@ -374,6 +374,18 @@ body.lane-over #leader{display:none}
 .cc .hd{display:flex;align-items:center;gap:8px;height:20px}
 .cc .nm{font-weight:500;color:var(--text-primary);white-space:nowrap}
 .cc .dt{margin-left:auto;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Icônes d'un message (envoyer au chat, modifier, supprimer) : posées sur la
+   date au survol du message, au clavier ; rien ne se décale. */
+.cc .hd{position:relative}
+.cc .hd .mo{position:absolute;right:-4px;top:-2px;display:flex;gap:0;padding-left:8px;background:var(--card-up);opacity:0;pointer-events:none;transition:opacity 120ms ease-out}
+.cc.nq > .hd .mo{right:20px}
+.cc .hd .mo .mini{width:24px;height:24px}
+.it.on .cc:hover > .hd .mo,.cc .rp:hover .mo,.cc .hd .mo:focus-within{opacity:1;pointer-events:auto}
+.it.on .cc:has(.rp:hover) > .hd .mo:not(:focus-within){opacity:0;pointer-events:none}
+.it.on .cc:hover > .hd .dt,.cc .rp:hover .dt,.cc .hd:focus-within .dt{opacity:0}
+.it.on .cc:has(.rp:hover) > .hd:not(:focus-within) .dt{opacity:1}
+.cc .dt{transition:opacity 120ms ease-out}
+@media (hover:none){.cc .hd .mo{opacity:1;pointer-events:auto}.cc .dt{opacity:0}}
 .cc .tx{margin:8px 0 0;color:var(--text-secondary);white-space:pre-wrap;overflow-wrap:anywhere}
 .it:not(.on) .cc .tx{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
 .it.on .cc .tx{color:var(--text-primary);cursor:text;user-select:text;-webkit-user-select:text}
@@ -396,7 +408,7 @@ body.lane-over #leader{display:none}
 /* Le passage corrigé par l'agent luit un instant. */
 .cc .tx .chg{animation:c-glow 1.5s ease-out}
 @keyframes c-glow{0%{background:transparent}10%,85%{background:color-mix(in srgb,var(--text-primary) 12%,transparent)}100%{background:transparent}}
-@media (prefers-reduced-motion: reduce){.cc .vf .dots i{animation:none;opacity:.6}.cc .tx .chg{animation:none}.nl{animation:none}.cc .rb{transition:none}.tf .f{transition:none}}
+@media (prefers-reduced-motion: reduce){.cc .hd .mo,.cc .dt{transition:none}.cc .vf .dots i{animation:none;opacity:.6}.cc .tx .chg{animation:none}.nl{animation:none}.cc .rb{transition:none}.tf .f{transition:none}}
 /* Ses propres messages s'ouvrent d'un clic pour être modifiés. */
 .cc .tx.mine{margin-left:-4px;margin-right:-4px;padding:0 4px;border-radius:6px;cursor:text;transition:background-color 120ms ease-out}
 .cc .tx.mine:hover{background:var(--surface-hover)}
@@ -556,6 +568,9 @@ body.lane-over #leader{display:none}
 .toast{position:fixed;left:50%;bottom:40px;z-index:var(--z-toast,130);max-width:min(560px,calc(100% - 32px));padding:4px 12px;line-height:20px;border-radius:999px;background:var(--bg-pop,var(--surface-overlay));box-shadow:var(--elev);font-size:12px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transform:translate(-50%,4px);pointer-events:none;transition:opacity 140ms ease-out,transform 140ms ease-out}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .toast.err{color:var(--status-error)}
+.toast.act.show{pointer-events:auto}
+.toast .ub{margin-left:8px;padding:0;border:0;background:none;font:inherit;font-weight:500;color:var(--text-primary);cursor:pointer}
+.toast .ub kbd{margin-left:6px;font:inherit;font-weight:400;color:var(--text-muted)}
 
 /* ---- barre d'état ---- */
 #foot{display:flex;align-items:center;gap:16px;height:28px;padding:0 12px;border-top:1px solid var(--border-subtle,var(--border));font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
