@@ -32,6 +32,8 @@
       html, body { height: 100%; overflow: hidden; background: var(--notes-bg); color: var(--notes-ink); }
 
       /* ---- Barre du haut ---- */
+      /* Graphite (2026-11-15) : la barre s'éclaircit d'un cran en sombre ; ses filets et fonds de contrôle suivent son ton (--chrome-*, translucides en sombre). */
+      #toolbar { --notes-rule: var(--chrome-line, var(--border-subtle, var(--border, #2a2d31))); }
       #toolbar {
         position: fixed; top: 0; left: 0; right: 0; z-index: 900;
         height: var(--toolbar-h); box-sizing: border-box;
