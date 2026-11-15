@@ -44,21 +44,32 @@ macOS blocks the first launch. Allow it once for each version you download:
 ## 3. Connect an agent
 
 If neither Claude Code nor Codex is ready, Atelier opens **Welcome to
-Atelier**. Each agent row shows whether it is installed and signed in, with a
-button for the next step:
+Atelier**. It asks one question: which account do you already have?
 
-| Agent | Install | Sign in |
+| Agent | Account | What Atelier runs for you |
 | --- | --- | --- |
-| Claude Code | `curl -fsSL https://claude.ai/install.sh \| bash` | `claude auth login` |
-| Codex | `brew install --cask codex` (the button installs Homebrew first if it is missing) | `codex login` |
+| Claude Code | A Claude subscription (Pro or Max) | `curl -fsSL https://claude.ai/install.sh \| bash`, then `claude auth login` |
+| Codex | A ChatGPT subscription (Plus or Pro) | `curl -fsSL https://chatgpt.com/codex/install.sh \| sh`, then `codex login` |
 
-When a project is open, these commands run in Atelier's built-in terminal.
-Otherwise the window shows the command with **Copy** and **Open Terminal**:
-paste it into Terminal, press Return, then come back and click **Check
-again**. **Finish** becomes available as soon as one agent is **Ready**.
+Pick one and click **Install and sign in**. Atelier runs the agent's official
+installer itself, then opens the sign-in page in your browser. There is
+nothing to type in Terminal. The agent is installed in your home folder
+(`~/.local/bin`): no administrator password and no Homebrew. Confirm in the
+browser and come back; the window follows the two steps on its own and can be
+cancelled at any time. If the sign-in page shows a code, **Does the page show
+a code to paste?** opens a field for it.
+
+When the agent is ready, the window offers **Open a folder**. It also lists
+what else it found on this Mac (Zotero, the other agent).
+
+If something stops (no network, a blocked download), the window shows the end
+of the installer's output with **Try again**. **Do it by hand** shows the
+command with **Copy** and **Open Terminal**: paste it into Terminal, press
+Return, then come back and click **Check again**.
 
 **Later** closes the window. You can reopen it from **Settings → Environment →
-Welcome window**, or with **Finish setup** on the home screen.
+Welcome window**, or with **Finish setup** on the home screen. The same
+**Install** and **Sign in** buttons are in **Settings → Environment**.
 
 Agents installed before you opened Atelier are found automatically. If you
 install one while Atelier is open, click **Check again** in **Settings →
@@ -72,15 +83,14 @@ install them yourself. They appear in **Settings → Models**.
 ## Optional tools
 
 **Settings → Environment** lists what each feature needs on this Mac, shows
-**Found** or **Missing**, and offers an install button. The welcome window
-shows Zotero under **Optional**.
+**Found** or **Missing**, and offers an install button. Nothing in Atelier
+needs Homebrew.
 
 <!-- PDF and LaTeX tools: PDFium ships in the app and tectonic is downloaded on
      the first compile (since 2026-09-28). -->
 
 | Tool | Used for | Install |
 | --- | --- | --- |
-| Homebrew | Installing Codex | The official command from [brew.sh](https://brew.sh) |
 | Git (Xcode command line tools) | Restore points for every agent turn, and the Git panel | `xcode-select --install` |
 | LaTeX | Compiling LaTeX documents | Nothing to install: MacTeX is used if present, otherwise the first **Compile** downloads tectonic |
 | Zotero | Your library and its attachments | [zotero.org/download](https://www.zotero.org/download/) |

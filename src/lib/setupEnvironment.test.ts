@@ -63,7 +63,7 @@ describe("setupEnvironment — relais WS", () => {
     const s = setupEnvironmentSnapshot();
     expect(s.providers?.map((p) => [p.id, p.auth, p.installCommand])).toEqual([
       ["claude", "ready", "curl -fsSL https://claude.ai/install.sh | bash"],
-      ["codex", "login_needed", "brew install --cask codex"],
+      ["codex", "login_needed", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
     ]);
     expect(s.providers?.[1].loginCommand).toBe("codex login");
     expect(s.tools?.map((tool) => [tool.id, tool.found])).toEqual([

@@ -2,20 +2,30 @@
 // fenêtre de bienvenue : un agent (Claude Code, Codex) ou un outil externe,
 // son état, et l'action qui débloque (installer, se connecter, télécharger).
 //
-// Une commande part par runSetupCommand : dans le terminal intégré quand un
-// projet est ouvert (App ferme alors ce qui le couvre), sinon elle s'affiche
-// ici, à copier dans Terminal de macOS — c'est le cas du tout premier
-// lancement, sans projet.
+// Un agent s'installe et se connecte depuis Atelier (startSetupRun : le
+// serveur lance l'installeur officiel puis ouvre la page de connexion) ; la
+// rangée suit l'avancement, s'annule, et montre la fin de la sortie en cas
+// d'échec. La commande à coller n'est plus que le dernier recours : échec, ou
+// serveur injoignable.
+//
+// Une commande d'outil part par runSetupCommand : dans le terminal intégré
+// quand un projet est ouvert (App ferme alors ce qui le couvre), sinon elle
+// s'affiche ici, à copier dans Terminal de macOS.
 import { useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { X } from "lucide-react";
 import { Row } from "../settings/primitives/Row";
-import { Button, IconButton, StatusBadge, type BadgeStatus } from "../ui";
+import { Button, IconButton, InlineNotice, StatusBadge, type BadgeStatus } from "../ui";
 import { t } from "../../lib/i18n";
 import {
   agentLabel,
+  cancelSetupRun,
+  clearSetupRun,
   installPlan,
   runSetupCommand,
+  setupRunActive,
+  startSetupRun,
+  useSetupEnvironment,
   withResolvedBinary,
   type EnvironmentTool,
   type EnvironmentToolId,
@@ -23,6 +33,7 @@ import {
   type SetupCommandKind,
   type SetupOrigin,
   type SetupProviderStatus,
+  type SetupRun,
 } from "../../lib/setupEnvironment";
 
 /** Terminal de macOS, ouvert à côté de la commande à coller. */
@@ -91,9 +102,15 @@ export function SetupCommandFallback(p: { command: string; onHide: () => void })
   );
 }
 
-function agentBadge(provider: SetupProviderStatus | null): { status: BadgeStatus; label: string } {
+function agentBadge(
+  provider: SetupProviderStatus | null,
+  run: SetupRun | null,
+): { status: BadgeStatus; label: string } {
+  if (run?.phase === "signing_in") return { status: "running", label: t("setup.signing-in") };
+  if (setupRunActive(run)) return { status: "running", label: t("setup.installing") };
   if (!provider) return { status: "neutral", label: t("settings.checking") };
   if (provider.auth === "ready") return { status: "success", label: t("setup.ready") };
+  if (run?.phase === "failed") return { status: "error", label: t("setup.failed") };
   if (provider.auth === "login_needed") return { status: "warning", label: t("setup.login-needed") };
   if (provider.auth === "not_installed" || !provider.installed) {
     return { status: "neutral", label: t("settings.setup-auth-not-installed") };
@@ -101,7 +118,8 @@ function agentBadge(provider: SetupProviderStatus | null): { status: BadgeStatus
   return { status: "warning", label: t("settings.setup-auth-unknown") };
 }
 
-/** Claude Code ou Codex : prêt, connexion requise ou non installé. */
+/** Claude Code ou Codex : prêt, connexion requise ou non installé. Le bouton
+ *  installe et connecte depuis Atelier, et la rangée suit l'avancement. */
 export function AgentSetupRow(p: {
   id: SetupAgentId;
   providers: readonly SetupProviderStatus[] | null;
@@ -109,33 +127,61 @@ export function AgentSetupRow(p: {
   origin: SetupOrigin;
 }) {
   const provider = p.providers?.find((entry) => entry.id === p.id) ?? null;
+  const run = useSetupEnvironment().runs[p.id] ?? null;
   const command = useSetupCommand(p.origin);
-  const badge = agentBadge(provider);
+  const active = setupRunActive(run);
+  const failed = run?.phase === "failed" && provider?.auth !== "ready";
+  const badge = agentBadge(provider, run);
   const login = provider?.auth === "login_needed" ? provider.loginCommand : null;
   const install = provider?.auth === "not_installed" ? provider.installCommand : null;
-  const plan = install ? installPlan(install, p.tools) : null;
+  // Dernier recours : la commande à coller (connexion si l'agent est déjà là).
+  const manual = login ? withResolvedBinary(login, provider?.binPath) : install;
+  const start = () => {
+    command.hide();
+    if (startSetupRun(p.id) || !manual) return;
+    // Serveur injoignable : on retombe sur la commande à lancer soi-même.
+    command.run(install ? installPlan(install, p.tools).command : manual, login ? "login" : "install");
+  };
+  const url = run?.phase === "signing_in" ? run.url : null;
+  let desc = t(AGENT_DESC[p.id]);
+  if (run?.phase === "signing_in") desc = t("setup.run-login-desc");
+  else if (active) desc = run?.detail ?? t("setup.run-install-desc");
   return (
     <>
-      <Row title={agentLabel(p.id, provider)} desc={t(AGENT_DESC[p.id])}>
-        {provider?.version && provider.auth !== "not_installed" && (
+      <Row title={agentLabel(p.id, provider)} desc={desc}>
+        {provider?.version && provider.auth !== "not_installed" && !active && (
           <span className="setup-version">{provider.version}</span>
         )}
         <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
-        {login && (
-          <Button
-            variant="secondary"
-            onClick={() => command.run(withResolvedBinary(login, provider?.binPath), "login")}
-          >
-            {t("setup.sign-in")}
+        {url && (
+          <Button variant="secondary" onClick={() => { void openUrl(url).catch(() => {}); }}>
+            {t("setup.reopen-page")}
           </Button>
         )}
-        {plan && (
-          <Button variant="secondary" onClick={() => command.run(plan.command, "install")}>
-            {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
+        {active && (
+          <Button variant="ghost" className="set-btn quiet" onClick={() => cancelSetupRun(p.id)}>
+            {t("action.cancel")}
+          </Button>
+        )}
+        {!active && (login || install) && (
+          <Button variant="secondary" onClick={start}>
+            {failed ? t("action.retry") : login ? t("setup.sign-in") : t("setup.install")}
           </Button>
         )}
       </Row>
-      {command.fallback && (
+      {failed && (
+        <div className="setup-run-failed">
+          {run?.error && (
+            <InlineNotice tone="error">
+              <pre className="setup-run-error">{run.error}</pre>
+            </InlineNotice>
+          )}
+          {manual && (
+            <SetupCommandFallback key={manual} command={manual} onHide={() => clearSetupRun(p.id)} />
+          )}
+        </div>
+      )}
+      {!failed && command.fallback && (
         <SetupCommandFallback key={command.fallback} command={command.fallback} onHide={command.hide} />
       )}
     </>
