@@ -30,6 +30,9 @@ function LayoutAtelierIcon() {
   );
 }
 
+/** Surfaces dont le haut est une barre d'outils pleine largeur. */
+const TOOLBAR_FIRST_SURFACES: ReadonlySet<Surface> = new Set<Surface>(["atelier", "browser", "terminal"]);
+
 type Layout = "chat" | "split" | "atelier";
 
 /**
@@ -111,9 +114,15 @@ export default function TopBar({
   const surfaces = { activeSurface, showAtelier, ideActive, showExplorer, onSelectSurface, onSelectIde, onToggleExplorer, onToggleAnnots };
   const documentActive = showAtelier && tabs.some((tab) => tab.id === activeTab && isDocumentTab(tab));
   const chatVisible = layout !== "atelier";
+  // Surfaces qui commencent par une barre d'outils (--surface-header) : l'onglet
+  // actif de l'atelier prend alors le ton de cette barre pour s'y fondre
+  // (variante Graphite, 2026-11-15). Les autres gardent le fond du panneau.
+  // Un document actif (LaTeX, PDF, Word, code) ouvre toujours sur sa barre.
+  const atelierTopBar = showAtelier && (documentActive || TOOLBAR_FIRST_SURFACES.has(activeSurface));
   return (
     <div ref={barRef} className="topbar" data-tauri-drag-region data-layout={split ? "split" : layout}
-      data-chat-attached={chatVisible ? "" : undefined} data-atelier-attached={showAtelier && layout !== "chat" ? "" : undefined}>
+      data-chat-attached={chatVisible ? "" : undefined} data-atelier-attached={showAtelier && layout !== "chat" ? "" : undefined}
+      data-atelier-top={atelierTopBar ? "bar" : undefined}>
       <div className="topbar-start" data-tauri-drag-region>
       {onSelectChat && onNewChat && (chats.length > 0 || activeProject) ? (
         <ProjectChatTabs unread={unreadChatIds} controls={chatTabControls} actions={chatTabActions} chats={chats} activeId={activeChatId}

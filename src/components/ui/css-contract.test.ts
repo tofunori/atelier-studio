@@ -816,7 +816,9 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // sans écart de luminance, les cartes ne décollent plus (option 3)
     expect(tokens).toContain("--surface-canvas: var(--canvas)");
     expect(appCss).toMatch(/\.sidebar\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
-    expect(appCss).toMatch(/\.rail\s*\{[\s\S]*?background:\s*var\(--surface-panel\)/);
+    // la colonne d'icônes rejoint le sol en sombre (Graphite, 2026-11-15) et
+    // reste une carte en clair : --surface-rail, repli sur --surface-panel
+    expect(appCss).toMatch(/\.rail\s*\{[^}]*background:\s*var\(--surface-rail, var\(--surface-panel\)\)/);
     expect(appCss).toMatch(/\.topbar\s*\{[\s\S]*?background:\s*var\(--surface-header\)/);
     for (const selector of ["side-fixed", "explorer", "set-nav", "biblio-left", "generateur-form", "pnav-header"]) {
       expect(appCss, `${selector} doit utiliser --surface-panel`).toMatch(

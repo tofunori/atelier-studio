@@ -54,6 +54,8 @@ button:focus-visible,[role="button"]:focus-visible,[contenteditable]:focus-visib
 /* ---- barre unique ---- */
 .bar{display:flex;align-items:center;gap:4px;height:var(--surface-header-height,44px);padding:0 12px;background:var(--surface-header,transparent);border-bottom:1px solid var(--border-subtle,var(--border));flex-shrink:0;white-space:nowrap;overflow:hidden}
 .bar .sp{flex:1 1 auto;min-width:8px}
+/* Graphite (2026-11-15) : la barre s'éclaircit d'un cran en sombre ; ses filets et fonds de contrôle suivent son ton (--chrome-*, translucides en sombre). */
+.bar,#foot{--border:var(--chrome-line);--border-subtle:var(--chrome-line);--bg-ctl:var(--chrome-fill);--surface-inset:var(--chrome-fill);--card2:var(--chrome-fill)}
 .vs{width:1px;height:16px;margin:0 4px;background:var(--border-subtle,var(--border));flex-shrink:0}
 .ib{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:28px;height:28px;padding:0 4px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;flex-shrink:0;transition:background-color 120ms ease-out,color 120ms ease-out}
 .ib:hover{background:var(--surface-hover);color:var(--text-primary)}
@@ -579,7 +581,7 @@ body.lane-over #leader{display:none}
 .toast .ub kbd{margin-left:6px;font:inherit;font-weight:400;color:var(--text-muted)}
 
 /* ---- barre d'état ---- */
-#foot{display:flex;align-items:center;gap:16px;height:28px;padding:0 12px;border-top:1px solid var(--border-subtle,var(--border));font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
+#foot{display:flex;align-items:center;gap:16px;height:28px;padding:0 12px;background:var(--surface-header,transparent);border-top:1px solid var(--border-subtle,var(--border));font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap;font-variant-numeric:tabular-nums}
 #foot .sp{flex:1}
 #foot>span{overflow:hidden;text-overflow:ellipsis}
 .sv{display:inline-flex;align-items:center;gap:4px}

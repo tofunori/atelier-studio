@@ -7,6 +7,23 @@
 }
 .chat-surface-header .overflow-anchor { display: inline-flex; }
 
+/* En-têtes locaux Atelier (galerie + document) : ton des barres d'outils,
+   pour que l'onglet actif posé dessus s'y fonde (Graphite, 2026-11-15). */
+.atelier-surface-header.ui-surface-header { background: var(--surface-header); }
+/* Sur ce cadre éclairci (barre du haut, colonne, barres d'outils), un filet
+   ou un fond de contrôle plein se confondait avec le fond : les rôles
+   --chrome-line / --chrome-fill (translucides en sombre, pleins en clair)
+   suivent le ton de la surface. Les menus sont portés hors de ces blocs. */
+.topbar, .rail, .atelier-bar, .atelier-surface-header.ui-surface-header {
+  --border: var(--chrome-line);
+  --border-subtle: var(--chrome-line);
+  --sh-border: var(--chrome-line);
+  --bg-ctl: var(--chrome-fill);
+  --surface-inset: var(--chrome-fill);
+  --sh-muted: var(--chrome-fill);
+  --color-muted: var(--chrome-fill);
+  --secondary: var(--chrome-fill);
+}
 /* En-têtes locaux Atelier (galerie + document) — méta type d'artefact. */
 .atelier-surface-header .kind {
   font: 400 var(--fs-caption)/1.3 var(--font-chrome);
@@ -130,6 +147,11 @@
      collé, useToolbarDividerAlignment pose data-panel-edge sur l'onglet (pas
      de pied gauche) et data-tab-edge sur le panneau (coin haut gauche carré). */
 .topbar[data-chat-attached] .topbar-start { padding-left: max(var(--tb-chat-left, 0px), var(--tb-lights)); }
+/* fond de l'onglet actif = ce qu'il y a juste dessous : le fil du chat, ou la
+   barre d'outils de la surface d'atelier quand elle en a une (Graphite,
+   2026-11-15 ; --surface-header vaut le fond du panneau en clair) */
+.topbar { --tab-bg: var(--bg); }
+.topbar[data-atelier-top="bar"] .topbar-right { --tab-bg: var(--surface-header); }
 .topbar[data-atelier-attached] .topbar-right { padding-left: calc(var(--gutter) / 2); }
 .topbar[data-chat-attached] .project-chat-tabs,
 .topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
@@ -153,7 +175,7 @@
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell:hover { background: var(--surface-hover); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"],
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"] {
-  background: var(--bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift), 0 1px 0 var(--bg); z-index: 1; }
+  background: var(--tab-bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift), 0 1px 0 var(--tab-bg); z-index: 1; }
 /* l'onglet de document rogne son nom lui-même : l'actif laisse sortir ses pieds */
 .topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] { overflow: visible; }
 .topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] > .topbar-tab-main { overflow: hidden; }
@@ -165,10 +187,10 @@
   content: ""; position: absolute; top: auto; bottom: 0; width: var(--r-m); height: var(--r-m); pointer-events: none; }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::before,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::before {
-  left: auto; right: 100%; background: radial-gradient(circle at 0 0, transparent calc(var(--r-m) - .5px), var(--bg) var(--r-m)); }
+  left: auto; right: 100%; background: radial-gradient(circle at 0 0, transparent calc(var(--r-m) - .5px), var(--tab-bg) var(--r-m)); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
-  left: 100%; background: radial-gradient(circle at 100% 0, transparent calc(var(--r-m) - .5px), var(--bg) var(--r-m)); }
+  left: 100%; background: radial-gradient(circle at 100% 0, transparent calc(var(--r-m) - .5px), var(--tab-bg) var(--r-m)); }
 .topbar .document-tab-shell[data-active="true"][data-panel-edge]::before { display: none; }
 /* coin carré du panneau sous l'onglet qui en part : règles dans App.css,
    à côté des cartes qu'elles redessinent (même spécificité, ordre gagnant) */

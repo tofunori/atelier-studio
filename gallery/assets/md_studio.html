@@ -109,6 +109,8 @@
   /* EDIT-03 / EDIT-09 : la barre Toast UI au système — 44 px comme les autres
      éditeurs, boutons fantômes 28 px, icônes SVG (lucide, trait 1,4) peintes
      par masque à la couleur du texte au lieu de la planche PNG réduite. */
+  /* Graphite (2026-11-15) : la barre s'éclaircit d'un cran en sombre ; ses filets et fonds de contrôle suivent son ton (--chrome-*, translucides en sombre). */
+  #ed .toastui-editor-defaultUI-toolbar{--border:var(--chrome-line);--border-subtle:var(--chrome-line);--bg-ctl:var(--chrome-fill);--surface-inset:var(--chrome-fill);--card2:var(--chrome-fill)}
   #ed .toastui-editor-defaultUI-toolbar{height:var(--surface-header-height,44px);box-sizing:border-box;padding:0 12px;
     background:var(--surface-header,var(--bar));border-bottom:1px solid var(--border-subtle,var(--border))}
   #ed .toastui-editor-toolbar-group{display:flex;align-items:center;gap:4px}

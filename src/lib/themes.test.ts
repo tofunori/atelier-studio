@@ -70,3 +70,29 @@ describe("Claude Code theme", () => {
   });
 });
 
+
+describe("Étagement du chrome (Graphite, 2026-11-15)", () => {
+  it("en sombre, le sol et les barres montent vers --fg ; le contenu garde son fond", () => {
+    const dark = resolveAppearanceTheme({ themePreset: "claude-code", theme: "dark" }, true);
+    const v = themeContractVars(dark);
+    expect(v["--surface-app"]).toBe("#1a1a19");
+    expect(v["--surface-canvas"]).toBe("color-mix(in srgb, #1a1a19 95%, #f0efec)");
+    expect(v["--canvas"]).toBe(v["--surface-canvas"]);
+    expect(v["--surface-header"]).toBe("color-mix(in srgb, #1a1a19 92%, #f0efec)");
+    expect(v["--surface-rail"]).toBe(v["--surface-canvas"]);
+    expect(v["--rail-lift"]).toBe("none");
+    // filets et fonds de contrôle du cadre : translucides, ils suivent le ton
+    expect(v["--chrome-line"]).toBe("color-mix(in srgb, #f0efec 10%, transparent)");
+    expect(v["--chrome-fill"]).toBe("color-mix(in srgb, #f0efec 9%, transparent)");
+  });
+  it("en clair, rien ne change : sol plus sombre, barres au fond du panneau", () => {
+    const light = resolveAppearanceTheme({ themePreset: "claude-code", theme: "light" }, false);
+    const v = themeContractVars(light);
+    expect(v["--surface-canvas"]).toBe("color-mix(in srgb, #faf9f5 91%, #000)");
+    expect(v["--surface-header"]).toBe("#faf9f5");
+    expect(v["--surface-rail"]).toBe("#faf9f5");
+    expect(v["--rail-lift"]).not.toBe("none");
+    expect(v["--chrome-line"]).toBe(v["--border-subtle"]);
+    expect(v["--chrome-fill"]).toBe(v["--surface-inset"]);
+  });
+});

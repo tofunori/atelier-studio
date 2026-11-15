@@ -106,6 +106,10 @@
     "--border-default": "var(--border-strong, var(--border, #43474c))",
     "--border-strong": "var(--border2, var(--border, #43474c))",
     "--border-interactive": "var(--border-strong, var(--border, #43474c))",
+    // filet et fond de contrôle des barres d'outils (Graphite, 2026-11-15) :
+    // l'app envoie des valeurs translucides en sombre ; hors app, les pleines
+    "--chrome-line": "var(--border-subtle, var(--border, #2a2d31))",
+    "--chrome-fill": "var(--surface-inset, var(--card2, var(--bg-ctl, #2c2f34)))",
     "--accent-base": "var(--accent, #e77f3e)",
     // Remplissage des actions : l'app envoie la valeur résolue de tokens.css
     // (interfaceFills) ; hors app, l'option A « relief ». Jamais l'encre.
