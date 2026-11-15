@@ -764,6 +764,20 @@ test('docx: barre de mise en forme, vues et page blanche', async ({page, project
   await expect(page.locator('body')).not.toHaveClass(/blanche/);
   await expect.poll(async () => (await (await page.request.get(`${project.url}/docx/prefs`)).json()).page).toBe('theme');
 
+  // L'interrupteur garde sa piste de 28 px : la pastille de ruban (.sw) ne
+  // l'écrase plus, et son bouton rond reste dedans, à gauche du libellé.
+  const sw = await page.evaluate(() => {
+    const t = document.getElementById('btnTrack')!;
+    const box = (el: Element) => el.getBoundingClientRect();
+    const r = document.createRange();
+    r.selectNodeContents(t.lastChild!);
+    const track = box(t.querySelector('.sw')!), knob = box(t.querySelector('.sw i')!), label = r.getBoundingClientRect();
+    return {w: track.width, knobIn: knob.left >= track.left - 0.5 && knob.right <= track.right + 0.5, gap: label.left - track.right};
+  });
+  expect(sw.w).toBe(28);
+  expect(sw.knobIn).toBe(true);
+  expect(sw.gap).toBeGreaterThanOrEqual(6);
+
   // Sans suivi, la frappe s'écrit directement.
   await page.locator('#btnTrack').click();
   await expect(page.locator('#btnTrack')).toHaveAttribute('aria-pressed', 'false');
