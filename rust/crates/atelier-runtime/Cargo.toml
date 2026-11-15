@@ -26,6 +26,8 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 libc = "0.2"
+# Connexion d'un agent dans un pseudo-terminal (ws_router/setup_run.rs).
+portable-pty = "0.8"
 base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid = { version = "1", features = ["v4"] }

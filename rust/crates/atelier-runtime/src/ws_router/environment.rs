@@ -11,13 +11,11 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
-/// Installation officielle des CLI d'agents (premier lancement).
+/// Installation officielle des CLI d'agents (premier lancement) : la même
+/// ligne qu'Atelier lance lui-même (`setup_run`), montrée à qui préfère la
+/// coller dans un terminal.
 pub(super) fn agent_install_command(id: &str) -> Option<&'static str> {
-    match id {
-        "claude" => Some("curl -fsSL https://claude.ai/install.sh | bash"),
-        "codex" => Some("brew install --cask codex"),
-        _ => None,
-    }
+    agent_setup(id).map(|setup| setup.install)
 }
 
 const HOMEBREW_INSTALL: &str = r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#;
@@ -278,10 +276,10 @@ mod tests {
         assert!(agent_install_command("claude")
             .unwrap()
             .contains("https://claude.ai/install.sh"));
-        assert_eq!(
-            agent_install_command("codex"),
-            Some("brew install --cask codex")
-        );
+        // Codex a son installeur autonome : plus besoin de Homebrew.
+        assert!(agent_install_command("codex")
+            .unwrap()
+            .contains("https://chatgpt.com/codex/install.sh"));
         assert_eq!(agent_install_command("kimi"), None);
     }
 }

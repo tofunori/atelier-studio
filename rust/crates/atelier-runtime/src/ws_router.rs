@@ -32,12 +32,14 @@ mod api_providers;
 mod environment;
 mod integrations;
 mod quick_ask;
+mod setup_run;
 use kb::*;
 use threads::*;
 use api_providers::*;
 use environment::*;
 use integrations::*;
 use quick_ask::*;
+use setup_run::*;
 
 /// Exhaustive list of handled WS types (must cover Node `router.mjs` cases).
 pub const ALL_MESSAGE_TYPES: &[&str] = &[
@@ -51,6 +53,9 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "saveIntegrations",
     "refreshProviders",
     "environmentStatus",
+    "setupRun",
+    "setupRunInput",
+    "setupRunCancel",
     "listThreads",
     "renameThread",
     "moveThread",
@@ -1898,6 +1903,9 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "saveIntegrations" => handle_save_integrations(state, &msg).await,
         "refreshProviders" => handle_refresh_providers(state).await,
         "environmentStatus" => handle_environment_status(state).await,
+        "setupRun" => handle_setup_run(state, &msg),
+        "setupRunInput" => handle_setup_run_input(&msg),
+        "setupRunCancel" => handle_setup_run_cancel(&msg),
         "listApiModels" => handle_list_api_models(state, &msg).await,
         "exportThread" => handle_export_thread(state, &msg).await,
         "savePlan" => handle_save_plan(state, &msg, false).await,

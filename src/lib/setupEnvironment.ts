@@ -9,6 +9,9 @@
 //   → { type:"setupStatus" }        ← { type:"setupStatus", status:{ providers } }
 //   → { type:"environmentStatus" }  ← { type:"environmentStatus", tools }
 //   → { type:"refreshProviders" }   ← providerStatus puis setupStatus
+//   → { type:"setupRun", agent }    ← { type:"setupRun", agent, phase, detail, url, error }
+//     (ws_router/setup_run.rs : Atelier installe l'agent et ouvre sa
+//     connexion lui-même ; suivi par événements, annulable)
 // Les deux premiers partent à chaque connexion (lib/ws.ts), et plus jamais
 // sans un clic sur « Revérifier » : rien ici ne sonde en boucle.
 //
@@ -45,6 +48,26 @@ export type EnvironmentTool = {
   installUrl: string | null;
 };
 
+/** Où en est l'installation-connexion d'un agent lancée depuis Atelier. */
+export type SetupRunPhase = "starting" | "installing" | "signing_in" | "ready" | "failed" | "cancelled";
+
+export type SetupRun = {
+  phase: SetupRunPhase;
+  /** Dernière ligne de l'installeur. */
+  detail: string | null;
+  /** Page de connexion ouverte par le CLI (https), pour la rouvrir. */
+  url: string | null;
+  /** Dernières lignes de la sortie quand la phase est "failed". */
+  error: string | null;
+};
+
+const RUN_PHASES: readonly SetupRunPhase[] = ["starting", "installing", "signing_in", "ready", "failed", "cancelled"];
+
+/** En cours : ni fini, ni échoué, ni annulé. */
+export function setupRunActive(run: SetupRun | null | undefined): boolean {
+  return run?.phase === "starting" || run?.phase === "installing" || run?.phase === "signing_in";
+}
+
 export type SetupEnvironmentState = {
   /** null tant qu'aucun setupStatus n'est arrivé. */
   providers: SetupProviderStatus[] | null;
@@ -53,6 +76,8 @@ export type SetupEnvironmentState = {
   /** « Revérifier » en cours : jusqu'aux deux réponses, 10 s au plus. */
   rechecking: boolean;
   welcomeOpen: boolean;
+  /** Installations lancées depuis Atelier, par agent. */
+  runs: Partial<Record<SetupAgentId, SetupRun>>;
 };
 
 /** D'où part une commande d'installation : décide où « Revérifier » ramène. */
@@ -68,7 +93,7 @@ export const RECHECK_TIMEOUT_MS = 10_000;
 // Plus de "poppler" : la lecture des PDF est livrée avec l'app (PDFium).
 const TOOL_IDS: readonly EnvironmentToolId[] = ["homebrew", "git", "tex", "zotero"];
 
-const INITIAL: SetupEnvironmentState = { providers: null, tools: null, rechecking: false, welcomeOpen: false };
+const INITIAL: SetupEnvironmentState = { providers: null, tools: null, rechecking: false, welcomeOpen: false, runs: {} };
 
 let state: SetupEnvironmentState = INITIAL;
 let pendingSetup = false;
@@ -225,6 +250,58 @@ export function recheckAll(): boolean {
   return true;
 }
 
+/** Applique un événement `setupRun` du serveur. L'adresse de connexion, une
+ *  fois connue, reste jusqu'à la fin : les événements suivants ne la
+ *  répètent pas. */
+export function applySetupRun(msg: unknown): void {
+  if (!msg || typeof msg !== "object") return;
+  const raw = msg as Record<string, unknown>;
+  const agent = SETUP_AGENTS.find((id) => id === raw.agent);
+  const phase = RUN_PHASES.find((known) => known === raw.phase);
+  if (!agent || !phase) return;
+  const previous = state.runs[agent];
+  const url = text(raw.url);
+  const keptUrl = phase === "signing_in" ? previous?.url ?? null : null;
+  update({
+    runs: {
+      ...state.runs,
+      [agent]: {
+        phase,
+        detail: text(raw.detail) ?? (phase === "installing" ? previous?.detail ?? null : null),
+        url: url && url.startsWith("https://") ? url : keptUrl,
+        error: phase === "failed" ? text(raw.error) : null,
+      },
+    },
+  });
+}
+
+/** Installe l'agent s'il manque, puis ouvre sa connexion, sans Terminal.
+ *  Renvoie false si la demande n'est pas partie (socket fermée). */
+export function startSetupRun(agent: SetupAgentId): boolean {
+  if (setupRunActive(state.runs[agent])) return true;
+  if (!wsSend({ type: "setupRun", agent })) return false;
+  update({ runs: { ...state.runs, [agent]: { phase: "starting", detail: null, url: null, error: null } } });
+  return true;
+}
+
+export function cancelSetupRun(agent: SetupAgentId): void {
+  if (setupRunActive(state.runs[agent])) wsSend({ type: "setupRunCancel", agent });
+}
+
+/** Une ligne pour la connexion en cours (code affiché par le navigateur). */
+export function sendSetupRunInput(agent: SetupAgentId, line: string): boolean {
+  const value = line.trim();
+  if (!value || state.runs[agent]?.phase !== "signing_in") return false;
+  return wsSend({ type: "setupRunInput", agent, text: value });
+}
+
+/** Oublie une installation finie, échouée ou annulée (retour à la rangée). */
+export function clearSetupRun(agent: SetupAgentId): void {
+  if (!state.runs[agent] || setupRunActive(state.runs[agent])) return;
+  const { [agent]: _gone, ...rest } = state.runs;
+  update({ runs: rest });
+}
+
 export function openSetupWelcome(): void {
   if (!state.welcomeOpen) update({ welcomeOpen: true });
 }
@@ -338,4 +415,5 @@ export function resetSetupEnvironmentForTests(): void {
 if (typeof window !== "undefined") {
   window.addEventListener("setup-status", (e) => applySetupStatus((e as CustomEvent).detail));
   window.addEventListener("environment-status", (e) => applyEnvironmentStatus((e as CustomEvent).detail));
+  window.addEventListener("setup-run", (e) => applySetupRun((e as CustomEvent).detail));
 }

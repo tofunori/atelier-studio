@@ -35,6 +35,8 @@ const RELAYS: Record<string, Relay> = {
   // socket brute : ce relais ne les prive de rien.
   setupStatus: forward("setup-status"),
   environmentStatus: forward("environment-status"),
+  // installation et connexion d'un agent lancées depuis Atelier
+  setupRun: forward("setup-run"),
   turnContextPreview: forward("turn-context-preview"),
   kbPromoted: (msg) => ({ event: "kb-source-promoted", detail: { id: msg.id } }),
   // page directe gbrain (plan 050 P4) : dialogue de la surface
