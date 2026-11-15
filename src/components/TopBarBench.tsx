@@ -50,7 +50,7 @@ export function TopBarBench() {
           <Panel id="chat" order={1} defaultSize={50} minSize={layout === "atelier" ? 0 : 30} style={{display:layout === "atelier" ? "none" : undefined}}>
             <p>Chat : {active}</p>
           </Panel>
-          {layout !== "chat" && <><PanelResizeHandle id="chat-atelier-divider" className="handle" />
+          {layout !== "chat" && <><PanelResizeHandle id="chat-atelier-divider" className={layout === "atelier" ? "handle handle-idle" : "handle"} />
             <Panel id="atelier" order={2} minSize={20}><p>Discussion</p></Panel></>}
         </PanelGroup>
       </div>

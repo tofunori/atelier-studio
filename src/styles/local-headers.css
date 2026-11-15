@@ -152,7 +152,11 @@
    2026-11-15 ; --surface-header vaut le fond du panneau en clair) */
 .topbar { --tab-bg: var(--bg); }
 .topbar[data-atelier-top="bar"] .topbar-right { --tab-bg: var(--surface-header); }
-.topbar[data-atelier-attached] .topbar-right { padding-left: calc(var(--gutter) / 2); }
+.topbar[data-atelier-attached] .topbar-right { padding-left: calc(var(--panel-gutter) / 2); }
+/* atelier seul : pas de séparateur, l'axe EST le bord du panneau. 1 px de
+   marge invisible : la moitié rogne, et le filet de l'onglet collé au bord
+   passe 0,5 px dehors. */
+.topbar[data-atelier-attached]:not([data-layout="split"]) .topbar-right { padding-left: 1px; margin-left: -1px; }
 .topbar[data-chat-attached] .project-chat-tabs,
 .topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
   overflow-x: clip; overflow-y: visible; }
@@ -161,7 +165,12 @@
 .topbar[data-chat-attached] .topbar-start,
 .topbar[data-atelier-attached] .topbar-right { align-self: start; height: calc(100% + 1px); padding-bottom: 1px; margin-bottom: -1px; }
 .topbar[data-chat-attached] .project-chat-tabs-list { padding: 0 var(--r-m) 1px; margin: 0 calc(-1 * var(--r-m)) -1px; }
-.topbar[data-atelier-attached] .topbar-atelier-tabs .topbar-tabs { padding-left: var(--r-m); margin-left: calc(-1 * var(--r-m)); }
+/* la même marge invisible sur CHAQUE boîte qui rogne ses onglets, des deux
+   côtés : sans elle le premier onglet du chat perdait son pied gauche (colonne
+   repliée) et le dernier onglet de l'atelier son pied droit (2026-11-15) */
+.topbar[data-chat-attached] .project-chat-tabs { padding-left: var(--r-m); margin-left: calc(-1 * var(--r-m)); }
+.topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-atelier-tabs .topbar-tabs) {
+  padding-inline: var(--r-m); margin-inline: calc(-1 * var(--r-m)); }
 .topbar[data-chat-attached] :is(.project-chat-tabs, .project-chat-tabs-list),
 .topbar[data-atelier-attached] :is(.topbar-atelier-tabs, .topbar-surfaces, .topbar-tabs) {
   align-self: stretch; align-items: flex-end; }
@@ -175,23 +184,45 @@
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell:hover { background: var(--surface-hover); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"],
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"] {
-  background: var(--tab-bg); color: var(--text-primary); font-weight: 500; box-shadow: var(--tab-lift), 0 1px 0 var(--tab-bg); z-index: 1; }
+  background: var(--tab-bg); color: var(--text-primary); font-weight: 500;
+  /* de haut en bas : liseré de lumière dedans ; couture (1 px du fond sous la
+     barre, couvre le liseré haut du panneau) ; filet sombre dehors, dont la
+     couture masque le segment du bas */
+  box-shadow: var(--tab-lift), 0 1px 0 var(--tab-bg), 0 0 0 .5px var(--panel-ring); z-index: 1; }
 /* l'onglet de document rogne son nom lui-même : l'actif laisse sortir ses pieds */
 .topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] { overflow: visible; }
 .topbar[data-atelier-attached] .topbar-right .topbar-tab[data-active="true"] > .topbar-tab-main { overflow: hidden; }
-/* les pieds : arrondi creux du rayon des cartes, au fond du panneau */
+/* les pieds : arrondi creux du rayon des cartes, au fond du panneau.
+   Panneaux flottants (2026-11-15) : le pied est l'ENCOCHE elle-même (quart de
+   disque transparent, le sol se voit au travers) ; ses ombres dessinent le
+   reste, rognées à sa boîte : le filet sombre dans l'encoche, le liseré de
+   lumière puis le fond de l'onglet autour. Le contour de la languette est
+   ainsi continu du panneau à l'onglet, sans dégradé à lisser. La boîte de
+   rognage déborde de 1 px sur l'onglet (son liseré de flanc s'arrête où le
+   pied commence, même quand l'onglet a une largeur fractionnaire) et de 1 px
+   sous la barre (le liseré haut du panneau aussi). */
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::before,
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::before,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
-  content: ""; position: absolute; top: auto; bottom: 0; width: var(--r-m); height: var(--r-m); pointer-events: none; }
+  content: ""; position: absolute; top: auto; bottom: 0; width: var(--r-m); height: var(--r-m); pointer-events: none;
+  --ear: 0 .5px 0 .5px var(--panel-hi), 0 0 0 var(--r-m) var(--tab-bg); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::before,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::before {
-  left: auto; right: 100%; background: radial-gradient(circle at 0 0, transparent calc(var(--r-m) - .5px), var(--tab-bg) var(--r-m)); }
+  left: auto; right: 100%; border-bottom-right-radius: 100%; clip-path: inset(0 -1px -1px 0);
+  box-shadow: inset -.5px -.5px 0 var(--panel-ring), var(--ear); }
 .topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"]::after,
 .topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"]::after {
-  left: 100%; background: radial-gradient(circle at 100% 0, transparent calc(var(--r-m) - .5px), var(--tab-bg) var(--r-m)); }
-.topbar .document-tab-shell[data-active="true"][data-panel-edge]::before { display: none; }
+  left: 100%; border-bottom-left-radius: 100%; clip-path: inset(0 0 -1px -1px);
+  box-shadow: inset .5px -.5px 0 var(--panel-ring), var(--ear); }
+/* onglet collé au bord du panneau : pas de pied gauche. Le ::before devient
+   le pixel de liseré que la couture couvrirait sur le flanc du panneau (une
+   ombre intérieure de 0,5 px, pas une boîte de 0,5 px : les boîtes
+   s'arrondissent au pixel, les ombres non). */
+.topbar[data-chat-attached] .topbar-start .document-tab-shell[data-active="true"][data-panel-edge]::before,
+.topbar[data-atelier-attached] .topbar-right .document-tab-shell[data-active="true"][data-panel-edge]::before {
+  left: 0; right: auto; bottom: -1px; width: 1px; height: 1px; border-radius: 0; clip-path: none;
+  box-shadow: inset .5px 0 0 var(--panel-hi); }
 /* coin carré du panneau sous l'onglet qui en part : règles dans App.css,
    à côté des cartes qu'elles redessinent (même spécificité, ordre gagnant) */
 /* filet entre deux onglets inactifs, jamais contre l'actif */

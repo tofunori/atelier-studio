@@ -5076,7 +5076,7 @@ export default function App() {
       </Panel>
       {showAtelier && activeProject && (
         <>
-          <PanelResizeHandle id="chat-atelier-divider" className="handle" onDragging={setDragging} />
+          <PanelResizeHandle id="chat-atelier-divider" className={layout === "atelier" ? "handle handle-idle" : "handle"} onDragging={setDragging} />
           <Panel ref={atelierPanelRef} id="atelier" order={3} defaultSize={50} minSize={20}>
             <div className="atelier-host">
             <AtelierPane

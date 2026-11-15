@@ -32,6 +32,10 @@
    * réglage : cadre extérieur, poignées, bandes entre panneaux secondaires.
    * 8 px mangeaient trop d'écran une fois cumulés sur cinq divisions. */
   --gutter: 4px;
+  /* Panneaux flottants (variante 4, 2026-11-15) : les GRANDS panneaux (chat,
+   * atelier) se détachent du sol par une gouttière et des marges plus larges,
+   * où tombe leur ombre portée. Les divisions internes restent à --gutter. */
+  --panel-gutter: 12px;
   --surface-raised: var(--bg-card);
   --surface-inset: var(--bg-ctl);
   --surface-overlay: var(--bg-pop);
