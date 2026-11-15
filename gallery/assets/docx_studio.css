@@ -444,6 +444,11 @@ body.lane-over #leader{display:none}
 /* Brouillon de l'agent : ↻ (autre formulation) reste visible même champ vidé. */
 .c-field.ad .c-input{padding-right:76px}
 .c-field.ad .c-input:placeholder-shown + .ic{display:flex}
+/* Dès qu'il y a du texte, il prend toute la largeur : les icônes descendent
+   en bas à droite du champ, sans filet. Vide, le champ reste sur une ligne. */
+.c-field .c-input:not(:placeholder-shown),.c-field.ask .c-input:not(:placeholder-shown),.c-field.ad .c-input:not(:placeholder-shown){padding:8px 8px 40px}
+.c-field .c-input:not(:placeholder-shown) + .in.ic{top:auto;bottom:4px}
+.c-field .c-input:not(:placeholder-shown) + .in.ic::before{display:none}
 .cc .in.ic .ag{color:var(--text-muted)}
 .cc .in.ic .ag:hover,.cc .in.ic .ag:focus-visible{color:var(--text-primary)}
 /* Corrections de l'agent en suivi : crayon + nombre au bout de la rangée. */

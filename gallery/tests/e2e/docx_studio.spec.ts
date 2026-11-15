@@ -1064,6 +1064,15 @@ test('docx: au survol d\'un message, ses icônes l\'effacent seul ou tout le fil
   await card.locator('.cc').click();
   // Plus de poubelle ni de bulle dans la rangée du bas : Résoudre seul.
   await expect(card.locator('.ac [data-act="delete"], .ac [data-act="ask"]')).toHaveCount(0);
+  // Champ de réponse : vide, une ligne avec ses icônes à droite ; avec du
+  // texte, toute la largeur, les icônes en bas à droite.
+  const field = card.locator('.c-field textarea');
+  await expect(field).toHaveCSS('padding-right', '44px');
+  await field.fill('Une réponse assez longue pour passer à la ligne dans la carte de commentaire.');
+  await expect(field).toHaveCSS('padding-right', '8px');
+  const fb = (await field.boundingBox())!, ib = (await card.locator('.c-field .in.ic').boundingBox())!;
+  expect(ib.y + ib.height).toBeGreaterThan(fb.y + fb.height - 8);
+  await field.fill('');
   // Les icônes sont invisibles au repos, posées sur la date au survol ; rien ne bouge.
   const rp = card.locator('.rp').first();
   const more = rp.locator('.mo');
