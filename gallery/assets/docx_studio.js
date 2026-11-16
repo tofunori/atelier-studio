@@ -1152,6 +1152,7 @@
     }
     drawSheets(pg, pages);
     drawLines(pg);
+    splitBars(pg);
     pageCount = pages;
     placeCards();
     spy();
@@ -1364,6 +1365,41 @@
     for (let b = start; b < done; b++) blockTops.set(blocks[b], blocks[b].getBoundingClientRect().top - o);
     const end = paper.scrollHeight;
     return Math.max(1, pageAt(Math.max(0, end - pg.bottom * pt - 1)) + 1);
+  }
+
+  /** Barre de marge d'un paragraphe retouché coupé sur deux feuilles : un
+   *  trait par feuille, rien dans l'intervalle (la barre traversait le saut
+   *  de page, 2026-11-16). La barre (`::before`, de 4 px sous le haut à 4 px
+   *  au-dessus du bas) prend un dégradé à arrêts francs. */
+  function splitBars(pg      ) {
+    const stride = pg.height * ptPx + GAP;
+    for (const el of Array.from(paper.querySelectorAll             (".d-p[style*='--bar']"))) el.style.removeProperty("--bar");
+    for (const el of Array.from(paper.querySelectorAll             (".d-p.changed"))) {
+      if (!el.querySelector(".d-gap")) continue;
+      const o = paper.getBoundingClientRect().top;
+      const box = el.getBoundingClientRect();
+      const top = box.top - o + 4, h = box.height - 8;
+      if (h <= 0) continue;
+      const lines = linesOf(el, o);
+      if (!lines.length) continue;
+      // Lignes regroupées par feuille : [haut de la première, bas de la dernière].
+      const runs                     = [];
+      let sheet = -1;
+      for (const ln of lines) {
+        const k = Math.floor(ln.top / stride);
+        if (k !== sheet) { runs.push([ln.top, ln.bottom]); sheet = k; } else runs[runs.length - 1][1] = ln.bottom;
+      }
+      if (runs.length < 2) continue;
+      const px = (y        ) => `${Math.max(0, Math.min(h, y - top)).toFixed(1)}px`;
+      const stops           = [];
+      runs.forEach(([a, b], i) => {
+        const from = i === 0 ? "0px" : px(a);
+        const to = i === runs.length - 1 ? `${h.toFixed(1)}px` : px(b);
+        if (i > 0) stops.push(`transparent ${px(runs[i - 1][1])} ${from}`);
+        stops.push(`var(--rev-color) ${from} ${to}`);
+      });
+      el.style.setProperty("--bar", `linear-gradient(to bottom, ${stops.join(", ")})`);
+    }
   }
 
   /** Champs PAGE et NUMPAGES d'un en-tête ou d'un pied : le numéro de la feuille. */
