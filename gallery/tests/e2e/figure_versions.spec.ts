@@ -255,10 +255,10 @@ test('top-bar Gallery icon closes the open figure and returns to the grid',async
   await expect(page.locator('#lb')).not.toHaveClass(/\bshow\b/);
 });
 
-// Lot 3 (2026-11-16) : les notes d'une figure sont gardées par le serveur avec
-// la version où elles ont été posées ; la version suivante les montre en
-// fantômes, on les coche une à une et on renvoie celle qui reste.
-test('figure notes stay with their version, are checked off on the next one and the open one is sent again',async({page})=>{
+// Lot 3 puis variante A (2026-11-16) : les notes d'une figure sont gardées par
+// le serveur avec la version où elles ont été posées ; une fois envoyées, elles
+// quittent la figure et vivent dans « Envoyées » ; la version suivante arrive propre.
+test('figure notes stay with their version, leave the figure once sent and live in the sent list',async({page})=>{
   const errors: string[]=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setViewportSize({width:1280,height:800});
   await page.goto(origin+'/?embedded=atelier');
@@ -272,7 +272,7 @@ test('figure notes stay with their version, are checked off on the next one and 
   await page.route('**/save',async route=>{saves.push(route.request().postDataJSON());await route.fulfill({json:{path:'.fig_thumbs/annotation-previews/durable_annot.png'}});});
   const at=async(x: number,y: number)=>{const r=await page.locator('#annotCv').boundingBox();return [r.x+x*r.width,r.y+y*r.height] as const;};
   const drag=async(x1: number,y1: number,x2: number,y2: number)=>{const a=await at(x1,y1),b=await at(x2,y2);await page.mouse.move(a[0],a[1]);await page.mouse.down();await page.mouse.move(b[0],b[1],{steps:5});await page.mouse.up();};
-  const note=page.locator('#annotNote textarea'),own=page.locator('#annotItems .annot-row'),ghosts=page.locator('#annotFollowItems .annot-item');
+  const note=page.locator('#annotNote textarea'),own=page.locator('#annotItems .annot-row');
   await show();
 
   // Two notes on v1: the server has them a moment later, still to send.
@@ -303,90 +303,66 @@ test('figure notes stay with their version, are checked off on the next one and 
   expect(await page.evaluate(()=>annotPanelOpen)).toBe(false);expect(await figure()).toEqual(placed);
   await page.locator('#lbTabNotes').click();await page.waitForFunction(()=>annotPanelOpen);
   await expect(own).toHaveText(['1Titre trop long','2Unité manquante']);
-  // Still to send: no « réglée » box yet.
-  await expect(page.locator('#annotItems .annot-check:visible')).toHaveCount(0);
 
-  // Sent notes stay on v1, marked sent, each with its box.
+  // Variant A (Thierry 2026-11-16): sent notes leave the figure. The server keeps
+  // them « sent » with v1, and « Envoyées 2 » lists them.
+  const sentBtn=page.locator('#annotSentBtn'),sentRows=page.locator('#annotSentItems .annot-row');
+  await expect(sentBtn).toBeHidden();
   await page.locator('#lbAnnot').click();await page.waitForFunction(()=>lb().classList.contains('annot'));
   await page.locator('#annotSendAll').click();
-  await page.waitForFunction(()=>!annotBusy&&annotStrokes.every(s=>s.status==='sent'));
+  await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
   expect(saves).toHaveLength(1);expect(saves[0].notes.map((n: any)=>n.text)).toEqual(['Titre trop long','Unité manquante']);
   await expect.poll(kept).toEqual([['1:sent:Titre trop long','2:sent:Unité manquante']]);
-  await expect(page.locator('#annotItems .annot-check:visible')).toHaveCount(2);
+  await expect(own).toHaveCount(0);await expect(page.locator('#lbNotesN')).toHaveText('');
+  await expect(sentBtn).toBeVisible();await expect(sentBtn).toHaveText('Envoyées2');await expect(sentBtn).toHaveAttribute('aria-pressed','false');
   await expect(page.locator('#annotSendAll')).toBeDisabled();
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes envoyées');
+  const ink=()=>page.locator('#annotCv').evaluate((c: HTMLCanvasElement)=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4)if(d[i]>40)n++;return n;});
+  expect(await ink()).toBe(0);
 
-  // v2 arrives (another pixel size): the viewer leaves the drawing mode and
-  // shows v2 with the notes of v1 as ghosts, at the same place on the image.
+  // v2 arrives (another pixel size): the viewer leaves the drawing mode and v2 is clean.
   fs.writeFileSync(file,second);
   await expect(ver(page)).toHaveText('v2',{timeout:8000});
-  expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotPanelOpen,annotStrokes.length,annotFollow?.version,annotGhosts.length])).toEqual([false,true,0,1,2]);
-  await expect(page.locator('#annotFollowLine')).toBeVisible();
-  await expect(page.locator('#annotFollowText')).toHaveText('v2 répond aux notes de v1 · aucune réglée');
+  expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotPanelOpen,annotStrokes.length,annotPeek])).toEqual([false,true,0,null]);
   // The tab chosen before v2 is kept (« Notes »), and « Versions » counts the new one.
   await expect(page.locator('#lbTabNotes')).toHaveAttribute('aria-selected','true');
   await expect(page.locator('#lbVersionsN')).toHaveText('2');
-  await expect(page.locator('#lbNotesN')).toHaveText('2');
-  await expect(ghosts).toHaveCount(2);
-  await expect(page.locator('#annotSendRow')).toBeHidden();
-  await expect(page.locator('#annotResend')).toHaveText('Renvoyer les 2 notes');
-  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · envoyées');
+  await expect(page.locator('#lbNotesN')).toHaveText('');
+  await expect(page.locator('#annotEmpty')).toBeVisible();
   await expect(tile(page,2).locator('.lbs-n')).toHaveText('actuelle');
-  {const ghost=await page.evaluate(()=>annotGhosts.map(s=>[s.x1/1000,s.y1/625,s.x2/1000,s.y2/625]));
-  ghost.forEach((s,i)=>s.forEach((v,j)=>expect(Math.abs(v-(drawn[i][j+1] as number))).toBeLessThan(.001)));}
-  // Ghosts are painted on the figure (hollow badges), and a row answers its mark.
-  expect(await page.locator('#annotCv').evaluate((c: HTMLCanvasElement)=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=3;i<d.length;i+=4)if(d[i]>40)ink++;return ink;})).toBeGreaterThan(200);
-  await ghosts.nth(0).hover();expect(await page.evaluate(()=>annotHover===annotGhosts[0])).toBe(true);
-  // A ghost is not edited from here.
-  await ghosts.nth(0).locator('.annot-row').click();expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotEditing])).toEqual([false,null]);
+  expect(await ink()).toBe(0);
 
-  // Checking note 1 is kept by the server at once, without resending the list.
-  const boxes=page.locator('#annotFollowItems .annot-check');
-  await boxes.nth(0).click();
-  await expect(boxes.nth(0)).toHaveAttribute('aria-checked','true');
-  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
-  await expect(page.locator('#annotFollowText')).toHaveText('v2 répond aux notes de v1 · 1 sur 2 réglée');
-  await expect(page.locator('#annotResend')).toHaveText('Renvoyer la note 2');
-  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · 1 réglée');
-  expect(await page.evaluate(()=>annotGhosts.map(s=>s.status))).toEqual(['done','sent']);
+  // « Envoyées » lists them, version first; a row shows its mark on v2, at the same place, until clicked again.
+  await sentBtn.click();await expect(sentBtn).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('#annotSent')).toBeVisible();await expect(page.locator('#annotItems')).toBeHidden();await expect(page.locator('#annotEmpty')).toBeHidden();
+  await expect(sentRows).toHaveText(['1v1Titre trop long','2v1Unité manquante']);
+  await sentRows.nth(0).click();await expect(sentRows.nth(0)).toHaveAttribute('aria-pressed','true');
+  expect(await ink()).toBeGreaterThan(200);
+  {const peek=await page.evaluate(()=>{const s=annotPeekStroke();return[s.x1/1000,s.y1/625,s.x2/1000,s.y2/625];});
+  peek.forEach((v,j)=>expect(Math.abs(v-(drawn[0][j+1] as number))).toBeLessThan(.001));}
+  await sentRows.nth(0).click();await expect(sentRows.nth(0)).toHaveAttribute('aria-pressed','false');
+  expect(await ink()).toBe(0);
+  // Rows are read-only: no drawing mode, no note opened.
+  expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotEditing])).toEqual([false,null]);
 
-  // The open note goes back to the agent on the image of v2, with its place.
-  // The status line is a 2.4 s transient: what it said is recorded, never raced against its timer.
-  await page.evaluate(()=>{const line=document.getElementById('annotPanelStatus'),said: string[]=[];(window as any).annotSaid=said;new MutationObserver(()=>{if(line.textContent)said.push(line.textContent);}).observe(line,{childList:true,characterData:true,subtree:true});});
-  await page.locator('#annotResend').click();await page.waitForFunction(()=>!annotBusy);
-  expect(saves).toHaveLength(2);
-  expect(saves[1].notes.map((n: any)=>[n.n,n.text,n.kind])).toEqual([[2,'Unité manquante','point']]);
-  expect(saves[1].sourceContext).toContain('Version affichée : v2');
-  expect(saves[1].sourceContext).toContain('Notes posées sur v1 et renvoyées : elles ne sont pas réglées sur v2.');
-  await expect.poll(()=>page.evaluate(()=>(window as any).annotSaid)).toEqual(['Renvoyé au chat']);
-  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+  // The bin removes one note, at the server too; « Tout effacer » asks a second click.
+  await page.locator('#annotSentItems .annot-item').nth(1).hover();
+  await page.locator('#annotSentItems .annot-trash').nth(1).click();
+  await expect(sentRows).toHaveText(['1v1Titre trop long']);
+  await expect.poll(kept).toEqual([['1:sent:Titre trop long'],[]]);
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('1 note envoyée');
+  await page.locator('#annotSentClear').click();await expect(page.locator('#annotSentClear')).toHaveText('Effacer la note');
+  await expect.poll(kept).toEqual([['1:sent:Titre trop long'],[]]);
+  await page.locator('#annotSentClear').click();
+  await expect.poll(kept).toEqual([[],[]]);
+  await expect(sentBtn).toBeHidden();await expect(page.locator('#annotSent')).toBeHidden();await expect(page.locator('#annotEmpty')).toBeVisible();
+  await expect(tile(page,1).locator('.lbs-notes')).toBeHidden();
 
-  // Another view of the gallery checks note 2: this one follows.
-  await page.evaluate(async()=>{const hash=lbHistory.rows[0].hash,id=annotGhosts[1].id;await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash,id,status:'done'})});});
-  await expect(boxes.nth(1)).toHaveAttribute('aria-checked','true',{timeout:8000});
-  await expect(page.locator('#annotResend')).toBeHidden();
-  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · réglées');
-
-  // « Comparer v1 → v2 » opens the comparison on these two versions.
-  await expect(page.locator('#annotFollowCompare')).toHaveText('Comparer v1 → v2');
-  await page.locator('#annotFollowCompare').click();
-  expect(await page.evaluate(()=>[lbHistory.compare?.a,lbHistory.compare?.b])).toEqual([1,2]);
-  await page.keyboard.press('Escape');expect(await page.evaluate(()=>lbHistory.compare)).toBe(null);
-
-  // Back on v1 the notes are its own: unchecking reopens, editing a sent note makes it « à envoyer » again.
-  await tile(page,1).click();await expect(ver(page)).toHaveText('v1');
+  // Back on v1: nothing left on it either.
+  await page.locator('#lbTabVersions').click();await tile(page,1).click();await expect(ver(page)).toHaveText('v1');
   await page.locator('#lbTabNotes').click();await page.waitForFunction(()=>annotPanelOpen);
-  expect(await page.evaluate(()=>annotStrokes.map(s=>s.status))).toEqual(['done','done']);
-  await page.locator('#annotItems .annot-check').nth(1).click();
-  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
-  await own.nth(1).click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[1]);
-  await note.fill('Unité manquante (mg m⁻²)');await note.press('Enter');
-  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:draft:Unité manquante (mg m⁻²)'],[]]);
-  await expect(page.locator('#annotSendAll')).toBeEnabled();
-  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · 1 à envoyer');
-  // Undo brings the text back, never an older status.
-  await page.keyboard.press('Control+z');
-  expect(await page.evaluate(()=>[annotStrokes[1].note,annotStrokes[1].status,annotStrokes[0].status])).toEqual(['Unité manquante','sent','done']);
-  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+  expect(await page.evaluate(()=>annotStrokes.length)).toBe(0);
+  await page.locator('#lbAnnot').click();await page.waitForFunction(()=>lb().classList.contains('annot'));
 
   // The only tab change nobody clicked: tracing a mark shows « Notes », to write its note at once.
   await page.locator('#lbTabVersions').click();await expect(page.locator('#lbStripRow')).toBeVisible();
@@ -394,7 +370,7 @@ test('figure notes stay with their version, are checked off on the next one and 
   await page.keyboard.press('r');await drag(.6,.5,.9,.8);
   await expect(page.locator('#lbTabNotes')).toHaveAttribute('aria-selected','true');
   await expect(note).toBeFocused();await note.fill('Échelle à revoir');await note.press('Enter');
-  await expect(page.locator('#lbNotesN')).toHaveText('3');
+  await expect(page.locator('#lbNotesN')).toHaveText('1');
   // The arrows move between the two tabs, never between figures.
   await page.keyboard.press('Escape');await page.keyboard.press('a');await page.waitForFunction(()=>!lb().classList.contains('annot'));
   await page.locator('#lbTabNotes').focus();await page.keyboard.press('ArrowLeft');
@@ -406,6 +382,66 @@ test('figure notes stay with their version, are checked off on the next one and 
   await page.locator('#lbHistBtn').click();await expect(page.locator('#lbStrip')).toBeHidden();
   expect(await page.evaluate(()=>annotPanelOpen)).toBe(false);
   await page.locator('#lbHistBtn').click();await expect(page.locator('#lbStripRow')).toBeVisible();
-  await expect(page.locator('#lbNotesN')).toHaveText('3');
+  await expect(page.locator('#lbNotesN')).toHaveText('1');
+  expect(errors).toEqual([]);
+});
+
+// Bande repliée (Thierry 2026-11-16) : à 12 versions, la bande ne défile plus de
+// côté ; les plus anciennes se rangent dans une pile, et un clic sur la pile
+// ouvre au-dessus de la bande la grille de toutes les versions. Échap, un clic
+// ailleurs ou un choix la referment ; rien ne s'ouvre seul.
+test('many versions fold the oldest into a pile that opens a grid of every version',async({page,request})=>{
+  const errors: string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.setViewportSize({width:1280,height:800});
+  await page.goto(origin+'/?embedded=atelier');
+  const png=async(color: string)=>Buffer.from(await page.evaluate(color=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,400,300);return c.toDataURL('image/png').split(',')[1];},color),'base64');
+  const lead=path.join(root,'many.png');
+  for(let i=0;i<12;i++){
+    fs.writeFileSync(lead,await png('hsl('+(i*30)+',55%,80%)'));
+    expect((await request.post(origin+'/rescan',{headers:{Origin:origin}})).ok()).toBe(true);
+    await expect.poll(async()=>(await request.get(origin+'/figure-version?path=many.png&version='+(i+1))).status(),{timeout:8000}).toBe(200);
+  }
+  await page.evaluate(async()=>{lbList=([{rel:'many.png',name:'many.png',ext:'png',folder:'.'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
+  await expect(ver(page)).toHaveText('v12');
+  await expect(page.locator('#lbVersionsN')).toHaveText('12');
+  const pile=page.locator('#lbStripRow .lbs-pile'),grid=page.locator('#lbVersGrid'),shown=page.locator('#lbStripRow .lbs-tile:not(.lbs-pile)');
+  // The latest versions that fit, the rest in the pile: no sideways scrolling.
+  await expect(pile).toBeVisible();
+  const kept=await shown.count(),folded=12-kept;
+  expect(kept).toBeGreaterThan(2);expect(folded).toBeGreaterThan(1);
+  await expect(pile.locator('.lbs-more')).toHaveText('+'+folded);
+  await expect(pile.locator('.lbs-l b')).toHaveText('v1 – v'+folded);
+  await expect(shown.last().locator('.lbs-l b')).toHaveText('v12');
+  expect(await page.locator('#lbStripRow').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await expect(grid).toBeHidden();
+  // A click on the pile opens the grid above the band, newest first; the figure does not move.
+  const figure=()=>page.evaluate(()=>{const r=document.getElementById('lbWrap').getBoundingClientRect();return[r.left,r.top,r.width,r.height].map(Math.round);});
+  const placed=await figure();
+  await pile.click();await expect(grid).toBeVisible();await expect(pile).toHaveAttribute('aria-expanded','true');
+  await expect(grid.locator('.lbs-tile')).toHaveCount(12);
+  await expect(grid.locator('.lbs-tile').first().locator('.lbs-l b')).toHaveText('v12');
+  await expect(grid.locator('.lbs-tile').first().locator('.lbs-n')).toHaveText('actuelle');
+  await expect(grid.locator('.lbs-tile.sel .lbs-l b')).toHaveText('v12');
+  await expect.poll(()=>page.evaluate(()=>{const g=document.getElementById('lbVersGrid').getBoundingClientRect(),b=document.getElementById('lbStrip').getBoundingClientRect();return g.bottom<=b.top+.5&&g.height>0;})).toBe(true);
+  expect(await figure()).toEqual(placed);
+  // Escape closes the grid, not the viewer.
+  await page.keyboard.press('Escape');await expect(grid).toBeHidden();
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);await expect(pile).toHaveAttribute('aria-expanded','false');
+  // A click elsewhere closes it too.
+  await pile.click();await expect(grid).toBeVisible();
+  await page.locator('#lbViewport').click({position:{x:20,y:20}});await expect(grid).toBeHidden();
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
+  // Picking an old version shows it; it takes the pile's place, with the count of the others.
+  await pile.click();await grid.locator('.lbs-tile[data-version="2"]').click();
+  await expect(grid).toBeHidden();await expect(ver(page)).toHaveText('v2');
+  await expect(pile).toHaveClass(/\bsel\b/);
+  await expect(pile.locator('.lbs-l b')).toHaveText('v2');
+  await expect(pile.locator('.lbs-n')).toHaveText('+'+(folded-1)+' plus anciennes');
+  // A latest version in the band brings the pile back to its range.
+  await shown.last().click();await expect(ver(page)).toHaveText('v12');
+  await expect(pile.locator('.lbs-l b')).toHaveText('v1 – v'+folded);await expect(pile).not.toHaveClass(/\bsel\b/);
+  // A wide viewer shows every version again.
+  await page.setViewportSize({width:2200,height:800});
+  await expect(pile).toHaveCount(0);await expect(shown).toHaveCount(12);
   expect(errors).toEqual([]);
 });

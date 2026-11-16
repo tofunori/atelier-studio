@@ -43,8 +43,8 @@ await page.locator('[data-tool="rect"]').click();await drag(450,430,540,510);awa
 await page.mouse.move(box.x+450,box.y+430);await page.mouse.down();await page.mouse.move(box.x+510,box.y+490);await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await page.evaluate(()=>annotCur===null&&annotDrag===null),true);
 await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.screenshot({path:testInfo.outputPath('annotations.png')});
 await page.locator('.annot-send').click();await page.waitForFunction(()=>annotBusy);assert.equal(await page.locator('#annotSendAll').isDisabled(),true);assert.equal(await page.evaluate(()=>annotGuard()),false);assert.equal(saves.length,1);assert.equal(saves[0].notes.length,1);assert.equal(saves[0].direct,true);releaseSave();await page.waitForFunction(()=>!annotBusy);
-// A sent note stays on its version, marked sent; the others are still to send.
-assert.deepEqual(await page.evaluate(()=>annotStrokes.map(s=>s.status||'draft')),['sent','draft']);
+// A sent note leaves the figure; the other one is still to send.
+assert.deepEqual(await page.evaluate(()=>annotStrokes.map(s=>[s.status||'draft',s.note])),[['draft','Flèche gauche']]);
 // The draft action lives in the send menu and carries every note still to send.
 await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();await page.waitForFunction(()=>annotBusy);assert.equal(saves.length,2);assert.equal(saves[1].direct,false);releaseSave();await page.waitForFunction(()=>!annotBusy);
 await page.locator('[data-tool="pan"]').click();await page.evaluate(()=>lbSetZoom(.25));
@@ -236,7 +236,7 @@ await page.waitForFunction(()=>document.querySelectorAll('#annotItems .annot-row
 // The status line is a 2.4 s transient: what it said, and when, is recorded, never raced against its timer.
 await page.evaluate(()=>{const line=document.getElementById('annotPanelStatus'),said: [string,number][]=[];(window as any).annotSaid=said;new MutationObserver(()=>said.push([line.textContent,performance.now()])).observe(line,{childList:true,characterData:true,subtree:true});});
 await page.keyboard.press('Control+Enter');
-await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===2&&annotStrokes.every(s=>s.status==='sent'));
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
 assert.equal(saves.length,1);assert.equal(saves[0].direct,true);
 assert.deepEqual(saves[0].notes.map((n: any)=>[n.n,n.text,n.kind]),[[1,'Axe y en log, base 10','box'],[2,'Point aberrant','point']]);
 {const near=(a: number,b: number)=>Math.abs(a-b)<=.01,[box,point]=saves[0].notes;
@@ -249,9 +249,10 @@ for(const sent of saves[0].notes){
 // The outcome is said beside the button, never by rewriting it.
 assert.deepEqual(await page.evaluate(()=>(window as any).annotSaid.map((s: [string,number])=>s[0]).filter(Boolean)),['Collé dans Claude']);
 assert.equal(await page.locator('#annotSendAll .lbl').textContent(),'Envoyer au chat');
-// Sent notes stay on the version, each with its « réglée » box; nothing is left to send.
-assert.equal(await page.locator('#lbNotesN').textContent(),'2');
-assert.equal(await page.locator('#annotItems .annot-check:visible').count(),2);
+// Sent notes leave the figure and the list (variant A): nothing is left to send.
+assert.equal(await page.locator('#lbNotesN').textContent(),'');
+assert.equal(await rows.count(),0);
+assert.equal(await page.locator('#annotEmpty').isVisible(),true);
 assert.equal(await page.locator('#annotSendAll').isDisabled(),true);
 assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
 
@@ -269,7 +270,7 @@ assert.equal((await page.locator('#tgMenu .it .t').first().textContent()).trim()
 assert.equal(await page.evaluate(()=>{const menu=document.getElementById('tgMenu').getBoundingClientRect(),more=document.getElementById('annotSendMore').getBoundingClientRect();return menu.width>0&&menu.bottom<=more.top&&menu.right<=innerWidth;}),true);
 await page.locator('#tgMenu .it').first().click();assert.equal(await page.locator('#tgMenu').isVisible(),false);
 await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();
-await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===3&&annotStrokes.every(s=>s.status==='sent'));
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
 // Only the note still to send leaves: the two sent ones are not sent twice.
 assert.equal(saves.length,2);assert.equal(saves[1].direct,false);assert.deepEqual(saves[1].notes.map((n: any)=>n.text),['Légende à déplacer']);
 // The outcome of this second send stays its full time: the timer armed by the first send never wipes it.
@@ -283,12 +284,12 @@ await drag(.6,.6,.8,.8);await note.fill('Reste à faire');await note.press('Ente
 await page.keyboard.press('Escape');await page.keyboard.press('a');await page.waitForFunction(()=>!lb().classList.contains('annot'));
 assert.equal(await page.locator('#annotPanel').isVisible(),true);
 assert.equal(await page.locator('#lbTabNotes').getAttribute('aria-selected'),'true');
-assert.equal(await page.locator('#lbNotesN').textContent(),'4');
+assert.equal(await page.locator('#lbNotesN').textContent(),'1');
 assert.equal(await under(),true);
 assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),false);
 assert.deepEqual(await page.locator('#annotCv').evaluate(el=>[getComputedStyle(el).display,getComputedStyle(el).pointerEvents]),['block','none']);
-assert.deepEqual(await rows.allTextContents(),['1Axe y en log, base 10','2Point aberrant','3Légende à déplacer','4Reste à faire']);
-await rows.last().click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[3]);
+assert.deepEqual(await rows.allTextContents(),['1Reste à faire']);
+await rows.last().click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[0]);
 assert.equal(await note.inputValue(),'Reste à faire');await note.press('Enter');
 
 // Narrow viewer: same band under the figure, which keeps the full width.

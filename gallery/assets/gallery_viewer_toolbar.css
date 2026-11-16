@@ -107,6 +107,36 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 #lbStripRow .lbs-n.warn{color:var(--status-warning,#e0b74a)}
 #lbStripRow .lbs-n[hidden],#lbStripRow .lbs-notes[hidden]{display:none}
 #lbStripRow .lbs-n svg,#lbStripRow .lbs-notes svg{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+/* Bande repliée (2026-11-16) : les plus anciennes versions en pile, trois
+   vignettes en éventail et « +N » ; un clic ouvre la grille de toutes les versions. */
+#lbStripRow .lbs-pile .lbs-th{overflow:visible;background:transparent}
+#lbStripRow .lbs-pile .lbs-th i{position:absolute;inset:0;border-radius:6px;overflow:hidden;background:var(--figure-paper);display:flex;align-items:center;justify-content:center}
+#lbStripRow .lbs-pile .lbs-th i:nth-child(1){transform:translate(10px,-3px) scale(.86);opacity:.4}
+#lbStripRow .lbs-pile .lbs-th i:nth-child(2){transform:translate(5px,0) scale(.88);opacity:.65}
+#lbStripRow .lbs-pile .lbs-th i:nth-child(3){transform:translate(0,3px) scale(.88)}
+#lbStripRow .lbs-pile .lbs-th i img{max-width:100%;max-height:100%;object-fit:contain}
+#lbStripRow .lbs-pile .lbs-mk{z-index:1}
+#lbStripRow .lbs-more{position:absolute;right:4px;bottom:4px;z-index:1;height:20px;padding:0 8px;border-radius:999px;background:var(--card);color:var(--txt);font-size:11px;font-weight:500;line-height:20px;box-shadow:var(--elev);font-variant-numeric:tabular-nums}
+#lbStrip{position:relative}
+#lbVersGrid{position:absolute;left:16px;bottom:calc(100% + 4px);z-index:5;width:min(640px,calc(100% - 32px));max-height:min(440px,60vh);display:flex;flex-direction:column;gap:8px;padding:12px;box-sizing:border-box;border-radius:10px;background:var(--card);box-shadow:var(--elev);color:var(--txt);animation:lvg-in var(--motion-fast,140ms) ease-out}
+#lbVersGrid[hidden]{display:none}
+@keyframes lvg-in{from{opacity:0;transform:translateY(4px)}}
+#lbVersGrid .lvg-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:0 4px}
+#lbVersGrid .lvg-head b{font-size:12px;font-weight:600;letter-spacing:-.01em}
+#lbVersGrid .lvg-head span{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#lbVersGrid .lvg-list{min-height:0;display:grid;align-content:start;grid-auto-rows:max-content;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:4px;overflow-y:auto;scrollbar-width:thin}
+#lbVersGrid .lbs-tile{flex:none;width:auto;height:auto;min-height:0;display:flex;flex-direction:column;gap:4px;padding:4px;margin:0;border:0;border-radius:10px;background:transparent;color:var(--txt);font:inherit;font-size:12px;font-weight:400;line-height:1.5;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,140ms) ease-out}
+@media(hover:hover){#lbVersGrid .lbs-tile:hover{background:color-mix(in srgb,var(--txt) 5%,transparent)}}
+#lbVersGrid .lbs-tile.sel{background:color-mix(in srgb,var(--txt) 9%,transparent)}
+#lbVersGrid .lbs-tile:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#lbVersGrid .lbs-tile>*{flex:none}
+#lbVersGrid .lbs-th{position:relative;height:72px;border-radius:6px;overflow:hidden;background:var(--figure-paper);display:flex;align-items:center;justify-content:center}
+#lbVersGrid .lbs-th img{max-width:100%;max-height:100%;object-fit:contain}
+#lbVersGrid .lbs-mk{position:absolute;top:4px;left:4px;width:16px;height:16px;border-radius:999px;background:var(--txt);color:var(--bg);font-size:10px;font-weight:600;line-height:16px;text-align:center}
+#lbVersGrid .lbs-mk[hidden]{display:none}
+#lbVersGrid .lbs-l{display:flex;gap:8px;align-items:baseline;padding:0 4px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden}
+#lbVersGrid .lbs-l b{font-size:12px;font-weight:500;color:var(--txt)}
+#lbVersGrid .lbs-n{min-height:16px;padding:0 4px;font-size:11px;color:var(--muted);white-space:nowrap}
 #lbStripRow .lbs-hint{align-self:center;padding:0 16px;font-size:11px;color:var(--muted)}
 #lbStripSide{flex:none;display:flex;align-items:center;gap:8px}
 #lbStripSide #lbCompareBtn,#lbCompare .lbc-done{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 6%,transparent);color:var(--txt);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;transition:background-color var(--motion-fast,140ms) ease-out}
@@ -154,7 +184,7 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
   #lbStrip{padding:8px}
 }
 @container figure-viewer (max-width:380px){#lbStripSide #lbCompareBtn span{display:none}}
-@media (prefers-reduced-motion:reduce){#lbStripRow{scroll-behavior:auto}#lbStripRow .lbs-tile,#lbStripSide #lbCompareBtn,#lbCompare .lbc-seg button,#lb.responsive-viewer #lbTabs [role=tab]{transition:none}#lbTabs .lbt-n.bump{animation:none}}
+@media (prefers-reduced-motion:reduce){#lbVersGrid{animation:none}#lbVersGrid .lbs-tile{transition:none}#lbStripRow{scroll-behavior:auto}#lbStripRow .lbs-tile,#lbStripSide #lbCompareBtn,#lbCompare .lbc-seg button,#lb.responsive-viewer #lbTabs [role=tab]{transition:none}#lbTabs .lbt-n.bump{animation:none}}
 
 /* Onglet « Notes » de la bande (2026-11-16) : sous la figure, jamais à côté ni
    dessus. La liste des notes de la version affichée ; la note ouverte s'écrit
@@ -167,8 +197,8 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 #lb.responsive-viewer.notes:not(.annot) #annotCv{display:block;pointer-events:none}
 #lb.responsive-viewer.notes #provPanel{display:none!important}
 /* Jusqu'à quatre notes : une colonne ; au-delà, deux, lues de haut en bas. */
-#annotItems,#annotFollowItems{flex:none;column-count:2;column-gap:16px}
-#annotItems[data-cols="1"],#annotFollowItems[data-cols="1"]{column-count:1}
+#annotItems{flex:none;column-count:2;column-gap:16px}
+#annotItems[data-cols="1"]{column-count:1}
 #annotItems:empty{display:none}
 #annotPanel .annot-item{position:relative;margin-bottom:2px;break-inside:avoid}
 #lb.responsive-viewer #annotPanel .annot-row{display:grid;grid-template-columns:16px minmax(0,1fr);gap:8px;align-items:start;width:100%;height:auto;margin:0;padding:4px 8px;border:0;border-radius:6px;background:transparent;color:var(--txt);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out}
@@ -191,44 +221,41 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 @media(hover:hover){
   #lb.responsive-viewer #annotNote .annot-delete:hover,#lb.responsive-viewer #annotNote .annot-send:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}
 }
-/* Notes durables (lot 3) : une note envoyée se coche « réglée » ; les notes de
-   la version précédente reviennent en fantômes, pastille creuse. */
-#lb.responsive-viewer #annotPanel .annot-item.checkable .annot-row{padding-right:36px}
-#lb.responsive-viewer #annotPanel .annot-check{position:absolute;top:1px;right:4px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
-#lb.responsive-viewer #annotPanel .annot-check[hidden]{display:none}
-#lb.responsive-viewer #annotPanel .annot-check svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
-#annotPanel .annot-check .tick{opacity:0;transition:opacity var(--motion-fast,120ms) ease-out}
-#annotPanel .annot-check[aria-checked="true"]{color:var(--txt)}
-#annotPanel .annot-check[aria-checked="true"] .tick{opacity:1}
-@media(hover:hover){#lb.responsive-viewer #annotPanel .annot-check:hover{background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}}
-#lb.responsive-viewer #annotPanel .annot-check:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
-#annotPanel .annot-item.done .annot-text{color:var(--muted)}
-#annotPanel .annot-item.ghost .annot-number,#annotPanel .annot-item.done .annot-number{background:transparent;color:var(--annot-ink);box-shadow:inset 0 0 0 1px var(--annot-ink)}
-#annotPanel .annot-item.done .annot-number{opacity:.6}
-#lb.responsive-viewer #annotPanel .annot-item.ghost .annot-row{cursor:default}
-/* Notes de la version précédente : leur ligne de suivi, « Comparer », puis les rangées. */
-#annotFollow{flex:none;display:flex;flex-direction:column;gap:2px}
-#annotFollow[hidden]{display:none}
-#annotFollowLine{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-height:24px;padding:0 8px;box-sizing:border-box;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-#annotFollowLine b{font-weight:500;color:var(--txt)}
-#lb.responsive-viewer #annotFollowCompare{display:inline-flex;align-items:center;height:24px;margin:0;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-size:12px;font-weight:400;white-space:nowrap;cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out}
-#lb.responsive-viewer #annotFollowCompare[hidden]{display:none}
-@media(hover:hover){#lb.responsive-viewer #annotFollowCompare:hover{background:color-mix(in srgb,var(--txt) 14%,transparent)}}
+/* Notes déjà envoyées (variante A, 2026-11-16) : hors de la figure, dans la
+   liste « Envoyées » ; pastille creuse, version en tête, corbeille au survol. */
+#annotItems[hidden]{display:none}
+#annotSent{flex:none;display:flex;flex-direction:column;gap:2px}
+#annotSent[hidden]{display:none}
+#annotSentLine{flex:none;display:flex;align-items:center;gap:8px;min-height:24px;padding:0 8px;box-sizing:border-box;font-size:11px;color:var(--muted)}
+#annotSentLine span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#lb.responsive-viewer #annotSentClear{flex:none;display:inline-flex;align-items:center;height:20px;margin:0;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-size:11px;font-weight:500;white-space:nowrap;cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+@media(hover:hover){#lb.responsive-viewer #annotSentClear:hover{background:color-mix(in srgb,var(--txt) 14%,transparent)}}
+#lb.responsive-viewer #annotSentClear.armed{color:var(--status-error,var(--hot))}
+#annotSentItems{flex:none;column-count:2;column-gap:16px}
+#annotSentItems[data-cols="1"]{column-count:1}
+#lb.responsive-viewer #annotPanel .annot-item.sent .annot-row{padding-right:36px}
+#annotPanel .annot-item.sent .annot-number{background:transparent;color:var(--annot-ink);box-shadow:inset 0 0 0 1px var(--annot-ink)}
+#annotPanel .annot-tag{margin-right:8px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#lb.responsive-viewer #annotPanel .annot-trash{position:absolute;top:1px;right:4px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;opacity:0;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotPanel .annot-trash svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+#lb.responsive-viewer #annotPanel .annot-item.sent:hover .annot-trash,#lb.responsive-viewer #annotPanel .annot-item.sent .annot-row.hot~.annot-trash,#lb.responsive-viewer #annotPanel .annot-trash:focus-visible{opacity:1}
+@media(hover:none){#lb.responsive-viewer #annotPanel .annot-trash{opacity:1}}
+@media(hover:hover){#lb.responsive-viewer #annotPanel .annot-trash:hover{background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}}
+#lb.responsive-viewer #annotPanel .annot-trash:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 #annotEmpty{flex:none;margin:0;padding:4px 8px;color:var(--muted)}
 #annotEmpty[hidden]{display:none}
-/* À droite des onglets : l'état du dernier envoi, « Renvoyer », « Envoyer au chat ⌘↵ », neutres. */
+/* À droite des onglets : l'état du dernier envoi, « Envoyées N », « Envoyer au chat ⌘↵ », neutres. */
 #annotActs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:8px}
 #annotPanelStatus{flex:0 1 auto;min-width:0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #annotPanelStatus:empty{display:none}
 #annotPanelStatus.is-err{color:var(--hot)}
 #annotSendRow{position:relative;flex:none;display:flex;gap:2px}
-#annotSendRow[hidden],#lb.responsive-viewer #annotResend[hidden]{display:none}
-#lb.responsive-viewer #annotResend{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:4px;height:24px;margin:0;padding:0 8px;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-weight:500;white-space:nowrap;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
-#lb.responsive-viewer #annotResend:disabled{opacity:.4;cursor:default}
-@media(hover:hover){#lb.responsive-viewer #annotResend:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 14%,transparent)}}
-#annotResend .ic-ok{display:none}
-#annotResend.is-busy .lbl::after{content:'…'}
-#annotResend.is-ok .ic-ok{display:block}
+#annotSendRow[hidden],#lb.responsive-viewer #annotSentBtn[hidden]{display:none}
+#lb.responsive-viewer #annotSentBtn{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:inherit;font-weight:500;white-space:nowrap;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+@media(hover:hover){#lb.responsive-viewer #annotSentBtn:hover{background:color-mix(in srgb,var(--txt) 6%,transparent);color:var(--txt)}}
+#lb.responsive-viewer #annotSentBtn[aria-pressed="true"]{background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}
+#lb.responsive-viewer #annotSentBtn:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
+#annotSentN{font-size:11px;font-weight:400;color:var(--muted);font-variant-numeric:tabular-nums}
 #lb.responsive-viewer #annotSendAll,#lb.responsive-viewer #annotSendMore{display:inline-flex;align-items:center;justify-content:center;height:24px;margin:0;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-weight:500;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
 #lb.responsive-viewer #annotSendAll{flex:none;gap:4px;padding:0 8px;white-space:nowrap}
 #lb.responsive-viewer #annotSendMore{flex:none;width:24px;padding:0}
@@ -247,11 +274,11 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 /* Volet étroit : une seule colonne de notes, l'envoi sans son raccourci ; très
    étroit, l'envoi garde sa bulle, sans libellé. */
 @container figure-viewer (max-width:490px){
-  #annotItems,#annotFollowItems{column-count:1}
+  #annotItems,#annotSentItems{column-count:1}
   #annotSendAll kbd{display:none}
 }
 @container figure-viewer (max-width:380px){
   #annotSendAll .lbl{display:none}
   #annotSendAll .ic-send{display:block}
 }
-@media (prefers-reduced-motion:reduce){#lb.responsive-viewer #annotPanel .annot-row,#lb.responsive-viewer #annotPanel .annot-check,#annotPanel .annot-check .tick,#lb.responsive-viewer #annotResend,#lb.responsive-viewer #annotFollowCompare,#lb.responsive-viewer #annotNote .annot-delete,#lb.responsive-viewer #annotNote .annot-send,#lb.responsive-viewer #annotSendAll,#lb.responsive-viewer #annotSendMore{transition:none}}
+@media (prefers-reduced-motion:reduce){#lb.responsive-viewer #annotPanel .annot-row,#lb.responsive-viewer #annotPanel .annot-trash,#lb.responsive-viewer #annotSentBtn,#lb.responsive-viewer #annotSentClear,#lb.responsive-viewer #annotNote .annot-delete,#lb.responsive-viewer #annotNote .annot-send,#lb.responsive-viewer #annotSendAll,#lb.responsive-viewer #annotSendMore{transition:none}}
