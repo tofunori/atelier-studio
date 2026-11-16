@@ -7,6 +7,7 @@
 // Le clic n'envoie que l'identifiant de la tâche : le script lancé est celui
 // que le serveur a enregistré et que la carte affiche.
 import { useEffect, useMemo, useState } from "react";
+import { ServerIcon } from "lucide-react";
 import { t } from "../../lib/i18n";
 import type { AgentEvent, ComputeJobStatus } from "../../lib/ws";
 import { wsSend } from "../../lib/wsBus";
@@ -21,7 +22,6 @@ const SCRIPT_PREVIEW_LINES = 8;
 function badgeStatus(status: ComputeJobStatus): BadgeStatus {
   switch (status) {
     case "launching":
-    case "queued":
     case "running":
       return "running";
     case "completed":
@@ -29,8 +29,6 @@ function badgeStatus(status: ComputeJobStatus): BadgeStatus {
     case "failed":
     case "launch_failed":
       return "error";
-    case "proposed":
-      return "warning";
     default:
       return "neutral";
   }
@@ -51,7 +49,7 @@ function hours(value: number): string {
 function resourcesLine(job: NonNullable<ComputeJobEvent["job"]>): string {
   const r = job.resources ?? {};
   const parts: string[] = [];
-  if (r.cpus) parts.push(t("compute.cpus", { count: r.cpus }));
+  if (r.cpus) parts.push(t("compute.cpus", { count: r.cpus, plural: r.cpus > 1 ? "s" : "" }));
   if (r.gpus) parts.push(t("compute.gpus", { count: r.gpus }));
   if (r.mem) parts.push(r.mem);
   if (r.time) parts.push(r.time);
@@ -104,12 +102,19 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
   return (
     <section className="compute-job" data-testid="compute-job-card" data-status={event.status}>
       <header className="compute-job-head">
-        <span className="compute-job-badge">{t("compute.badge")}</span>
-        <span className="compute-job-title">{job?.label || t("compute.badge")}</span>
-        <span className="compute-job-host">{t("compute.on-host", { host })}</span>
+        <span className="compute-job-ico" aria-hidden="true"><ServerIcon size={14} strokeWidth={1.5} /></span>
+        <div className="compute-job-heading">
+          <span className="compute-job-title">{job?.label || t("compute.badge")}</span>
+          <span className="compute-job-host">
+            {host}
+            {event.remoteId ? (
+              <> · {t("compute.remote-id")} <span className="compute-job-mono">{event.remoteId}</span></>
+            ) : null}
+          </span>
+        </div>
         <StatusBadge status={badgeStatus(event.status)} className="compute-job-state">{statusLabel(event)}</StatusBadge>
       </header>
-      {job ? <JobBody job={job} remoteId={event.remoteId} decided={event.status !== "proposed"} /> : null}
+      {job ? <JobBody job={job} decided={event.status !== "proposed"} /> : null}
       {event.message || error || event.auto ? (
         <p className={`compute-job-note${noteIsError ? " is-error" : ""}`} role="status">
           {error || event.message || t("compute.auto")}
@@ -121,8 +126,9 @@ export function ComputeJobCard({ event }: { event: ComputeJobEvent }) {
 }
 
 /** Avant le clic, le script se lit (aperçu, dépliable) ; ensuite il se
- *  replie entièrement pour que la carte ne prenne plus de place dans le fil. */
-function JobBody({ job, remoteId, decided }: { job: NonNullable<ComputeJobEvent["job"]>; remoteId?: string | null; decided: boolean }) {
+ *  replie entièrement pour que la carte ne prenne plus de place dans le fil.
+ *  Le script vit dans un creux, sous la carte levée. */
+function JobBody({ job, decided }: { job: NonNullable<ComputeJobEvent["job"]>; decided: boolean }) {
   const lines = useMemo(() => job.script.split(/\r?\n/), [job.script]);
   const collapsible = decided || lines.length > SCRIPT_PREVIEW_LINES;
   const [expanded, setExpanded] = useState(false);
@@ -130,25 +136,28 @@ function JobBody({ job, remoteId, decided }: { job: NonNullable<ComputeJobEvent[
   return (
     <div className="compute-job-body">
       {job.purpose ? <p className="compute-job-purpose">{job.purpose}</p> : null}
-      <JobFacts job={job} remoteId={remoteId} />
-      <div className="compute-job-script-head">
-        <span>{t("compute.script")}</span>
-        {collapsible ? (
-          <IconButton className="compute-job-expand" aria-expanded={expanded}
-            label={expanded ? t("compute.script-hide") : t("compute.script-show")}
-            onClick={() => setExpanded((value) => !value)}>
-            <Tick open={expanded} />
-          </IconButton>
-        ) : null}
+      <JobFacts job={job} />
+      <div className="compute-job-well">
+        <div className="compute-job-script-head">
+          <span className="compute-job-script-name">{t("compute.script")}</span>
+          <span className="compute-job-script-count">{t("compute.script-lines", { count: lines.length, plural: lines.length > 1 ? "s" : "" })}</span>
+          {collapsible ? (
+            <IconButton className="compute-job-expand" aria-expanded={expanded}
+              label={expanded ? t("compute.script-hide") : t("compute.script-show")}
+              onClick={() => setExpanded((value) => !value)}>
+              <Tick open={expanded} />
+            </IconButton>
+          ) : null}
+        </div>
+        {decided && !expanded ? null : (
+          <pre className={`compute-job-script${!expanded && collapsible ? " is-preview" : ""}`}>{script}</pre>
+        )}
       </div>
-      {decided && !expanded ? null : (
-        <pre className={`compute-job-script${!expanded && collapsible ? " is-preview" : ""}`}>{script}</pre>
-      )}
     </div>
   );
 }
 
-function JobFacts({ job, remoteId }: { job: NonNullable<ComputeJobEvent["job"]>; remoteId?: string | null }) {
+function JobFacts({ job }: { job: NonNullable<ComputeJobEvent["job"]> }) {
   const resources = resourcesLine(job);
   return (
     <dl className="compute-job-facts">
@@ -162,12 +171,6 @@ function JobFacts({ job, remoteId }: { job: NonNullable<ComputeJobEvent["job"]>;
       ) : null}
       <dt>{t("compute.estimate")}</dt>
       <dd>{estimateLine(job)}</dd>
-      {remoteId ? (
-        <>
-          <dt>{t("compute.remote-id")}</dt>
-          <dd className="compute-job-mono">{remoteId}</dd>
-        </>
-      ) : null}
     </dl>
   );
 }
@@ -214,7 +217,10 @@ function JobActions({ status, host, sent, onDecide }: {
           </Button>
         </>
       ) : (
-        <Button variant="ghost" onClick={() => setConfirmCancel(true)}>{t("compute.cancel")}</Button>
+        <>
+          <Button variant="primary" onClick={() => setConfirmCancel(true)}>{t("compute.cancel")}</Button>
+          <span className="compute-job-hint">{t("compute.cancel-hint", { host })}</span>
+        </>
       )}
     </footer>
   );
