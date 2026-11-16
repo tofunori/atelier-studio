@@ -316,12 +316,14 @@ test('figure notes stay with their version, are checked off on the next one and 
   expect(await page.evaluate(()=>annotGhosts.map(s=>s.status))).toEqual(['done','sent']);
 
   // The open note goes back to the agent on the image of v2, with its place.
+  // The status line is a 2.4 s transient: what it said is recorded, never raced against its timer.
+  await page.evaluate(()=>{const line=document.getElementById('annotPanelStatus'),said: string[]=[];(window as any).annotSaid=said;new MutationObserver(()=>{if(line.textContent)said.push(line.textContent);}).observe(line,{childList:true,characterData:true,subtree:true});});
   await page.locator('#annotResend').click();await page.waitForFunction(()=>!annotBusy);
   expect(saves).toHaveLength(2);
   expect(saves[1].notes.map((n: any)=>[n.n,n.text,n.kind])).toEqual([[2,'Unité manquante','point']]);
   expect(saves[1].sourceContext).toContain('Version affichée : v2');
   expect(saves[1].sourceContext).toContain('Notes posées sur v1 et renvoyées : elles ne sont pas réglées sur v2.');
-  await expect(page.locator('#annotPanelStatus')).toHaveText('Renvoyé au chat');
+  await expect.poll(()=>page.evaluate(()=>(window as any).annotSaid)).toEqual(['Renvoyé au chat']);
   await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
 
   // Another view of the gallery checks note 2: this one follows.

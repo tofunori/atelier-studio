@@ -233,6 +233,8 @@ await page.keyboard.press('r');{const edge=await place(.2,.4);await page.mouse.m
 await page.waitForFunction(()=>document.querySelectorAll('#annotItems .annot-row')[0].classList.contains('hot'));
 
 // ⌘↵ sends every note with its position (fractions of the image) and a crop of its zone.
+// The status line is a 2.4 s transient: what it said, and when, is recorded, never raced against its timer.
+await page.evaluate(()=>{const line=document.getElementById('annotPanelStatus'),said: [string,number][]=[];(window as any).annotSaid=said;new MutationObserver(()=>said.push([line.textContent,performance.now()])).observe(line,{childList:true,characterData:true,subtree:true});});
 await page.keyboard.press('Control+Enter');
 await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===2&&annotStrokes.every(s=>s.status==='sent'));
 assert.equal(saves.length,1);assert.equal(saves[0].direct,true);
@@ -245,7 +247,7 @@ for(const sent of saves[0].notes){
   assert.ok(crop.ink>20&&Math.max(crop.w,crop.h)<=800&&Math.min(crop.w,crop.h)>=40,JSON.stringify(crop));
 }
 // The outcome is said beside the button, never by rewriting it.
-assert.equal(await page.locator('#annotPanelStatus').textContent(),'Collé dans Claude');
+assert.deepEqual(await page.evaluate(()=>(window as any).annotSaid.map((s: [string,number])=>s[0]).filter(Boolean)),['Collé dans Claude']);
 assert.equal(await page.locator('#annotSendAll .lbl').textContent(),'Envoyer au chat');
 // Sent notes stay on the version, each with its « réglée » box; nothing is left to send.
 assert.equal(await page.locator('#lbNotesN').textContent(),'2');
@@ -270,6 +272,10 @@ await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu 
 await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===3&&annotStrokes.every(s=>s.status==='sent'));
 // Only the note still to send leaves: the two sent ones are not sent twice.
 assert.equal(saves.length,2);assert.equal(saves[1].direct,false);assert.deepEqual(saves[1].notes.map((n: any)=>n.text),['Légende à déplacer']);
+// The outcome of this second send stays its full time: the timer armed by the first send never wipes it.
+await page.waitForFunction(()=>{const said=(window as any).annotSaid;return said.filter((s: [string,number])=>s[0]).length===2&&!said.at(-1)[0];},null,{timeout:8000});
+{const said: [string,number][]=await page.evaluate(()=>(window as any).annotSaid),last=said.findLastIndex(s=>!!s[0]);
+assert.ok(said[last+1][1]-said[last][1]>=2300,JSON.stringify(said));}
 
 // Leaving the mode changes nothing below: the tab stays under the figure and the marks are
 // read-only; a row re-enters the mode on its note.

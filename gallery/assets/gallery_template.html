@@ -4830,6 +4830,15 @@ function annotInit(){
       }catch(err){ console.warn('claude-targets failed', err); }
     };
   })();
+  // La ligne d'état dit l'issue du dernier envoi, puis s'efface. Seul le
+  // dernier message arme l'effacement : le minuteur d'un envoi précédent
+  // n'efface jamais le message d'un envoi plus récent.
+  let annotStatusTurn=0;
+  const annotStatusSay=(text        )=>{
+    const status=(document.getElementById('annotPanelStatus')                   ),turn=++annotStatusTurn;
+    status.textContent=text;
+    setTimeout(()=>{if(turn===annotStatusTurn&&!annotBusy&&!status.classList.contains('is-err'))status.textContent='';},2400);
+  };
   // « Envoyer au chat ⌘↵ » : toutes les notes de la version affichée. L'état
   // d'envoi passe par des classes et une ligne d'état, jamais par le libellé.
   annotSendAll=async(direct         )=>{
@@ -4842,8 +4851,8 @@ function annotInit(){
       annotMarkSent(sendingSession,sending);if(annotSession===sendingSession)annotSelected=null;annotSent=true;
       annotNoteHide();
       button.classList.remove('is-busy');button.classList.add('is-ok');
-      status.textContent=ANNOT_EMBEDDED?(direct?'Envoyé au chat':'Ajouté au brouillon du chat'):(j.submitted?'Envoyé à la session':'Collé dans Claude');
-      setTimeout(()=>{button.classList.remove('is-busy','is-ok','is-err');if(!annotBusy&&!status.classList.contains('is-err'))status.textContent='';},2400);
+      annotStatusSay(ANNOT_EMBEDDED?(direct?'Envoyé au chat':'Ajouté au brouillon du chat'):(j.submitted?'Envoyé à la session':'Collé dans Claude'));
+      setTimeout(()=>button.classList.remove('is-busy','is-ok','is-err'),2400);
     }catch(e){
       // Les marques restent en place : un nouvel envoi rejoue tout.
       button.classList.remove('is-busy');button.classList.add('is-err');status.classList.add('is-err');
@@ -4881,8 +4890,8 @@ function annotInit(){
       finally{annotSaving--;annotSavedAt=performance.now();}
       annotSessions.delete(lbHistory.rel+'::version:'+follow.hash);
       button.classList.remove('is-busy');button.classList.add('is-ok');
-      status.textContent=ANNOT_EMBEDDED?'Renvoyé au chat':(j.submitted?'Renvoyé à la session':'Collé dans Claude');
-      setTimeout(()=>{button.classList.remove('is-busy','is-ok');if(!annotBusy&&!status.classList.contains('is-err'))status.textContent='';},2400);
+      annotStatusSay(ANNOT_EMBEDDED?'Renvoyé au chat':(j.submitted?'Renvoyé à la session':'Collé dans Claude'));
+      setTimeout(()=>button.classList.remove('is-busy','is-ok'),2400);
     }catch(e){
       button.classList.remove('is-busy');status.classList.add('is-err');
       status.textContent=/ack/.test(String(e&&e.message))?'Chat injoignable — réessayer':e&&e.status?'Erreur serveur '+e.status:'Serveur off — démarrer le serveur';
