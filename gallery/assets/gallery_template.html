@@ -4810,11 +4810,11 @@ function annotInit(){
       const shown=lbVersionRow(lbHistory.selected);
       const j=await annotPost(true,open,'Notes posées sur v'+follow.version+' et renvoyées'+(shown?' : elles ne sont pas réglées sur v'+shown.version+'.':'.'));
       // La date d'envoi avance, chez le serveur comme ici.
-      const kept=annotStore.get(follow.hash)||[],now=Date.now();
+      const kept=new Map((annotStore.get(follow.hash)||[]).map(n=>[n.id,n])),now=Date.now();
       annotSaving++;
       try{
         for(const ghost of open){
-          const note=kept.find(n=>n.id===ghost.id);if(note)note.sentAt=now;
+          const note=kept.get(ghost.id);if(note)note.sentAt=now;
           await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:follow.hash,id:ghost.id,status:'resent'})});
         }
       }catch{/* la note est partie ; sa date d'envoi se rattrapera au prochain envoi */}

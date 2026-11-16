@@ -516,8 +516,10 @@ mod tests {
     #[test]
     fn history_carries_each_version_notes_and_pruning_spares_a_noted_version() {
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("fig.png");
-        let mut db = database(root.path()).unwrap();
+        // The history reads versions under the canonical path (/private/var on macOS).
+        let dir = root.path().canonicalize().unwrap();
+        let path = dir.join("fig.png");
+        let mut db = database(&dir).unwrap();
         for i in 0..20u8 {
             write(&path, &png(i));
             capture_path(&mut db, &path).unwrap();
@@ -530,7 +532,7 @@ mod tests {
             [&hash],
         )
         .unwrap();
-        let versions = hist(root.path(), &["fig.png"])["versions"].clone();
+        let versions = hist(&dir, &["fig.png"])["versions"].clone();
         assert_eq!(versions[3]["notes"][0]["text"], "Titre trop long");
         assert_eq!(versions[3]["notes"][0]["status"], "sent");
         assert!(versions[2].get("notes").is_none(), "une version sans note n'en annonce pas");
