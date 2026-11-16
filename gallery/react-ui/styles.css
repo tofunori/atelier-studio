@@ -266,3 +266,33 @@ html.gallery-react-mounted #selBar { display:none!important;margin:0!important;p
 .gallery-size-choices { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .gallery-size-choices .gallery-mini-grid { width:40px;height:26px; }
 .gallery-size-choices .gallery-visual-choice { min-width:0;padding:12px 4px;min-height:64px; }
+/* ── Bouton Dossier (2026-11-16) : neutre, jamais d'accent ; le dossier
+   choisi se lit dans le libellé, pas dans une couleur. ───────────────── */
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-command="folder"][data-gallery-folder-active="true"] {
+  color:var(--foreground);
+  background:color-mix(in srgb,var(--foreground) 6%,transparent);
+}
+.gallery-command-bar[data-gallery-toolbar-state="normal"] [data-gallery-command="folder"][data-gallery-folder-active="true"]:hover {
+  background:color-mix(in srgb,var(--foreground) 10%,transparent);
+}
+.gallery-command-bar[data-gallery-toolbar-state="normal"] button[data-gallery-command="folder"][data-popup-open] {
+  color:var(--foreground);
+  background:color-mix(in srgb,var(--foreground) 10%,transparent);
+}
+/* Seul bouton à libellé du groupe : les règles de la barre fixent chaque
+   bouton à 36 px (icônes) ; celui-ci prend la largeur de son libellé. */
+.gallery-command-bar[data-gallery-toolbar-state="normal"] button[data-gallery-command="folder"] {
+  width:auto;max-width:200px;min-width:0;height:28px;padding:0 8px;gap:6px;margin-left:4px;font-size:var(--fs-body-s, 12px);font-weight:400;
+}
+.gallery-command-bar[data-gallery-toolbar-state="normal"] button[data-gallery-command="folder"] svg[data-icon="inline-end"] { width:12px;height:12px;color:var(--muted-foreground); }
+@media(max-width:680px) {
+  .gallery-command-bar[data-gallery-toolbar-state="normal"] button[data-gallery-command="folder"] { max-width:150px;padding:0 6px;gap:4px;margin-left:2px; }
+}
+[data-gallery-command="folder"] .gallery-folder-label { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+[data-gallery-command="folder"] .gallery-folder-count,
+.gallery-folder-menu .gallery-folder-count { font-size:var(--fs-caption, 11px);color:var(--muted-foreground);font-variant-numeric:tabular-nums; }
+.gallery-folder-menu { min-width:200px;max-width:min(320px,calc(100vw - 24px)); }
+.gallery-folder-menu .gallery-folder-item { display:flex;align-items:center;gap:8px; }
+.gallery-folder-menu .gallery-folder-name { flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.gallery-folder-menu .gallery-folder-sub { padding-left:20px;color:var(--muted-foreground); }
+.gallery-folder-menu .gallery-folder-sub:is(:hover,[data-highlighted],[data-checked]) { color:var(--foreground); }

@@ -117,6 +117,8 @@ function applyGalleryData(data){
   }
   if(typeof populateFolders==='function') populateFolders();
   if(typeof render==='function') render();
+  // le bouton Dossier de la barre lit l'arbre des dossiers : le prévenir
+  if(typeof galleryFileTypesChanged==='function') galleryFileTypesChanged();
 }
 if(!galleryDataLoaded){
   // skeleton pendant le chargement des données (coquille)
@@ -1033,7 +1035,7 @@ if(EMB){
 /* filtres actifs → compteur du bouton Filters + chips supprimables */
 function fmtIsFiltered(){ return formatFilterExplicit; }
 function clearFilter(k: string){
-  if(k==='folder'){ fsel.value=''; render(); const b=fsel.nextElementSibling; if(b&&b.classList.contains('csel-btn')) b.textContent=fsel.options[0].text; }
+  if(k==='folder'){ setGalleryFolder(''); const b=fsel.nextElementSibling; if(b&&b.classList.contains('csel-btn')) b.textContent=fsel.options[0].text; }
   else if(k==='fmt'){ Object.assign(exts, DEFAULT_EXTS); setFormatFilterExplicit(false); saveExts(); buildFmtMenu(); fmtChipLabel(); render(); }
   else if(k==='fav'){ if(onlyFavs) favChip.onclick(undefined); }
   else if(k==='coll'){ activeCollection=''; buildCollectionChip(); render(); }
@@ -1044,7 +1046,6 @@ function clearAllFilters(){ ['folder','fmt','fav','coll','wf','chat'].forEach(cl
 function renderActiveChips(){
   const box=(document.getElementById('activeChips') as HTMLDivElement); if(!box) return;
   const chips=[];
-  if(fsel.value) chips.push({k:'folder',l:'Folder: '+fsel.value});
   if(fmtIsFiltered()){
     const on=FMT_CATS.filter(([,ks])=>ks.some((x)=>exts[x])).map(([lab])=>lab);
     chips.push({k:'fmt',l:'Formats: '+(on.length?on.join(', '):'none')});
@@ -2100,6 +2101,44 @@ function applySavedGalleryView(view){
   (document.getElementById('rateFilter') as HTMLSpanElement).style.display=onlyFavs?'inline-flex':'none';
   buildCollectionChip();buildWorkflowChip();updateViewChip();
 }
+/** `f.folder` est dans `scope` ou l'un de ses sous-dossiers. */
+function inFolderScope(folder: string, scope: string){
+  return !!scope && (folder===scope || String(folder||'').startsWith(scope+'/'));
+}
+function setGalleryFolder(path: string){
+  const value=galleryFolderPaths().includes(path)?path:'';
+  if(fsel.value===value) return;
+  fsel.value=value;
+  fsel.dispatchEvent(new Event('change',{bubbles:true}));
+}
+// Ordre et noms affichés des dossiers usuels d'un projet de thèse ; les
+// autres suivent par ordre alphabétique, sous leur vrai nom.
+const FOLDER_ORDER=['figures','analyses','resultats','results','donnees','data','manuscrit'];
+const FOLDER_LABELS: Record<string,string>={resultats:'Résultats',donnees:'Données'};
+function folderLabel(name: string, top: boolean){
+  if(!top) return name;
+  const known=FOLDER_LABELS[name.toLowerCase()];
+  return known || (name.charAt(0).toUpperCase()+name.slice(1));
+}
+/** Dossiers de premier niveau et leurs sous-dossiers directs, avec le nombre
+ *  de fichiers que la grille montrerait (archives et masqués selon réglages). */
+function galleryFolderTree(){
+  const visible=FILES.filter(f=>(showArch||!f.archive)&&(showHidden||!(hidden.has(f.rel)||matchesRule(f.rel))));
+  const count=(path: string)=>visible.filter(f=>inFolderScope(f.folder,path)).length;
+  const paths=galleryFolderPaths();
+  const rank=(name: string)=>{ const i=FOLDER_ORDER.indexOf(name.toLowerCase()); return i<0?FOLDER_ORDER.length:i; };
+  const tops=paths.filter(p=>!p.includes('/'))
+    .sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b,'fr'));
+  return {
+    total: visible.length,
+    folders: tops.map(top=>({
+      path: top, label: folderLabel(top,true), count: count(top),
+      children: paths.filter(p=>p.startsWith(top+'/')&&!p.slice(top.length+1).includes('/'))
+        .map(p=>({path:p,label:folderLabel(p.slice(top.length+1),false),count:count(p),children:[]}))
+        .filter(c=>c.count>0),
+    })).filter(n=>n.count>0),
+  };
+}
 function galleryFileTypePresets(){
   const active=galleryActiveTypeKeys();
   return [...BUILTIN_FILE_PRESETS.map(p=>({...p,custom:false})),...customFilePresets.map(p=>({...p,custom:true}))]
@@ -2118,8 +2157,11 @@ window.__galleryFileTypes={
       summary:match?match.label:(activeLabels.length<=2?activeLabels.join(' + '):'Types personnalisés'),
       archives:showArch,
       archiveCount:FILES.filter(f=>f.archive).length,
+      folder:fsel.value,
+      folderTree:galleryFolderTree(),
     };
   },
+  setFolder(path){ setGalleryFolder(typeof path==='string'?path:''); },
   setActive(keys){ setGalleryActiveTypes(keys,true); },
   setPinned(keys: Iterable<unknown>){
     pinnedFileTypes=[...new Set(keys)].filter(k=>TYPE_LIST.some(([e])=>e===k));
@@ -2150,14 +2192,32 @@ window.__galleryFileTypes={
 };
 
 const fsel = (document.getElementById('folder') as HTMLSelectElement);
+// Dossier choisi (bouton Dossier de la barre, 2026-11-16) : un dossier et tous
+// ses sous-dossiers. Gardé par projet, le temps de la session de l'app.
+const folderScopeKey=galleryProjectStorageKey('galleryFolderScopeV1');
+let folderScopeRestored=false;
+/** Chaque dossier indexé et ses ancêtres (« analyses » n'a souvent aucun
+ *  fichier direct, seulement des sous-dossiers). Sans la racine « . ». */
+function galleryFolderPaths(){
+  const paths=new Set<string>();
+  FOLDERS.forEach((f: string)=>{
+    if(!f||f==='.') return;
+    const parts=f.split('/');
+    for(let i=1;i<=parts.length;i++) paths.add(parts.slice(0,i).join('/'));
+  });
+  return [...paths].sort();
+}
 function populateFolders(){
-  const keep=fsel.value;
+  let keep=fsel.value;
+  const paths=galleryFolderPaths();
+  // relu une fois, quand l'index est là (au premier appel, FOLDERS est vide)
+  if(!folderScopeRestored && paths.length){ folderScopeRestored=true; try{ keep=keep||localStorage.getItem(folderScopeKey)||''; }catch(_){} }
   fsel.innerHTML='';
   // l option « tous » (valeur vide) doit SURVIVRE au repeuplement — sinon le
   // premier dossier devient le filtre actif et la galerie paraît vide
   const all=document.createElement('option'); all.value=''; all.textContent='Tous les dossiers'; fsel.appendChild(all);
-  FOLDERS.forEach((f)=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
-  fsel.value = FOLDERS.includes(keep) ? keep : '';
+  paths.forEach((f)=>{const o=document.createElement('option');o.value=f;o.textContent=f;fsel.appendChild(o);});
+  fsel.value = paths.includes(keep) ? keep : '';
 }
 populateFolders();
 
@@ -2336,6 +2396,9 @@ function render(){
   const terms = normalizeSearch((document.getElementById('q') as HTMLInputElement).value).split(/\s+/).filter(Boolean);
   const sort = (document.getElementById('sort') as HTMLSelectElement).value;
   const fld = fsel.value;
+  // Un dossier d'archives choisi exprès montre ses archives (tout son contenu l'est).
+  const fldArchived = !!fld && FILES.some(f=>inFolderScope(f.folder,fld))
+    && FILES.filter(f=>inFolderScope(f.folder,fld)).every(f=>f.archive);
   let list = FILES.filter(f=>{
     // Le focus demandé par le chat est une vue temporaire explicite. Il prime
     // sur les filtres persistants pour que « montre ces figures » ne puisse pas
@@ -2348,16 +2411,18 @@ function render(){
     // Sans filtre de type choisi explicitement, une recherche textuelle porte
     // sur tous les fichiers indexés. Dès que l'utilisateur choisit un format,
     // recherche et types se combinent au lieu que l'un annule l'autre.
-    if((!terms.length || formatFilterExplicit) && !exts[f.ext]
+    // Un dossier choisi montre TOUT son contenu, quels que soient les formats
+    // cochés : « Analyses » doit montrer les scripts même si Python est décoché.
+    if(!fld && (!terms.length || formatFilterExplicit) && !exts[f.ext]
       && !(onlyFavs && favs.has(f.rel))) return false;
-    // Choisir un sous-dossier d'archives dans Filtres vaut demande explicite.
-    if(!showArch && f.archive && !(fld && f.folder===fld)) return false;
+    // Choisir un dossier d'archives vaut demande explicite.
+    if(!showArch && f.archive && !(fld && (f.folder===fld || fldArchived))) return false;
     if(!showHidden && (hidden.has(f.rel) || matchesRule(f.rel))) return false;
     if(activeCollection && !(collections[activeCollection]||[]).includes(f.rel)) return false;
     if(activeWorkflow && workflow[f.rel]!==activeWorkflow) return false;
     if(onlyFavs && !favs.has(f.rel)) return false;
     if(onlyFavs && rateMin && (ratings[f.rel]||0)!==rateMin) return false;
-    if(fld && f.folder!==fld) return false;
+    if(fld && !inFolderScope(f.folder,fld)) return false;
     if(terms.length){ const hay=normalizeSearch(f.rel); if(!terms.every(t=>hay.includes(t))) return false; }
     return true;
   });
@@ -2534,7 +2599,10 @@ window.__gallerySelection={
   };
 }
 (document.getElementById('sort') as HTMLSelectElement).onchange=render;
-fsel.onchange=render;
+fsel.onchange=()=>{
+  try{ localStorage.setItem(folderScopeKey,fsel.value); }catch(_){}
+  render(); galleryFileTypesChanged();
+};
 // collapsible search: a 🔍 chip expands the field; Esc / blur-when-empty collapses it; "/" opens it
 const qEl=(document.getElementById('q') as HTMLInputElement), searchChip=(document.getElementById('searchChip') as HTMLSpanElement);
 function openSearch(){qEl.classList.remove('collapsed');searchChip.classList.add('on');qEl.focus();qEl.select();}
@@ -2654,7 +2722,10 @@ let lbStripOpen=true;try{lbStripOpen=localStorage.getItem('atelier.figureStrip')
 let lbHistory: FigureHistory={rel:'',rels:[],rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:0,busy:false,manual:false,compare:null};
 let lbVersionReady=Promise.resolve();
 const lbVersionRow=(version: number|null)=>lbHistory.rows.find(r=>r.version===version);
-/** La figure ouverte et ses copies de même nature (pas la copie annotée du chat). */
+/** La figure ouverte et ses copies de même nature (pas les copies du chat).
+ *  Une figure du chat (images-generees/<nom>-<hachage>) reçoit du serveur ses
+ *  autres copies du chat : chacune est une version, même enregistrée après
+ *  l'ouverture. */
 function lbHistoryRels(f: GalleryRow){
   if(!f||!HISTORY_EXTS.includes(f.ext))return [];
   const copies=(figureGroups.get(f.rel)||[]).filter(m=>m.rel!==f.rel&&HISTORY_EXTS.includes(m.ext)&&!/^images-generees(\/|$)/.test(m.folder||''));
@@ -2812,7 +2883,11 @@ function lbVersionsPoll(){
       const adopted=annotAdopt(h.rows,started);
       if(h.compare&&(!lbVersionRow(h.compare.a)||!lbVersionRow(h.compare.b)))lbCompareExit();
       lbVersionsPaint();if(h.compare)lbComparePaint();
-      if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
+      // Une figure du chat ouverte depuis un ancien message montre sa propre
+      // version, pas la dernière : on reste dessus, la bande offre les autres.
+      const held=h.selected==null&&/^images-generees\//.test(h.rel)?h.copies.find(c=>c.rel===h.rel)?.version:undefined;
+      if(held!=null&&held!==h.rows.at(-1).version){h.follow=false;await lbVersionDisplay(held);}
+      else if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
       if(adopted&&h===lbHistory){
         if(adopted.shown){annotSelected=null;annotHover=null;annotBind(lb().classList.contains('annot'));}
         if(lb().classList.contains('annot')||lb().classList.contains('notes')){annotLayout();annotRedraw();}else annotPillUpdate();

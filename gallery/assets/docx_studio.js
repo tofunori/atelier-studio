@@ -1093,7 +1093,8 @@
     const blocks                = [];
     for (const c of Array.from(paper.children)                 ) {
       if (c.classList.contains("d-p")) blocks.push(c);
-      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c                    ).rows)                 ));
+      // Les rangées d'intervalle d'une coupe précédente ne sont pas des blocs.
+      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c                    ).rows)                 ).filter((r) => !r.classList.contains("d-gap")));
       else if ((c.classList.contains("d-notes") || c.classList.contains("d-zone")) && !c.classList.contains("pinned")) blocks.push(...(Array.from(c.querySelectorAll(".d-p"))                 ));
     }
     return blocks;
@@ -1252,11 +1253,19 @@
     let page = page0;
     let forceNext = false;
     let done = blocks.length;
+    // Dernier bloc déjà visité avant un retour en arrière (chaîne « garder
+    // avec le suivant ») : ses coupures sont retirées, la coupe ne peut pas
+    // s'arrêter avant de l'avoir recoupé.
+    let replay = -1;
     for (let b = start; b < blocks.length; b++) {
       const el = blocks[b];
+      // Un bloc sorti de la page en cours de route n'a plus de position :
+      // mesuré, il vaudrait le défilement, et la coupe sauterait d'un coup
+      // à la feuille affichée (texte qui déborde des feuilles, 2026-11-16).
+      if (!el.isConnected) continue;
       if (partial) {
         // Passé la retouche, un bloc qui n'a pas bougé clôt la coupe.
-        if (b > until && !forceNext) {
+        if (b > until && b > replay && !forceNext) {
           const was = blockTops.get(el);
           if (was !== undefined && Math.abs(topOfEl(el) - was) < 0.5) { done = b; break; }
         }
@@ -1325,7 +1334,7 @@
             const before = first.classList.contains("d-p") ? parseFloat(getComputedStyle(first).paddingTop) || 0 : 0;
             gapBefore(first, topOf(page + 1) - before);
             page++;
-            if (k !== b) { b = k - 1; restart = true; break; }
+            if (k !== b) { replay = Math.max(replay, b); b = k - 1; restart = true; break; }
             lines = linesOf(el, O());
             i = 0;
             continue;
@@ -5243,11 +5252,14 @@
   eqPop.id = "eqpop";
   eqPop.setAttribute("role", "dialog");
   eqPop.setAttribute("aria-labelledby", "eqH");
-  eqPop.innerHTML = `<div class="eq-hd"><span id="eqH"></span><span class="tag" id="eqTag">en suivi</span></div>
-    <textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea>
-    <div class="eq-prev" id="eqPrev" aria-hidden="true"></div>
+  // Variante B « Ligne » (Thierry, 2026-11-16) : l'aperçu en haut, « en
+  // suivi » en gris à sa droite, un champ d'une ligne et une coche. Pas de
+  // bouton Annuler : Échap ou un clic à côté ; les touches en gris dessous.
+  eqPop.innerHTML = `<span class="eq-vh" id="eqH"></span>
+    <div class="eq-top"><div class="eq-prev" id="eqPrev" aria-hidden="true"></div><span class="eq-tag" id="eqTag">en suivi</span></div>
+    <div class="eq-row"><textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea><button type="button" class="eq-ok" id="eqOk" title="Remplacer (⌘↵)" aria-label="Remplacer">${ic("check", 14)}</button></div>
     <div class="eq-err" id="eqErr" role="alert"></div>
-    <div class="eq-ft"><button type="button" class="btn q" id="eqCancel">Annuler<span class="kbd">Échap</span></button><button type="button" class="btn" id="eqOk">Remplacer<span class="kbd">⌘↵</span></button></div>`;
+    <div class="eq-hint" aria-hidden="true">⌘↵ remplace · Échap annule</div>`;
   document.body.appendChild(eqPop);
   const eqSrc = eqPop.querySelector("#eqSrc")                       ;
   const eqPrev = eqPop.querySelector("#eqPrev")               ;
@@ -5264,7 +5276,9 @@
     eqPrev.classList.remove("bad");
     if (!katexLib) { eqPrev.textContent = ""; return; }
     try {
-      katexLib.render(decimalComma(tex) || "\\;", eqPrev, { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
+      // renderToString puis échange : katex.render vide la cible AVANT de
+      // lever, l'aperçu disparaissait à la première accolade ouverte.
+      eqPrev.innerHTML = katexLib.renderToString(decimalComma(tex) || "\\;", { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
     } catch {
       // Frappe en cours : le dernier aperçu valide reste, estompé.
       eqPrev.classList.add("bad");
@@ -5275,7 +5289,7 @@
     const el = eqEl(eqAt);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const w = Math.min(460, innerWidth - 32);
+    const w = Math.min(380, innerWidth - 32);
     eqPop.style.width = `${w}px`;
     eqPop.style.left = `${Math.round(Math.max(16, Math.min(innerWidth - w - 16, r.left + r.width / 2 - w / 2)))}px`;
     const h = eqPop.offsetHeight;
@@ -5297,7 +5311,7 @@
     el.classList.add("on");
     hideBubble();
     eqAt = { idx, index, latex: el.dataset.latex || "", display: el.classList.contains("disp"), off: Number(el.dataset.off), len: Number(el.dataset.len) };
-    ($("eqH")               ).textContent = `Équation ${nf(n)} · LaTeX`;
+    ($("eqH")               ).textContent = `Équation ${nf(n)}`;
     ($("eqTag")               ).hidden = !tracked;
     eqSrc.value = eqAt.latex;
     eqErr.textContent = "";
@@ -5376,14 +5390,13 @@
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEq(true); return; }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitEq(); return; }
     if (e.key === "Tab") {
-      // Le focus reste dans la fenêtre : champ, Annuler, Remplacer.
-      const f = [eqSrc, $("eqCancel"), eqOk].filter((x) => !(x                     ).disabled)                 ;
+      // Le focus reste dans la fenêtre : champ et coche.
+      const f = [eqSrc, eqOk].filter((x) => !(x                     ).disabled)                 ;
       const k = f.indexOf(document.activeElement               );
       e.preventDefault();
       f[(k + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
     }
   });
-  $("eqCancel").addEventListener("click", () => closeEq(true));
   eqOk.addEventListener("click", submitEq);
   paper.addEventListener("click", (e) => {
     const el = eqChip(e.target);
