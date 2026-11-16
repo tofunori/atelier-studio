@@ -2850,6 +2850,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/githead", get(git::githead))
         .route("/figure-history", post(figure_versions::figure_history))
         .route("/figure-version", get(figure_versions::image))
+        .route("/figure-notes", post(figure_notes::save))
+        .route("/figure-note-status", post(figure_notes::status))
         .route("/gitlog", get(git::gitlog))
         .route("/gitshow", get(git::gitshow))
         .route("/commitmsg", get(git::commitmsg))

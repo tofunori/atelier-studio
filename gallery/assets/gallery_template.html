@@ -975,7 +975,8 @@
   <div id="lbViewport"><div id="lbWrap"><img id="lbImg" src="" alt=""><canvas id="annotCv" tabindex="-1" aria-label="Annotations de la figure"></canvas></div></div>
   <!-- Panneau Notes (lot 2, 2026-11-16) : la liste des notes de la version affichée ;
        la note ouverte s’écrit ici, à sa place dans la liste, jamais sur la figure. -->
-  <aside id="annotPanel" aria-label="Notes de la figure" hidden>
+  <div id="annotFollowLine" hidden><span id="annotFollowText"></span><button type="button" id="annotFollowCompare"></button></div>
+<aside id="annotPanel" aria-label="Notes de la figure" hidden>
     <div class="annot-panel-head"><b>Notes</b><span id="annotPanelMeta"></span></div>
     <div id="annotItems"></div>
     <div id="annotNote" role="group" aria-label="Note sélectionnée">
@@ -984,9 +985,14 @@
       <div class="annot-note-foot"><button type="button" class="annot-delete" title="Supprimer la note" aria-label="Supprimer la note"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg></button><span class="annot-status" role="status"></span><button type="button" class="annot-send" title="Envoyer cette note seule au chat" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11a8 8 0 0 1-8 8H6l-3 3V11a9 9 0 0 1 18 0Z"/></svg><span>Envoyer au chat</span></button></div>
     </div>
     <p id="annotEmpty"></p>
+  <section id="annotFollow" aria-label="Notes de la version précédente" hidden>
+    <div class="annot-follow-head"><span id="annotFollowFrom"></span><span id="annotFollowCount"></span></div>
+    <div id="annotFollowItems"></div>
+  </section>
     <div class="annot-panel-foot">
       <span id="annotPanelStatus" role="status"></span>
-      <div id="annotSendRow">
+      <button type="button" id="annotResend" hidden><span class="lbl"></span><svg class="ic-ok" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg></button>
+    <div id="annotSendRow">
         <button type="button" id="annotSendAll" title="Envoyer toutes les notes à l’agent (⌘↵)" disabled><span class="lbl">Envoyer à l’agent</span><kbd>⌘↵</kbd><svg class="ic-ok" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg><svg class="ic-err" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v6M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg></button>
         <button type="button" id="annotSendMore" title="Autres envois" aria-label="Autres envois" aria-haspopup="menu" aria-expanded="false" aria-controls="annotSendMenu" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></button>
         <div id="annotSendMenu" class="menu" role="menu" data-closed>
@@ -3580,6 +3586,20 @@ let annotSession                          =null, annotSelected                  
 let annotEditing                     =null, annotHover                     =null, annotPanelOpen=false;
 let annotNoteClose                   =null, annotSendAll                                  =async()=>{};
 const annotNoteOpen=()=>annotEditing!==null;
+// Notes durables (lot 3, 2026-11-16) : le serveur garde les notes avec la
+// version où elles ont été posées (`/figure-notes`, dans la base de
+// l'historique). `annotStore` = ce qu'il garde, par empreinte de version ; une
+// séance n'est que la copie en cours d'édition des notes d'une version.
+const annotStore=new Map                      (), annotSaveQueue=new Map                      ();
+const annotSizes=new Map                                ();
+let annotSaveTimer=0, annotSaving=0, annotSavedAt=0, annotSaveFailed=false;
+// Notes de la version précédente auxquelles la version affichée répond, et
+// leurs marques fantômes à l'échelle de l'image affichée.
+let annotFollow                     =null, annotGhosts                =[], annotFollowKey='';
+let annotResend                   =async()=>{};
+const annotIsDraft=(s                   )=>!s.status||s.status==='draft';
+const CHECK_ICON='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path class="tick" d="M5.2 8.3l2 2 3.7-4.4"/></svg>';
+const PIN_ICON='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.2s4.2-3.9 4.2-7.3a4.2 4.2 0 0 0-8.4 0c0 3.4 4.2 7.3 4.2 7.3z"/><circle cx="8" cy="6.9" r="1.4"/></svg>';
 /** Enregistre et referme la note ouverte (Entrée, Échap, clic ailleurs). */
 function annotNoteCommit(){annotNoteClose?.();}
 /** Referme la note ouverte sans rien enregistrer de plus. */
@@ -3709,7 +3729,7 @@ function lbVersionsPaint(){
       return (i?'<span class="lbs-link" aria-hidden="true"></span>':'')
         +'<button type="button" class="lbs-tile" role="option" data-version="'+r.version+'" aria-selected="false" title="'+escA('v'+r.version+' · '+lbWhen(r.created)+' · '+r.rel)+'">'
         +'<span class="lbs-th"><img loading="lazy" decoding="async" alt="" src="'+escA('/figure-version?hash='+r.hash)+'"><span class="lbs-mk" hidden></span></span>'
-        +'<span class="lbs-l"><b>v'+r.version+'</b><span>'+esc(lbWhen(r.created))+'</span></span>'+note+'</button>';
+        +'<span class="lbs-l"><b>v'+r.version+'</b><span>'+esc(lbWhen(r.created))+'</span></span>'+note+'<span class="lbs-notes" hidden></span></button>';
     }).join('');
     const total=h.bytes>1048576?(h.bytes/1048576).toFixed(1).replace('.',',')+' Mo':Math.max(1,Math.round(h.bytes/1024))+' Ko';
     (document.getElementById('lbStripSize')                   ).textContent=h.rows.length+(h.rows.length>1?' versions · ':' version · ')+total;
@@ -3721,6 +3741,12 @@ function lbVersionsPaint(){
     const on=cmp?!!mark:v===h.selected;
     b.classList.toggle('sel',on);b.setAttribute('aria-selected',String(on));b.tabIndex=(cmp?v===cmp.b:v===h.selected)?0:-1;
     const mk=b.querySelector                 ('.lbs-mk');mk.hidden=!mark;mk.textContent=mark;
+    // « 4 notes · à envoyer » : ce que la version porte, sous sa vignette. Une
+    // copie en retard garde la priorité ; « actuelle » cède la place.
+    const state=b.querySelector                 ('.lbs-n'),notes=b.querySelector                 ('.lbs-notes');
+    const label=state.classList.contains('warn')?'':annotTileLabel(lbVersionRow(v)?.hash);
+    if(notes.dataset.label!==label){notes.dataset.label=label;notes.innerHTML=label?PIN_ICON+esc(label):'';}
+    notes.hidden=!label;state.hidden=!!label;
   });
   lbCompareBtn.disabled=h.rows.length<2||lb().classList.contains('annot');
   lbCompareBtn.setAttribute('aria-pressed',String(!!cmp));lbCompareBtn.classList.toggle('on',!!cmp);
@@ -3728,17 +3754,30 @@ function lbVersionsPaint(){
 async function lbVersionDisplay(version        ,automatic=false){
   const h=lbHistory,row=lbVersionRow(version);if(!h.rel||!row||h.selected===version)return;
   const display= h.display=(h.display||0)+1;
-  const blocked=()=>annotBusy||annotDrag||annotCur||annotNoteOpen()||(automatic&&lb().classList.contains('annot')&&annotStrokes.length>0);
+  // Une nouvelle version ne chasse pas un travail en cours : une note à
+  // envoyer ou à compléter retient la version annotée.
+  const blocked=()=>annotBusy||annotDrag||annotCur||annotNoteOpen()||(automatic&&lb().classList.contains('annot')&&annotStrokes.some(s=>!s.note?.trim()||annotIsDraft(s)));
   if(blocked())return;
   const url='/figure-version?hash='+row.hash;
   const image=new Image();image.src=url;
   try{await image.decode();}catch{return;}
   if(h!==lbHistory||h.display!==display||!lb().classList.contains('show')||blocked()||(automatic&&!h.follow))return;
   if(!(await annotGuard())||h!==lbHistory)return;
+  // Toutes les notes sont parties et la version suivante arrive : on quitte le
+  // tracé pour vérifier, le panneau reste ouvert sur les notes envoyées.
+  if(automatic&&h.selected!=null&&lb().classList.contains('annot')&&annotStrokes.length){
+    lb().classList.remove('annot');annotSpace=false;annotCursor();
+    (document.getElementById('lbAnnot')                     ).setAttribute('aria-pressed','false');
+  }
   const annotating=lb().classList.contains('annot');
-  // Annotations started before the first history response belong to that first version.
+  const size={w:image.naturalWidth||1,h:image.naturalHeight||1};annotSizes.set(row.hash,size);
+  // Annotations started before the first history response belong to that first
+  // version: they join the notes already kept with it.
   if(h.selected==null&&annotSessions.has(h.rel)){
-    annotSessions.set(h.rel+'::version:'+row.hash,annotSessions.get(h.rel));annotSessions.delete(h.rel);
+    const early=annotSessions.get(h.rel),session=annotSessionFrom(row.hash,size);annotSessions.delete(h.rel);
+    session.strokes.push(...early.strokes);session.strokes.forEach((stroke,i)=>stroke.n=i+1);
+    session.undo=early.undo;session.redo=early.redo;
+    annotSessions.set(h.rel+'::version:'+row.hash,session);
   }
   h.selected=version;
   const img=(document.getElementById('lbImg')                    );img.src=url;
@@ -3746,13 +3785,21 @@ async function lbVersionDisplay(version        ,automatic=false){
   annotSelected=null;annotBind(annotating);
   (document.getElementById('lbOriginal')                     ).href=url;
   lbVersionsPaint();
+  // L'état du dernier envoi parlait de la version qu'on quitte.
+  {const status=(document.getElementById('annotPanelStatus')                   );if(!status.classList.contains('is-err'))status.textContent='';}
+  // Une version qui arrive en réponse à des notes encore ouvertes : le panneau
+  // s'ouvre sur elles, la vérification est le travail du moment.
+  if(automatic&&!annotating&&!annotPanelOpen){
+    annotFollowSync();
+    if(annotFollow?.notes.some(n=>n.status==='sent'))annotPanelSet(true);
+  }
   // Les notes suivent la version affichée, dans le mode annotation comme dans le panneau.
   if(annotating||annotPanelOpen){annotLayout();annotRedraw();}else annotPillUpdate();
   if(provOpen){provState=null;provRel='';provSync();}
 }
 function lbVersionsPoll(){
   const h=lbHistory;if(!h.rel||h.busy||document.hidden||!lb().classList.contains('show'))return lbVersionReady;
-  h.busy=true;
+  h.busy=true;const started=performance.now();
   lbVersionReady=(async()=>{
     try{
       const response=await fetch('/figure-history',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:h.rels})});
@@ -3760,9 +3807,16 @@ function lbVersionsPoll(){
       const data=await response.json();if(h!==lbHistory)return;
       if(!Array.isArray(data.versions)||!data.versions.length)throw new Error('versions');
       h.rows=data.versions;h.copies=Array.isArray(data.copies)?data.copies:[];h.bytes=Number(data.bytes)||0;
+      const adopted=annotAdopt(h.rows,started);
       if(h.compare&&(!lbVersionRow(h.compare.a)||!lbVersionRow(h.compare.b)))lbCompareExit();
       lbVersionsPaint();if(h.compare)lbComparePaint();
       if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
+      if(adopted&&h===lbHistory){
+        if(adopted.shown){annotSelected=null;annotHover=null;annotBind(lb().classList.contains('annot'));}
+        if(lb().classList.contains('annot')||annotPanelOpen){annotLayout();annotRedraw();}else annotPillUpdate();
+      }
+      // Un enregistrement resté en attente (serveur injoignable) repart ici.
+      if(annotSaveQueue.size&&!annotSaving)void annotSaveFlush();
     }catch{
       if(h===lbHistory){lbHistBtn.title='Historique indisponible — nouvelle tentative automatique';if(h.selected==null)lbHistBtn.querySelector('.lbh-v').textContent='v?';}
     }finally{h.busy=false;}
@@ -3810,10 +3864,12 @@ lbStripRow.addEventListener('keydown',e=>{
 });
 lbStrip.addEventListener('click',e=>e.stopPropagation());
 // ─── Comparer deux versions ──────────────────────────────────────────────
-function lbCompareEnter(){
+/** Ouvre la comparaison ; `pair` impose les deux versions (« Comparer v4 → v5 »). */
+function lbCompareEnter(pair                         ){
   const h=lbHistory;if(h.rows.length<2||lb().classList.contains('annot'))return;
   const last=h.rows.at(-1).version,shown=h.selected??last;
-  h.compare={a:shown!==last?shown:h.rows.at(-2).version,b:last,mode:'slider',pos:.5};
+  if(pair&&(!lbVersionRow(pair.a)||!lbVersionRow(pair.b)))return;
+  h.compare={a:pair?pair.a:shown!==last?shown:h.rows.at(-2).version,b:pair?pair.b:last,mode:'slider',pos:.5};
   annotPanelSet(false);lb().classList.add('comparing');lbCompare.hidden=false;
   lbVersionsPaint();lbComparePaint();
 }
@@ -3955,7 +4011,12 @@ function annotCheckpoint(){if(!annotSession)return;annotSession.undo.push(struct
 function annotHistory(redo=false){
   if(!annotSession||annotBusy)return;
   const from=redo?annotSession.redo:annotSession.undo,to=redo?annotSession.undo:annotSession.redo;
-  if(!from.length)return;to.push(structuredClone(annotStrokes));annotStrokes=from.pop();annotSelected=null;
+  if(!from.length)return;
+  // Annuler ne « désenvoie » pas une note : le statut suit la note, pas l'instantané.
+  const status=new Map(annotStrokes.map(s=>[s.id,s]));
+  to.push(structuredClone(annotStrokes));annotStrokes=from.pop();annotSelected=null;
+  // Une note redevenue « à envoyer » parce qu'on l'a retouchée retrouve, elle, le statut de l'instantané.
+  for(const s of annotStrokes){const now=status.get(s.id);if(now&&!annotIsDraft(now)){s.status=now.status;s.sentAt=now.sentAt;s.doneAt=now.doneAt;}}
   annotNoteHide();annotRenumber();annotRedraw();
 }
 async function annotGuard(){if(annotBusy)return false;annotNoteCommit();annotRemember();annotNoteHide();return true;}
@@ -3982,9 +4043,159 @@ function annotClient(p                        ){const r=cv().getBoundingClientRe
 /** Lie les notes à la figure et à la version affichées. Hors du mode
  *  annotation, une figure sans note n'ouvre pas de séance. */
 function annotBind(create         ){
-  const key=lbAnnotationKey();
-  if(create&&key&&!annotSessions.has(key))annotSessions.set(key,{strokes:[],undo:[],redo:[]});
+  const key=lbAnnotationKey(),hash=annotHash();
+  if(key&&!annotSessions.has(key)){
+    const size=annotSizes.get(hash)||annotImage();
+    // Les notes gardées avec cette version rouvrent sa séance, même en lecture.
+    if(hash&&(create||annotStore.get(hash)?.length))annotSessions.set(key,annotSessionFrom(hash,size));
+    else if(create)annotSessions.set(key,{strokes:[],undo:[],redo:[]});
+  }
   annotSession=(key&&annotSessions.get(key))||null;annotStrokes=annotSession?annotSession.strokes:[];
+}
+/** Empreinte de la version affichée ; vide tant que l'historique n'est pas là. */
+function annotHash(){
+  const rel=lbList[lbIdx]?.rel;
+  return (lbHistory.rel===rel&&lbVersionRow(lbHistory.selected)?.hash)||'';
+}
+/** Où tombe une marque, en fractions de l'image (origine en haut à gauche). */
+function annotRegion(s              ,size=annotImage()){
+  const {w,h}=size,r=(v        )=>Math.round(v*1e4)/1e4;
+  if(s.tool==='arrow')return{kind:'arrow'         ,x:r(s.x1/w),y:r(s.y1/h),w:r((s.x2-s.x1)/w),h:r((s.y2-s.y1)/h)};
+  if(s.tool==='point')return{kind:'point'         ,x:r(s.x1/w),y:r(s.y1/h),w:0,h:0};
+  const b=annotGeometry().bounds(s);
+  return{kind:s.tool==='ellipse'?'ellipse'         :'box'         ,x:r(b.x/w),y:r(b.y/h),w:r(b.width/w),h:r(b.height/h)};
+}
+/** La note gardée d'une marque : le modèle du connecteur, en fractions. */
+function annotNoteOf(s              ,size                        )            {
+  const note            ={id:s.id,n:s.n,...annotRegion(s,size),text:s.note.trim(),status:s.status||'draft',t:s.t||Date.now()};
+  if(note.status!=='draft'&&s.sentAt)note.sentAt=s.sentAt;
+  if(note.status==='done'&&s.doneAt)note.doneAt=s.doneAt;
+  return note;
+}
+/** La marque d'une note gardée, à l'échelle d'une image de taille `size`. */
+function annotStrokeOf(note            ,size                        )              {
+  const tool=note.kind==='box'?'rect':note.kind,x1=note.x*size.w,y1=note.y*size.h,point=tool==='point';
+  const s              ={id:note.id,tool,x1,y1,x2:point?x1:x1+note.w*size.w,y2:point?y1:y1+note.h*size.h,n:note.n,note:note.text,status:note.status,t:note.t};
+  if(note.sentAt)s.sentAt=note.sentAt;if(note.doneAt)s.doneAt=note.doneAt;
+  return s;
+}
+// Deux listes de notes disent-elles la même chose ? L'ordre des clés du
+// serveur n'est pas celui de la visionneuse : on compare les valeurs.
+const annotNoteSig=(notes              )=>JSON.stringify(notes.map(n=>[n.id,n.n,n.kind,n.x,n.y,n.w,n.h,n.text,n.status,n.sentAt||0,n.doneAt||0]));
+const annotBaseSig=(s              )=>[s.note,s.tool,s.x1,s.y1,s.x2,s.y2].join('|');
+/** Séance d'une version, ouverte sur les notes que le serveur garde pour elle. */
+function annotSessionFrom(hash        ,size                        )                   {
+  const strokes=(annotStore.get(hash)||[]).map(n=>annotStrokeOf(n,size));
+  const base                       ={};
+  for(const s of strokes)if(!annotIsDraft(s))base[s.id]=annotBaseSig(s);
+  return{strokes,undo:[],redo:[],hash,size,base,saved:annotNoteSig(annotStore.get(hash)||[])};
+}
+/** Confie au serveur les notes de la séance quand elles ont changé. Les
+ *  gestes s'enchaînent (un glisser redessine à chaque pas) : un seul envoi,
+ *  300 ms après le dernier. */
+function annotPersist(){
+  const session=annotSession;if(!session?.hash)return;
+  // Une note envoyée dont le texte ou le tracé change redevient « à envoyer ».
+  for(const s of session.strokes)if(!annotIsDraft(s)&&session.base?.[s.id]!==annotBaseSig(s)){s.status='draft';delete s.sentAt;delete s.doneAt;}
+  const size=session.size||annotImage();
+  const notes=session.strokes.filter(s=>s.note?.trim()).map(s=>annotNoteOf(s,size));
+  const sig=annotNoteSig(notes);if(sig===session.saved)return;
+  const label=annotTileLabel(session.hash);
+  session.saved=sig;annotStore.set(session.hash,notes);annotSaveQueue.set(session.hash,notes);
+  clearTimeout(annotSaveTimer);annotSaveTimer=window.setTimeout(()=>void annotSaveFlush(),300);
+  if(label!==annotTileLabel(session.hash))lbVersionsPaint();
+}
+async function annotSaveFlush(keepalive=false){
+  clearTimeout(annotSaveTimer);
+  for(const [hash,notes] of [...annotSaveQueue]){
+    annotSaveQueue.delete(hash);annotSaving++;
+    try{
+      const r=await fetch('/figure-notes',{method:'POST',keepalive,headers:{'Content-Type':'application/json'},body:JSON.stringify({hash,notes})});
+      if(!r.ok)throw new Error('notes '+r.status);
+      annotSaveFailed=false;
+    }catch{
+      // Rien n'est perdu : la liste repart au prochain changement, ou au
+      // prochain passage de l'historique.
+      if(!annotSaveQueue.has(hash))annotSaveQueue.set(hash,notes);annotSaveFailed=true;
+    }finally{annotSaving--;annotSavedAt=performance.now();}
+  }
+  const status=(document.getElementById('annotPanelStatus')                   ),warning='Notes non enregistrées — nouvel essai en cours';
+  if(annotSaveFailed&&!status.textContent){status.classList.add('is-err');status.textContent=warning;}
+  else if(!annotSaveFailed&&status.textContent===warning){status.classList.remove('is-err');status.textContent='';}
+}
+window.addEventListener('pagehide',()=>{if(annotSaveQueue.size)void annotSaveFlush(true);});
+/** Reprend du serveur les notes de chaque version (ouverture, autre vue de la
+ *  galerie). Une réponse partie avant le dernier enregistrement est ignorée.
+ *  `shown` : les notes de la version affichée ont changé. */
+function annotAdopt(rows                 ,started        ){
+  if(annotSaving||started<annotSavedAt)return null;
+  let any=false,shown=false;const current=annotHash();
+  for(const row of rows){
+    if(annotSaveQueue.has(row.hash))continue;
+    const notes=Array.isArray(row.notes)?row.notes:[];
+    if(annotNoteSig(notes)===annotNoteSig(annotStore.get(row.hash)||[]))continue;
+    const key=lbHistory.rel+'::version:'+row.hash,session=annotSessions.get(key);
+    // Un geste en cours sur la version affichée passe avant ce qui vient d'ailleurs.
+    if(row.hash===current&&session&&(annotBusy||annotDrag||annotCur||annotNoteOpen()||session.strokes.some(s=>!s.note?.trim())))continue;
+    if(notes.length)annotStore.set(row.hash,notes);else annotStore.delete(row.hash);
+    if(session){annotSessions.delete(key);if(row.hash===current)shown=true;}
+    any=true;
+  }
+  return any?{shown}:null;
+}
+/** « 4 notes · à envoyer », « 4 notes · 3 réglées » : ce que porte une version. */
+function annotTileLabel(hash                  ){
+  const notes=(hash&&annotStore.get(hash))||[],n=notes.length;if(!n)return '';
+  const drafts=notes.filter(annotIsDraft).length,done=notes.filter(note=>note.status==='done').length,many=n>1;
+  const state=drafts===n?'à envoyer':drafts?drafts+' à envoyer':done===n?(many?'réglées':'réglée'):done?done+(done>1?' réglées':' réglée'):(many?'envoyées':'envoyée');
+  return n+(many?' notes · ':' note · ')+state;
+}
+/** Notes auxquelles la version affichée répond : celles, déjà envoyées, de la
+ *  version précédente la plus proche qui en porte. Une version plus ancienne
+ *  ne revient que s'il lui reste une note à régler. */
+function annotFollowSync(){
+  const h=lbHistory,rel=lbList[lbIdx]?.rel,idx=h.rel===rel?h.rows.findIndex(r=>r.version===h.selected):-1;
+  let next                     =null;
+  for(let i=idx-1;i>=0;i--){
+    // Une figure revenue à l'octet près à une version passée porte déjà ses notes.
+    if(h.rows[i].hash===h.rows[idx].hash)continue;
+    const notes=(annotStore.get(h.rows[i].hash)||[]).filter(n=>!annotIsDraft(n));
+    if(!notes.length)continue;
+    if(i===idx-1||notes.some(n=>n.status==='sent'))next={version:h.rows[i].version,hash:h.rows[i].hash,notes};
+    break;
+  }
+  const size=annotSizes.get(annotHash())||annotImage();
+  const key=next?next.hash+'|'+size.w+'x'+size.h+'|'+annotNoteSig(next.notes):'';
+  if(key===annotFollowKey)return;
+  annotFollowKey=key;annotFollow=next;
+  // Mêmes fractions, image de la version affichée : la marque retombe au même endroit.
+  annotGhosts=next?next.notes.map(n=>({...annotStrokeOf(n,size),ghost:true})):[];
+  if(annotHover?.ghost)annotHover=null;
+}
+/** Coche ou décoche « réglée ». Une note de la version affichée part avec sa
+ *  séance ; une note de la version précédente change seule, chez le serveur. */
+async function annotSetDone(stroke              ,done         ){
+  if(annotBusy||annotIsDraft(stroke))return;
+  if(!stroke.ghost){
+    stroke.status=done?'done':'sent';if(done)stroke.doneAt=Date.now();else delete stroke.doneAt;
+    if(!stroke.sentAt)stroke.sentAt=Date.now();
+    annotRedraw();return;
+  }
+  const follow=annotFollow,note=follow&&(annotStore.get(follow.hash)||[]).find(n=>n.id===stroke.id);if(!note)return;
+  const before={...note},status=(document.getElementById('annotPanelStatus')                   );
+  note.status=done?'done':'sent';if(done)note.doneAt=Date.now();else delete note.doneAt;
+  // La séance de cette version, si elle est en mémoire, repartira du serveur.
+  annotSessions.delete(lbHistory.rel+'::version:'+follow.hash);
+  annotRedraw();lbVersionsPaint();annotSaving++;
+  try{
+    const r=await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:follow.hash,id:note.id,status:note.status})});
+    if(!r.ok)throw new Error('status '+r.status);
+    if(status.textContent==='Statut non enregistré — réessayer'){status.classList.remove('is-err');status.textContent='';}
+  }catch{
+    note.status=before.status;if(before.doneAt)note.doneAt=before.doneAt;else delete note.doneAt;
+    status.classList.add('is-err');status.textContent='Statut non enregistré — réessayer';
+    annotRedraw();lbVersionsPaint();
+  }finally{annotSaving--;annotSavedAt=performance.now();}
 }
 /** Ouvre ou ferme le panneau Notes. Ouvert hors du mode annotation, il montre
  *  les marques de la version affichée sans permettre de les déplacer. */
@@ -3993,7 +4204,7 @@ function annotPanelSet(open         ){
   (document.getElementById('annotPanel')               ).hidden=!open;
   lb().classList.toggle('notes',open);
   (document.getElementById('lbNotes')                     ).setAttribute('aria-pressed',String(open));
-  if(!open){annotHover=null;annotSendMenu(false);}
+  if(!open){annotHover=null;annotSendMenu(false);(document.getElementById('annotFollowLine')                  ).hidden=true;}
   else if((document.getElementById('lbImg')                    ).naturalWidth){annotLayout();annotRedraw();}
 }
 function annotSendMenu(open         ){
@@ -4002,13 +4213,17 @@ function annotSendMenu(open         ){
   more.setAttribute('aria-expanded',String(open));
 }
 function annotPillUpdate(){
-  const n=annotStrokes.length,ready=annotStrokes.some(s=>s.note?.trim()),annotating=lb().classList.contains('annot');
-  const notes=(document.getElementById('lbNotes')                     ),label=n?(n>1?n+' notes sur cette figure':'1 note sur cette figure'):'Notes de la figure';
+  annotRemember();annotFollowSync();annotPersist();
+  const follow=annotFollow,own=annotStrokes.length,n=own||(follow?follow.notes.length:0);
+  // « Envoyer à l'agent » part avec les notes à envoyer ; une note déjà envoyée reste.
+  const ready=annotStrokes.some(s=>s.note?.trim()&&annotIsDraft(s)),annotating=lb().classList.contains('annot');
+  const notes=(document.getElementById('lbNotes')                     ),label=!n?'Notes de la figure':own?(own>1?own+' notes sur cette figure':'1 note sur cette figure'):(n>1?n+' notes':'1 note')+' de v'+follow.version+' à vérifier';
   (document.getElementById('lbNotesN')                   ).textContent=n?String(n):'';
   notes.title=label;notes.setAttribute('aria-label',label);
   const row=lbHistory.rel===lbList[lbIdx]?.rel?lbVersionRow(lbHistory.selected):null;
-  (document.getElementById('annotPanelMeta')                   ).textContent=[n?String(n):'',row?'v'+row.version:''].filter(Boolean).join(' · ');
-  (document.getElementById('annotEmpty')                        ).hidden=n>0;
+  (document.getElementById('annotPanelMeta')                   ).textContent=!own&&follow?follow.notes.length+' · posées sur v'+follow.version:[own?String(own):'',row?'v'+row.version:''].filter(Boolean).join(' · ');
+  annotFollowPaint(row?row.version:null,own,annotating);
+  (document.getElementById('annotEmpty')                        ).hidden=own>0||!!follow;
   (document.getElementById('annotEmpty')                        ).textContent=annotating
     ?'Aucune note sur cette version. Tracer un cadre ou cliquer un point sur la figure, puis écrire la note ici.'
     :'Aucune note sur cette version. Annoter (A) pour en poser une.';
@@ -4021,39 +4236,79 @@ function annotPillUpdate(){
 }
 // Une rangée par note, gardée d'un rendu à l'autre : un clic en cours ne perd
 // pas sa cible, et la note ouverte ne perd ni sa place ni le curseur.
-const annotRows=new Map                           ();
+const annotRows=new Map                        ();
+const annotRowKey=(s              )=>(s.ghost?'ghost:':'')+s.id;
 function annotRow(s              ){
-  let row=annotRows.get(s.id);
-  if(!row){
-    const id=s.id,find=()=>annotStrokes.find(o=>o.id===id)||null;
-    row=document.createElement('button');row.type='button';row.className='annot-row';
-    row.innerHTML='<span class="annot-number"></span><span class="annot-text"></span>';
+  const key=annotRowKey(s),ghost=!!s.ghost;
+  let item=annotRows.get(key);
+  if(!item){
+    const id=s.id,find=()=>(ghost?annotGhosts:annotStrokes).find(o=>o.id===id)||null;
+    item=document.createElement('div');item.className='annot-item'+(ghost?' ghost':'');
+    item.innerHTML='<button type="button" class="annot-row"><span class="annot-number"></span><span class="annot-text"></span></button>'
+      +'<button type="button" class="annot-check" role="checkbox" aria-checked="false" hidden>'+CHECK_ICON+'</button>';
+    const row=item.firstElementChild                     ,check=item.lastElementChild                     ;
     row.onclick=async()=>{
-      if(annotBusy)return;
+      // Une note de la version précédente ne s'édite pas d'ici : elle se coche ou se renvoie.
+      if(annotBusy||ghost)return;
       if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}
       const stroke=find();if(stroke)annotAskNote(stroke);
     };
-    const hover=(on         )=>{if(on||annotHover?.id===id)annotHoverSet(on?find():null);};
-    row.onpointerenter=()=>hover(true);row.onpointerleave=()=>hover(false);row.onfocus=()=>hover(true);row.onblur=()=>hover(false);
-    annotRows.set(id,row);
+    check.onclick=e=>{e.stopPropagation();const stroke=find();if(stroke)void annotSetDone(stroke,stroke.status!=='done');};
+    const hover=(on         )=>{if(on||(annotHover&&annotRowKey(annotHover)===key))annotHoverSet(on?find():null);};
+    item.onpointerenter=()=>hover(true);item.onpointerleave=()=>hover(false);row.onfocus=()=>hover(true);row.onblur=()=>hover(false);
+    annotRows.set(key,item);
   }
-  const text=s.note||'Note à compléter';
+  const text=s.note||'Note à compléter',done=s.status==='done',checkable=!annotIsDraft(s);
+  const row=item.firstElementChild                     ,check=item.lastElementChild                     ;
   const number=row.firstElementChild                   ,body=row.lastElementChild                   ;
   if(number.textContent!==String(s.n))number.textContent=String(s.n);
   if(body.textContent!==text)body.textContent=text;
   row.classList.toggle('todo',!s.note);row.classList.toggle('sel',s===annotSelected);row.classList.toggle('hot',s===annotHover);
-  row.setAttribute('aria-label','Note '+s.n+' : '+text);
-  return row;
+  row.setAttribute('aria-label','Note '+s.n+' : '+text+(done?' (réglée)':checkable?' (envoyée)':''));
+  item.classList.toggle('done',done);item.classList.toggle('checkable',checkable);
+  const label=done?'Note '+s.n+' réglée — rouvrir':'Marquer la note '+s.n+' comme réglée';
+  check.hidden=!checkable;check.setAttribute('aria-checked',String(done));check.title=label;check.setAttribute('aria-label',label);
+  return item;
 }
 function annotListRender(){
   const list=(document.getElementById('annotItems')                  ),box=(document.getElementById('annotNote')                  );
   if(annotEditing&&!annotStrokes.includes(annotEditing))annotNoteHide();
-  if(annotHover&&!annotStrokes.includes(annotHover))annotHover=null;
+  if(annotHover&&!annotStrokes.includes(annotHover)&&!annotGhosts.includes(annotHover))annotHover=null;
   const wanted               =annotStrokes.map(s=>s===annotEditing?box:annotRow(s));
   // D'abord retirer ce qui n'a plus cours : la note ouverte ne bouge alors jamais.
-  for(const child of [...list.children])if(!wanted.includes(child               )&&child.parentNode===list){if(child===box)list.after(box);else child.remove();}
+  const kept=new Set         (wanted);
+  for(const child of [...list.children])if(!kept.has(child)&&child.parentNode===list){if(child===box)list.after(box);else child.remove();}
   wanted.forEach((el,i)=>{if(list.children[i]!==el)list.insertBefore(el,list.children[i]||null);});
-  const live=new Set(annotStrokes.map(s=>s.id));for(const id of [...annotRows.keys()])if(!live.has(id))annotRows.delete(id);
+  // Notes de la version précédente : mêmes rangées, pastille creuse, case à cocher.
+  const ghosts=(document.getElementById('annotFollowItems')                  ),shown               =annotGhosts.map(s=>annotRow(s));
+  const keptGhosts=new Set         (shown);
+  for(const child of [...ghosts.children])if(!keptGhosts.has(child))child.remove();
+  shown.forEach((el,i)=>{if(ghosts.children[i]!==el)ghosts.insertBefore(el,ghosts.children[i]||null);});
+  const live=new Set(annotStrokes.map(annotRowKey).concat(annotGhosts.map(annotRowKey)));for(const id of [...annotRows.keys()])if(!live.has(id))annotRows.delete(id);
+}
+/** Ce que la version affichée doit aux notes de la précédente : la ligne
+ *  au-dessus de la figure, l'en-tête de la section et « Renvoyer ». */
+function annotFollowPaint(version             ,own        ,annotating         ){
+  const follow=annotFollow,total=follow?follow.notes.length:0,done=follow?follow.notes.filter(n=>n.status==='done').length:0;
+  const open=follow?follow.notes.filter(n=>n.status==='sent'):[];
+  const count=!follow?'':!done?(total>1?'aucune réglée':'pas réglée'):done===total?(total>1?'toutes réglées':'réglée'):done+' sur '+total+(done>1?' réglées':' réglée');
+  (document.getElementById('annotFollow')               ).hidden=!follow;
+  // Sans note sur la version affichée, l'en-tête du panneau dit déjà d'où elles viennent.
+  (document.querySelector('#annotFollow .annot-follow-head')                  ).hidden=!follow||!own;
+  (document.getElementById('annotFollowFrom')                   ).textContent=follow?'Posées sur v'+follow.version:'';
+  (document.getElementById('annotFollowCount')                   ).textContent=count;
+  const line=(document.getElementById('annotFollowLine')                  ),compare=(document.getElementById('annotFollowCompare')                     );
+  line.hidden=!follow||version==null||annotating||!annotPanelOpen||!!lbHistory.compare;
+  if(follow&&version!=null){
+    const text='<b>v'+version+'</b> répond aux notes de v'+follow.version+' · '+count;
+    const label=(document.getElementById('annotFollowText')                   );if(label.innerHTML!==text)label.innerHTML=text;
+    compare.textContent='Comparer v'+follow.version+' → v'+version;compare.dataset.a=String(follow.version);compare.dataset.b=String(version);
+  }
+  const resend=(document.getElementById('annotResend')                     );
+  resend.hidden=!open.length;resend.disabled=annotBusy;
+  (resend.querySelector('.lbl')                   ).textContent=open.length>1?'Renvoyer les '+open.length+' notes':open.length?'Renvoyer la note '+open[0].n:'';
+  // En vérification (aucune note propre, hors tracé), seul « Renvoyer » a un sens.
+  (document.getElementById('annotSendRow')                  ).hidden=!!follow&&!own&&!annotating;
 }
 function annotRenumber(){annotStrokes.forEach((s,i)=>s.n=i+1);annotRemember();}
 /** Ouvre la note d'une marque dans le panneau, à sa place dans la liste. */
@@ -4146,7 +4401,7 @@ function annotBindCanvas(){
   });
   c.addEventListener('pointerup',()=>{
     if(!annotDrag)return;const d=annotDrag,g=annotGeometry(),size=annotImage();annotDrag=null;
-    if(d.kind==='create'){const made=g.create(annotCur.tool,{x:annotCur.x1,y:annotCur.y1},{x:annotCur.x2,y:annotCur.y2},size.w,size.h);annotCur=null;if(made){const s              =g.normalize(made);annotCheckpoint();s.id=crypto.randomUUID();annotStrokes.push(s);annotRenumber();annotAskNote(s);}}
+    if(d.kind==='create'){const made=g.create(annotCur.tool,{x:annotCur.x1,y:annotCur.y1},{x:annotCur.x2,y:annotCur.y2},size.w,size.h);annotCur=null;if(made){const s              =g.normalize(made);annotCheckpoint();s.id=crypto.randomUUID();s.t=Date.now();annotStrokes.push(s);annotRenumber();annotAskNote(s);}}
     else{
       if(d.kind==='resize'&&!g.create(d.stroke.tool,{x:d.stroke.x1,y:d.stroke.y1},{x:d.stroke.x2,y:d.stroke.y2},size.w,size.h))Object.assign(d.stroke,d.original);
       if(!d.changed)annotAskNote(d.stroke);
@@ -4213,38 +4468,50 @@ function annotPaint(x                          ,strokes                ,k       
   const M=ANNOT_MARK,C=annotInk();
   x.save();x.lineCap='round';x.lineJoin='round';
   // Liseré papier sous le trait d'encre : lisible sur une carte comme sur une courbe.
+  // Une note réglée s'efface presque ; le fantôme d'une note encore ouverte
+  // reste lisible sans se prendre pour une marque de la version affichée.
+  const fade=(s              )=>s.status==='done'?.28:s.ghost?.7:1;
+  let a=1;
   const lined=(path          )=>{
-    x.globalAlpha=.9;x.strokeStyle=C.paper;x.lineWidth=M.halo*u;path();x.stroke();
-    x.globalAlpha=1;x.strokeStyle=C.ink;x.lineWidth=M.line*u;path();x.stroke();
+    x.globalAlpha=.9*a;x.strokeStyle=C.paper;x.lineWidth=M.halo*u;path();x.stroke();
+    x.globalAlpha=a;x.strokeStyle=C.ink;x.lineWidth=M.line*u;path();x.stroke();
   };
   for(const s of strokes){
-    const x1=s.x1*k,y1=s.y1*k,x2=s.x2*k,y2=s.y2*k;
+    const x1=s.x1*k,y1=s.y1*k,x2=s.x2*k,y2=s.y2*k;a=fade(s);
     if(s.tool==='rect'||s.tool==='ellipse'){
       const left=Math.min(x1,x2),top=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1);
       const path=()=>{x.beginPath();if(s.tool==='ellipse')x.ellipse(left+w/2,top+h/2,w/2||1,h/2||1,0,0,2*Math.PI);else if(x.roundRect)x.roundRect(left,top,w,h,Math.min(2*u,w/2,h/2));else x.rect(left,top,w,h);};
-      if(s===selected||s===hover){path();x.globalAlpha=.07;x.fillStyle=C.ink;x.fill();x.globalAlpha=1;}
+      if(s===selected||s===hover){path();x.globalAlpha=.07;x.fillStyle=C.ink;x.fill();}
       lined(path);
     }else if(s.tool==='arrow'){
       const angle=Math.atan2(y2-y1,x2-x1),head=Math.min(M.head*u,Math.hypot(x2-x1,y2-y1));
       // Le fût s'arrête dans la pointe : la pointe reste fine.
       const shaft=()=>{x.beginPath();x.moveTo(x1,y1);x.lineTo(x2-head*.8*Math.cos(angle),y2-head*.8*Math.sin(angle));};
       const tip=()=>{x.beginPath();x.moveTo(x2,y2);x.lineTo(x2-head*Math.cos(angle-.42),y2-head*Math.sin(angle-.42));x.lineTo(x2-head*Math.cos(angle+.42),y2-head*Math.sin(angle+.42));x.closePath();};
-      x.globalAlpha=.9;x.strokeStyle=C.paper;x.lineWidth=M.halo*u;shaft();x.stroke();
+      x.globalAlpha=.9*a;x.strokeStyle=C.paper;x.lineWidth=M.halo*u;shaft();x.stroke();
       x.lineWidth=(M.halo-M.line)*u;tip();x.stroke();
-      x.globalAlpha=1;x.strokeStyle=C.ink;x.lineWidth=M.line*u;shaft();x.stroke();
+      x.globalAlpha=a;x.strokeStyle=C.ink;x.lineWidth=M.line*u;shaft();x.stroke();
       x.fillStyle=C.ink;tip();x.fill();
     }else if(s.tool==='point'){
-      x.beginPath();x.arc(x1,y1,M.dot*u,0,2*Math.PI);x.fillStyle=C.ink;x.fill();x.strokeStyle=C.paper;x.lineWidth=M.line*u;x.stroke();
+      x.globalAlpha=a;x.beginPath();x.arc(x1,y1,M.dot*u,0,2*Math.PI);x.fillStyle=C.ink;x.fill();x.strokeStyle=C.paper;x.lineWidth=M.line*u;x.stroke();
     }
   }
+  x.globalAlpha=1;
   // Les pastilles passent au-dessus de toutes les formes.
   x.font=`600 ${M.font*u}px ${C.font}`;x.textAlign='center';x.textBaseline='middle';
   for(const s of strokes){
     if(!s.n)continue;
     const badge=annotBadge(s,u/k),bx=badge.x*k,by=badge.y*k;
-    if(s===hover){x.beginPath();x.arc(bx,by,(M.badge+4)*u,0,2*Math.PI);x.globalAlpha=.22;x.fillStyle=C.ink;x.fill();x.globalAlpha=1;}
-    x.beginPath();x.arc(bx,by,M.badge*u,0,2*Math.PI);x.fillStyle=C.ink;x.fill();x.strokeStyle=C.paper;x.lineWidth=M.line*u;x.stroke();
-    x.fillStyle=C.on;x.fillText(String(s.n),bx,by+.5*u);
+    const done=s.status==='done',hollow=done||!!s.ghost;
+    if(s===hover){x.beginPath();x.arc(bx,by,(M.badge+4)*u,0,2*Math.PI);x.globalAlpha=.22;x.fillStyle=C.ink;x.fill();}
+    // Pastille pleine : note de la version affichée. Creuse : fantôme, ou note
+    // réglée, qui porte une coche à la place de son numéro.
+    x.globalAlpha=done?.6:1;
+    x.beginPath();x.arc(bx,by,M.badge*u,0,2*Math.PI);x.fillStyle=hollow?C.paper:C.ink;x.fill();
+    x.strokeStyle=hollow?C.ink:C.paper;x.lineWidth=M.line*u;x.stroke();
+    if(done){x.beginPath();x.moveTo(bx-3.6*u,by+.3*u);x.lineTo(bx-1.1*u,by+2.8*u);x.lineTo(bx+3.8*u,by-2.6*u);x.strokeStyle=C.ink;x.lineWidth=M.line*u;x.stroke();}
+    else{x.fillStyle=hollow?C.ink:C.on;x.fillText(String(s.n),bx,by+.5*u);}
+    x.globalAlpha=1;
   }
   if(selected){
     const side=M.handle*u;x.lineWidth=u;x.strokeStyle=C.ink;x.fillStyle=C.paper;
@@ -4261,14 +4528,17 @@ function annotPaint(x                          ,strokes                ,k       
 function annotHoverSet(next                     ){
   if(annotHover===next)return;
   annotHover=next;annotDraw();
-  for(const [id,row] of annotRows)row.classList.toggle('hot',id===next?.id);
+  const key=next?annotRowKey(next):'';
+  for(const [id,item] of annotRows)item.firstElementChild.classList.toggle('hot',id===key);
 }
 function annotRedraw(){annotDraw();annotPillUpdate();}
 function annotDraw(){
   const c=cv(),x=c.getContext('2d'),size=annotImage();
   x.clearRect(0,0,c.width,c.height);
   const editable=lb().classList.contains('annot');
-  annotPaint(x,annotStrokes.concat(annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),editable&&annotStrokes.includes(annotSelected)?annotSelected:null,annotStrokes.includes(annotHover)?annotHover:null);
+  annotFollowSync();
+  // Les fantômes de la version précédente passent sous les marques de celle-ci.
+  annotPaint(x,annotGhosts.concat(annotStrokes,annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),editable&&annotStrokes.includes(annotSelected)?annotSelected:null,annotStrokes.includes(annotHover)||annotGhosts.includes(annotHover)?annotHover:null);
 }
 function annotEdgeHit(g,s,p,tol        ){
   if(!g.hit(s,p,tol))return false;
@@ -4388,14 +4658,6 @@ function annotInit(){
     annotPaint(x,strokes,out.width/img.naturalWidth,Math.max(1.25,out.width/1000));
     return out.toDataURL('image/png');
   }
-  /** Où tombe une marque, en fractions de l'image (origine en haut à gauche). */
-  function annotRegion(s              ){
-    const {w,h}=annotImage(),r=(v        )=>Math.round(v*1e4)/1e4;
-    if(s.tool==='arrow')return{kind:'arrow',x:r(s.x1/w),y:r(s.y1/h),w:r((s.x2-s.x1)/w),h:r((s.y2-s.y1)/h)};
-    if(s.tool==='point')return{kind:'point',x:r(s.x1/w),y:r(s.y1/h),w:0,h:0};
-    const b=annotGeometry().bounds(s);
-    return{kind:s.tool==='ellipse'?'ellipse':'box',x:r(b.x/w),y:r(b.y/h),w:r(b.width/w),h:r(b.height/h)};
-  }
   /** Recadrage de la zone d'une note, avec sa marque seule et un peu de
    *  contexte autour ; agrandi quand la zone est petite, pour rester lisible. */
   function annotCrop(s              ){
@@ -4411,21 +4673,15 @@ function annotInit(){
     x.translate(-x0*k,-y0*k);annotPaint(x,[s],k,1.5);
     return out.toDataURL('image/png');
   }
-  const pendingFigureNotes=new Map();
-  window.addEventListener('message',event=>{
-    const d=event.data;
-    if(event.source!==window.top || d?.type!=='atelier-pdf-annotation-consumed' || d.nonce!==window.__atelierNonce)return;
-    const pending=pendingFigureNotes.get(d.id);if(!pending || pending.rel!==d.rel)return;
-    pending.session.strokes=pending.session.strokes.filter((s)=>!pending.notes.some((a)=>a.stroke.id===s.id && a.note===s.note && ['x1','y1','x2','y2','tool'].every(k=>a.stroke[k]===s[k])));
-    pending.session.undo=[];pending.session.redo=[];
-    if(annotSession===pending.session){annotStrokes=pending.session.strokes;annotSelected=null;annotRenumber();annotRedraw();}
-    pendingFigureNotes.delete(d.id);
-  });
-  async function annotPost(direct         ,only=null){
+  /** Envoie des notes à l'agent : `only` (une note, des notes renvoyées) ou,
+   *  par défaut, celles de la version affichée qui sont à envoyer. `context` :
+   *  une ligne de plus pour l'agent. */
+  async function annotPost(direct         ,only                       =null,context=''){
     const f=lbList[lbIdx];
-    const versionContext=lbVersionContext();
-    const sentSession=annotSession;
-    const sentNotes=(only?[only]:annotStrokes).filter(s=>s.note).map(s=>({stroke:structuredClone(s),note:s.note,n:s.n}));
+    const versionContext=[lbVersionContext(),context].filter(Boolean).join('\n');
+    // Dans l'image envoyée, une marque est une marque : ni fantôme ni coche.
+    const plain=(s              )=>{const copy=structuredClone(s);delete copy.status;delete copy.ghost;return copy;};
+    const sentNotes=(only||annotStrokes.filter(annotIsDraft)).filter(s=>s.note).map(s=>({stroke:plain(s),note:s.note,n:s.n}));
     // `rel` : le serveur y lit la recette de la figure et donne à l'agent le
     // script et la commande qui l'ont produite (chantier 2d).
     // Chaque note part avec sa position (fractions de l'image, comme les notes
@@ -4451,7 +4707,6 @@ function annotInit(){
     // d'une bulle vide (2026-09-04). Le contrat IPC accepte déjà ces champs.
     if(ANNOT_EMBEDDED&&j&&j.message){
       const id=crypto.randomUUID(), rel='figure-comments:'+String(f.rel||f.name);
-      pendingFigureNotes.set(id,{rel,notes:sentNotes,session:sentSession});
       const base                                                                                                                ={text:j.message,direct:!!direct,pdfAnnotation:{rel,id}};
       if(j.path){
         base.path=j.path;
@@ -4463,7 +4718,16 @@ function annotInit(){
     }
     return j;
   }
-  annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,stroke);if(!ANNOT_EMBEDDED){session.strokes=session.strokes.filter((s)=>s!==stroke);if(session===annotSession){annotStrokes=session.strokes;annotRenumber();annotRedraw();}}};
+  /** Les notes parties restent sur leur version, « envoyées » : c'est sur la
+   *  version suivante qu'on vérifiera qu'elles sont réglées. */
+  function annotMarkSent(session                          ,ids          ){
+    if(!session)return;
+    const now=Date.now(),sent=new Set(ids);
+    for(const s of session.strokes)if(sent.has(s.id)){s.status='sent';s.sentAt=now;delete s.doneAt;(session.base||={})[s.id]=annotBaseSig(s);}
+    // L'envoi ne s'annule pas : l'historique d'édition repart d'ici.
+    session.undo=[];session.redo=[];
+  }
+  annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,[stroke]);annotMarkSent(session,[stroke.id]);if(session===annotSession)annotRedraw();};
   function claudeTarget(){
     try{ return JSON.parse(localStorage.getItem('claudeTargetV1')||'null'); }catch(e){ return null; }
   }
@@ -4510,12 +4774,12 @@ function annotInit(){
   // d'envoi passe par des classes et une ligne d'état, jamais par le libellé.
   annotSendAll=async(direct         )=>{
     const button=(document.getElementById('annotSendAll')                     ),status=(document.getElementById('annotPanelStatus')                   );
-    if(annotBusy||!annotStrokes.some(s=>s.note?.trim()))return;
-    annotBusy=true;annotPillUpdate();const sendingSession=annotSession;
+    if(annotBusy||!annotStrokes.some(s=>s.note?.trim()&&annotIsDraft(s)))return;
+    annotBusy=true;annotPillUpdate();const sendingSession=annotSession,sending=annotStrokes.filter(s=>s.note&&annotIsDraft(s)).map(s=>s.id);
     button.classList.remove('is-ok','is-err');button.classList.add('is-busy');status.classList.remove('is-err');status.textContent='';
     try{
       const j=await annotPost(direct);
-      if(!ANNOT_EMBEDDED){sendingSession.strokes=[];if(annotSession===sendingSession){annotStrokes=[];annotSelected=null;}}annotSent=true;
+      annotMarkSent(sendingSession,sending);if(annotSession===sendingSession)annotSelected=null;annotSent=true;
       annotNoteHide();
       button.classList.remove('is-busy');button.classList.add('is-ok');
       status.textContent=ANNOT_EMBEDDED?(direct?'Envoyé au chat':'Ajouté au brouillon du chat'):(j.submitted?'Envoyé à la session':'Collé dans Claude');
@@ -4533,6 +4797,42 @@ function annotInit(){
       setTimeout(()=>button.classList.remove('is-busy','is-ok','is-err'),2400);
     }
     annotBusy=false;annotRedraw();
+  };
+  // « Renvoyer la note 3 » : les notes de la version précédente qui ne sont
+  // pas réglées repartent, sur l'image de la version affichée, avec leur cadre.
+  annotResend=async()=>{
+    const follow=annotFollow,open=annotGhosts.filter(g=>g.status==='sent'&&g.note);
+    const button=(document.getElementById('annotResend')                     ),status=(document.getElementById('annotPanelStatus')                   );
+    if(annotBusy||!follow||!open.length)return;
+    annotBusy=true;annotPillUpdate();
+    button.classList.remove('is-ok');button.classList.add('is-busy');status.classList.remove('is-err');status.textContent='';
+    try{
+      const shown=lbVersionRow(lbHistory.selected);
+      const j=await annotPost(true,open,'Notes posées sur v'+follow.version+' et renvoyées'+(shown?' : elles ne sont pas réglées sur v'+shown.version+'.':'.'));
+      // La date d'envoi avance, chez le serveur comme ici.
+      const kept=new Map((annotStore.get(follow.hash)||[]).map(n=>[n.id,n])),now=Date.now();
+      annotSaving++;
+      try{
+        for(const ghost of open){
+          const note=kept.get(ghost.id);if(note)note.sentAt=now;
+          await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:follow.hash,id:ghost.id,status:'resent'})});
+        }
+      }catch{/* la note est partie ; sa date d'envoi se rattrapera au prochain envoi */}
+      finally{annotSaving--;annotSavedAt=performance.now();}
+      annotSessions.delete(lbHistory.rel+'::version:'+follow.hash);
+      button.classList.remove('is-busy');button.classList.add('is-ok');
+      status.textContent=ANNOT_EMBEDDED?'Renvoyé au chat':(j.submitted?'Renvoyé à la session':'Collé dans Claude');
+      setTimeout(()=>{button.classList.remove('is-busy','is-ok');if(!annotBusy&&!status.classList.contains('is-err'))status.textContent='';},2400);
+    }catch(e){
+      button.classList.remove('is-busy');status.classList.add('is-err');
+      status.textContent=/ack/.test(String(e&&e.message))?'Chat injoignable — réessayer':e&&e.status?'Erreur serveur '+e.status:'Serveur off — démarrer le serveur';
+    }
+    annotBusy=false;annotRedraw();
+  };
+  (document.getElementById('annotResend')                     ).onclick=e=>{e.stopPropagation();void annotResend();};
+  (document.getElementById('annotFollowCompare')                     ).onclick=e=>{
+    e.stopPropagation();const button=e.currentTarget                     ;
+    lbCompareEnter({a:Number(button.dataset.a),b:Number(button.dataset.b)});
   };
 }
 annotInit();

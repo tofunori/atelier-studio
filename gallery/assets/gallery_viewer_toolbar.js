@@ -33,7 +33,7 @@
   const body=document.createElement('div');body.id='lbBody';
   const main=document.createElement('div');main.id='lbMain';
   get('lbViewport').before(body);
-  main.append(band,get('lbViewport'),caption,get('lbCompare'));
+  main.append(band,get('annotFollowLine'),get('lbViewport'),caption,get('lbCompare'));
   body.append(main,get('annotPanel'));
   // Documents and videos have their own surface: the figure row steps aside.
   body.style.display=get('lbViewport').style.display==='none'?'none':'';

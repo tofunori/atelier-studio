@@ -42,8 +42,10 @@ await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('#anno
 await page.locator('[data-tool="rect"]').click();await drag(450,430,540,510);await page.locator('#annotNote textarea').fill('');await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes.length),2);
 await page.mouse.move(box.x+450,box.y+430);await page.mouse.down();await page.mouse.move(box.x+510,box.y+490);await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await page.evaluate(()=>annotCur===null&&annotDrag===null),true);
 await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.screenshot({path:testInfo.outputPath('annotations.png')});
-await page.locator('.annot-send').click();await page.waitForFunction(()=>annotBusy);assert.equal(await page.locator('#annotSendAll').isDisabled(),true);assert.equal(await page.evaluate(()=>annotGuard()),false);assert.equal(saves.length,1);assert.equal(saves[0].notes.length,1);assert.equal(saves[0].direct,true);releaseSave();await page.waitForFunction(()=>!annotBusy);assert.equal(await page.evaluate(()=>annotStrokes.length),1);
-// The draft action lives in the send menu and carries every note.
+await page.locator('.annot-send').click();await page.waitForFunction(()=>annotBusy);assert.equal(await page.locator('#annotSendAll').isDisabled(),true);assert.equal(await page.evaluate(()=>annotGuard()),false);assert.equal(saves.length,1);assert.equal(saves[0].notes.length,1);assert.equal(saves[0].direct,true);releaseSave();await page.waitForFunction(()=>!annotBusy);
+// A sent note stays on its version, marked sent; the others are still to send.
+assert.deepEqual(await page.evaluate(()=>annotStrokes.map(s=>s.status||'draft')),['sent','draft']);
+// The draft action lives in the send menu and carries every note still to send.
 await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();await page.waitForFunction(()=>annotBusy);assert.equal(saves.length,2);assert.equal(saves[1].direct,false);releaseSave();await page.waitForFunction(()=>!annotBusy);
 await page.locator('[data-tool="pan"]').click();await page.evaluate(()=>lbSetZoom(.25));
 const smallBefore=await page.locator('#lbWrap').boundingBox(),stageBox=await page.locator('#lbViewport').boundingBox();
@@ -146,7 +148,7 @@ await page.evaluate(()=>{annotSelected=annotStrokes[0];annotRedraw();});
 await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>annotSelected===null&&lb().classList.contains('annot')),true);
 
 // The image sent to the agent carries the same ink marks.
-await page.locator('#annotSendAll').click();await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
+await page.locator('#annotSendAll').click();await page.waitForFunction(()=>!annotBusy&&annotStrokes.every(s=>s.status==='sent'));
 assert.equal(saves.length,1);
 assert.ok(await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<d.length;i+=4)if(Math.abs(d[i]-194)<=6&&Math.abs(d[i+1]-86)<=6&&Math.abs(d[i+2]-12)<=6)ink++;return ink;},saves[0].dataURL)>100);
 
@@ -227,7 +229,7 @@ await page.waitForFunction(()=>document.querySelectorAll('#annotItems .annot-row
 
 // ⌘↵ sends every note with its position (fractions of the image) and a crop of its zone.
 await page.keyboard.press('Control+Enter');
-await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===2&&annotStrokes.every(s=>s.status==='sent'));
 assert.equal(saves.length,1);assert.equal(saves[0].direct,true);
 assert.deepEqual(saves[0].notes.map((n: any)=>[n.n,n.text,n.kind]),[[1,'Axe y en log, base 10','box'],[2,'Point aberrant','point']]);
 {const near=(a: number,b: number)=>Math.abs(a-b)<=.01,[box,point]=saves[0].notes;
@@ -240,7 +242,10 @@ for(const sent of saves[0].notes){
 // The outcome is said in the panel, never by rewriting the button.
 assert.equal(await page.locator('#annotPanelStatus').textContent(),'Collé dans Claude');
 assert.equal(await page.locator('#annotSendAll .lbl').textContent(),'Envoyer à l’agent');
-assert.equal(await page.locator('#lbNotesN').textContent(),'');
+// Sent notes stay on the version, each with its « réglée » box; nothing is left to send.
+assert.equal(await page.locator('#lbNotesN').textContent(),'2');
+assert.equal(await page.locator('#annotItems .annot-check:visible').count(),2);
+assert.equal(await page.locator('#annotSendAll').isDisabled(),true);
 assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
 
 // The menu holds the secondary sends; Escape closes it without leaving the mode.
@@ -257,19 +262,20 @@ assert.equal((await page.locator('#tgMenu .it .t').first().textContent()).trim()
 assert.equal(await page.evaluate(()=>{const menu=document.getElementById('tgMenu').getBoundingClientRect(),more=document.getElementById('annotSendMore').getBoundingClientRect();return menu.width>0&&menu.bottom<=more.top&&menu.right<=innerWidth;}),true);
 await page.locator('#tgMenu .it').first().click();assert.equal(await page.locator('#tgMenu').isVisible(),false);
 await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();
-await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
-assert.equal(saves.length,2);assert.equal(saves[1].direct,false);
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===3&&annotStrokes.every(s=>s.status==='sent'));
+// Only the note still to send leaves: the two sent ones are not sent twice.
+assert.equal(saves.length,2);assert.equal(saves[1].direct,false);assert.deepEqual(saves[1].notes.map((n: any)=>n.text),['Légende à déplacer']);
 
 // Outside the mode the panel shows the marks read-only; a row re-enters the mode on its note.
 await drag(.6,.6,.8,.8);await note.fill('Reste à faire');await note.press('Enter');
 await page.keyboard.press('Escape');await page.keyboard.press('a');await page.waitForFunction(()=>!lb().classList.contains('annot'));
 assert.equal(await page.locator('#annotPanel').isVisible(),false);
-assert.equal(await page.locator('#lbNotesN').textContent(),'1');
+assert.equal(await page.locator('#lbNotesN').textContent(),'4');
 await page.locator('#lbNotes').click();await page.waitForFunction(()=>annotPanelOpen);
 assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),false);
 assert.deepEqual(await page.locator('#annotCv').evaluate(el=>[getComputedStyle(el).display,getComputedStyle(el).pointerEvents]),['block','none']);
-assert.deepEqual(await rows.allTextContents(),['1Reste à faire']);
-await rows.first().click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[0]);
+assert.deepEqual(await rows.allTextContents(),['1Axe y en log, base 10','2Point aberrant','3Légende à déplacer','4Reste à faire']);
+await rows.last().click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[3]);
 assert.equal(await note.inputValue(),'Reste à faire');await note.press('Enter');
 
 // Narrow viewer: the panel moves under the figure, which keeps the full width.

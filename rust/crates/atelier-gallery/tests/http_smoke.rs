@@ -1655,6 +1655,59 @@ fn annotation_d_une_figure_donne_position_et_recadrage_de_chaque_note() {
     assert!(!body.contains("Positions des notes"), "{body}");
 }
 
+/// Lot 3 : les notes d'une figure sont gardées avec la version où elles ont
+/// été posées, reviennent avec l'historique, et se règlent une à une.
+#[test]
+fn les_notes_d_une_figure_sont_durables_et_suivent_leur_version() {
+    let srv = start_server();
+    let png = |marker: u8| {
+        let mut bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        bytes.push(marker);
+        bytes.extend_from_slice(b"\0\0\0\0IEND\xaeB`\x82");
+        bytes
+    };
+    let history = |port: u16| {
+        let (st, body) = http(port, "POST", "/figure-history", Some(r#"{"paths":["notee.png"]}"#));
+        assert_eq!(st, 200, "{body}");
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["versions"].clone()
+    };
+    std::fs::write(srv.root.join("notee.png"), png(1)).unwrap();
+    let v1 = history(srv.port)[0]["hash"].as_str().unwrap().to_string();
+
+    let save = format!(
+        r#"{{"hash":"{v1}","notes":[
+            {{"id":"n-1","n":1,"kind":"box","x":0.62,"y":0.4,"w":0.16,"h":0.15,"text":"Étiqueter le creux","status":"sent","t":10,"sentAt":20}},
+            {{"id":"n-2","n":2,"kind":"point","x":0.5,"y":0.25,"text":"Unité manquante","t":11}}]}}"#
+    );
+    let (st, body) = http(srv.port, "POST", "/figure-notes", Some(&save));
+    assert_eq!(st, 200, "{body}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["notes"].as_array().unwrap().len(), 2);
+
+    // Une nouvelle version arrive : les notes restent sur v1, v2 n'en a pas.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(srv.root.join("notee.png"), png(2)).unwrap();
+    let versions = history(srv.port);
+    assert_eq!(versions.as_array().unwrap().len(), 2);
+    assert_eq!(versions[0]["notes"][0]["text"], "Étiqueter le creux");
+    assert_eq!(versions[0]["notes"][1]["status"], "draft");
+    assert!(versions[1].get("notes").is_none());
+
+    // Régler la note 1 depuis la version suivante, sans renvoyer la liste.
+    let done = format!(r#"{{"hash":"{v1}","id":"n-1","status":"done"}}"#);
+    let (st, body) = http(srv.port, "POST", "/figure-note-status", Some(&done));
+    assert_eq!(st, 200, "{body}");
+    let note = serde_json::from_str::<serde_json::Value>(&body).unwrap()["note"].clone();
+    assert_eq!(note["status"], "done");
+    assert_eq!(note["sentAt"], 20);
+    assert!(note["doneAt"].as_i64().unwrap() > 20);
+    assert_eq!(history(srv.port)[0]["notes"][0]["status"], "done");
+
+    let missing = format!(r#"{{"hash":"{v1}","id":"absente","status":"done"}}"#);
+    assert_eq!(http(srv.port, "POST", "/figure-note-status", Some(&missing)).0, 404);
+    let unknown = format!(r#"{{"hash":"{}","notes":[]}}"#, "0".repeat(64));
+    assert_eq!(http(srv.port, "POST", "/figure-notes", Some(&unknown)).0, 409, "version inconnue");
+}
+
 /// Confinement : `/prov` ne sort jamais du projet, et reste derrière le garde
 /// d'origine comme toute autre route (mémoire projet : CORS/ACAO commun).
 #[test]
