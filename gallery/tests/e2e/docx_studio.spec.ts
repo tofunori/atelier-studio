@@ -280,6 +280,24 @@ test('docx: accepter, refuser, commenter, répondre et annuler depuis la marge',
   await expect.poll(async () => (await disk(page, project)).changes.some(c => c.id === 120)).toBe(false);
 });
 
+// Projecteur (Thierry, 2026-11-16) : une fiche ouverte, les autres de la marge
+// reculent à 50 % ; Échap rend tout.
+test('docx: la fiche ouverte ressort, les autres reculent, Échap rend tout', async ({page, project}) => {
+  await open(page, project);
+  const thread = page.locator('#cards .it[data-key="c1"]');
+  const other = page.locator('#cards .it:not([data-key="c1"])').first();
+  const opacity = (l: typeof other) => l.evaluate(el => getComputedStyle(el).opacity);
+  await expect(page.locator('body')).not.toHaveClass(/\bc-spot\b/);
+  await thread.locator('.cc').click();
+  await expect(thread).toHaveClass(/\bon\b/);
+  await expect(page.locator('body')).toHaveClass(/\bc-spot\b/);
+  await expect.poll(() => opacity(other)).toBe('0.5');
+  await expect.poll(() => opacity(thread)).toBe('1');
+  await page.locator('body').press('Escape');
+  await expect(page.locator('body')).not.toHaveClass(/\bc-spot\b/);
+  await expect.poll(() => opacity(other)).toBe('1');
+});
+
 // Thierry, 2026-11-15 : la bulle de SA modification n'offrait qu'un ✕
 // (« Retirer »), qu'il prenait pour « fermer ». Elle porte maintenant
 // ✕ et ✓, comme celle des autres.

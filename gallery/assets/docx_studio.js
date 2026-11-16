@@ -3686,6 +3686,8 @@
       el.classList.toggle("done", ids.every((id) => threadOf(id)?.done !== false));
       el.classList.toggle("on", ids.some((id) => threadOf(id)?.id === active));
     }
+    // Projecteur (2026-11-16) : une fiche ouverte, les autres et leurs passages reculent.
+    document.body.classList.toggle("c-spot", lane.some((it) => it.key === focusKey));
     paintDraft();
     layoutCards();
     renderSide();

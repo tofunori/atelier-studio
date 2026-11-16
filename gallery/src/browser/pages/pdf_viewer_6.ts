@@ -5278,6 +5278,33 @@ if (window.self !== window.top) {
     return '<div class="cc' + (on ? " on" : "") + '" data-id="' + esc(id) + '"' + (on ? "" : ' role="button" tabindex="0"') + ">" + h + "</div>";
   }
   const find = (id: string | null) => PDF_ANNOTS.find(a => String(a.id) === id);
+  // Projecteur (2026-11-16) : un commentaire ouvert reste plein, dans la
+  // colonne comme sur la copie ; les autres cartes, passages et pastilles
+  // reculent. Une règle par id : elle survit aux pages redessinées.
+  const spotCss = document.createElement("style");
+  spotCss.id = "pcSpot";
+  document.head.appendChild(spotCss);
+  let spotRule = "";
+  function spot(){
+    const pane = document.getElementById("annPane");
+    const shown = pane?.style.display === "flex" && pane.classList.contains("pdf-comments-on")
+      && !pane.classList.contains("toc-on") && !pane.classList.contains("codes-on");
+    const id = shown && active && find(active) ? active : "";
+    pane?.querySelector(".pc-list")?.classList.toggle("spot", Boolean(id));
+    const q = '"' + id.replace(/["\\]/g, "\\$&") + '"';
+    const rule = id ? ".pg :is(.pdfhl,.pdfcomment-line,.atelier-note-pin,.pdfarea,.pdfnote):not([data-aid=" + q + "]){opacity:.4}"
+      + ".pg .atelier-note-pin:not([data-aid=" + q + "]):hover{opacity:1}"
+      + ".pg .atelier-note-pin[data-aid=" + q + "]{background:rgb(var(--note-ink,var(--pin-text)));color:rgb(var(--pin-paper));"
+      + "box-shadow:0 0 0 3px rgba(var(--note-veil,var(--pin-text)),.45),0 1px 4px rgba(0,0,0,.24)}" : "";
+    if (rule !== spotRule) spotCss.textContent = spotRule = rule;
+  }
+  /** Échap, ou un clic dans le vide de la copie ou de la colonne : plus de commentaire ouvert. */
+  function release(){
+    if (!active || editing) return;
+    active = null;
+    annPane.refresh();
+    spot();
+  }
   function redraw(){
     document.querySelectorAll<HTMLElement>(".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
     if (window.__readingMode?.isOn()) drawReadingAnnots();
@@ -5429,6 +5456,7 @@ if (window.self !== window.top) {
         if (active && !find(active)) active = null;
         list.innerHTML = all.map(a => card(a, numbers.get(String(a.id)))).join("")
           || '<div class="tp-empty">Sélectionne un passage, puis Commentaire. Tes commentaires et ceux de Claude, signés de ton nom, s’ajoutent ici.</div>';
+        spot();
         if (!wired) {
           wired = true;
           list.addEventListener("click", onClick);
@@ -5438,6 +5466,23 @@ if (window.self !== window.top) {
           foot.addEventListener("click", onClick);
           pane.appendChild(foot);
           paintFoot();
+          // colonne fermée, ou onglet Codes / Plan : la copie revient entière
+          new MutationObserver(spot).observe(pane, {attributes: true, attributeFilter: ["style", "class"]});
+          list.addEventListener("click", e => { if (e.target === list) release(); });
+          document.addEventListener("keydown", e => {
+            if (e.key !== "Escape" || e.defaultPrevented || !active) return;
+            if ((e.target as Element).closest?.("textarea,input,[contenteditable],.menu,#annotPop,#selPill")) return;
+            // un appui ferme une chose : la fenêtre d'annotation ou la pilule d'abord
+            const open = (sel: string) => { const el = document.getElementById(sel); return Boolean(el && el.style.display && el.style.display !== "none"); };
+            if (open("annotPop") || open("selPill")) return;
+            release();
+          });
+          document.addEventListener("click", e => {
+            const t = e.target as Element;
+            if (!active || !t.closest?.(".pg") || t.closest("[data-aid], button, a, input, textarea, .pdftext")) return;
+            if (String(window.getSelection() || "").trim()) return;
+            release();
+          });
         }
       },
       open(a){
