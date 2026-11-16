@@ -204,6 +204,40 @@ test('versions written while the viewer is closed are kept, copies share the his
   await expect(page.locator('#lbStripSize')).toContainText('3 versions');
 });
 
+// 2026-11-16 : chaque figure enregistrée depuis le chat est une copie neuve
+// (images-generees/<nom>-<hachage>.png). La suivante écrasait la précédente
+// dans la visionneuse (une seule version, notes de v1 introuvables) : elles
+// s'empilent maintenant en v1, v2…, même enregistrées visionneuse ouverte.
+test('figures saved from the chat stack as versions of one figure',async({page})=>{
+  const errors: string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto(origin+'/?embedded=atelier');
+  const png=async(color: string)=>Buffer.from(await page.evaluate(color=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,400,300);return c.toDataURL('image/png').split(',')[1];},color),'base64');
+  const chat=path.join(root,'images-generees');fs.mkdirSync(chat,{recursive:true});
+  const first='images-generees/fig_tests_droite_courbe-f5616df8.png',second='images-generees/fig_tests_droite_courbe-b5b5ca0d.png';
+  fs.writeFileSync(path.join(root,first),await png('#f2d6c4'));
+  fs.writeFileSync(path.join(chat,'fig_autre-0123abcd.png'),await png('#c4d6f2'));
+  const open=(rel: string)=>page.evaluate(async rel=>{lbList=([{rel,name:rel.split('/').pop(),ext:'png',folder:'images-generees'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;},rel);
+  await open(first);
+  await expect(ver(page)).toHaveText('v1');
+  // Le chat refait la figure pendant que la visionneuse est ouverte : v2 arrive.
+  await page.waitForTimeout(20);
+  fs.writeFileSync(path.join(root,second),await png('#d6f2c4'));
+  await expect(ver(page)).toHaveText('v2',{timeout:8000});
+  await expect(page.locator('#lbStrip .lbs-tile')).toHaveCount(2);
+  await expect(tile(page,2).locator('.lbs-n')).toHaveText('actuelle');
+  // Un instantané du chat n'est jamais une « copie en retard ».
+  await expect(tile(page,1).locator('.lbs-n')).toHaveText('');
+  // Ouverte depuis le message d'origine, l'ancienne figure montre sa version.
+  await open(first);
+  await expect(ver(page)).toHaveText('v1');
+  await expect(page.locator('#lbStrip .lbs-tile')).toHaveCount(2);
+  await page.waitForTimeout(3000);
+  await expect(ver(page)).toHaveText('v1');
+  await open(second);
+  await expect(ver(page)).toHaveText('v2');
+  expect(errors).toEqual([]);
+});
+
 test('top-bar Gallery icon closes the open figure and returns to the grid',async({page})=>{
   await page.goto(origin+'/?embedded=atelier');
   const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle='#bce5bc';x.fillRect(0,0,400,300);return c.toDataURL().split(',')[1];});

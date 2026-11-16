@@ -3671,7 +3671,10 @@ let lbStripOpen=true;try{lbStripOpen=localStorage.getItem('atelier.figureStrip')
 let lbHistory               ={rel:'',rels:[],rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:0,busy:false,manual:false,compare:null};
 let lbVersionReady=Promise.resolve();
 const lbVersionRow=(version             )=>lbHistory.rows.find(r=>r.version===version);
-/** La figure ouverte et ses copies de même nature (pas la copie annotée du chat). */
+/** La figure ouverte et ses copies de même nature (pas les copies du chat).
+ *  Une figure du chat (images-generees/<nom>-<hachage>) reçoit du serveur ses
+ *  autres copies du chat : chacune est une version, même enregistrée après
+ *  l'ouverture. */
 function lbHistoryRels(f            ){
   if(!f||!HISTORY_EXTS.includes(f.ext))return [];
   const copies=(figureGroups.get(f.rel)||[]).filter(m=>m.rel!==f.rel&&HISTORY_EXTS.includes(m.ext)&&!/^images-generees(\/|$)/.test(m.folder||''));
@@ -3810,7 +3813,11 @@ function lbVersionsPoll(){
       const adopted=annotAdopt(h.rows,started);
       if(h.compare&&(!lbVersionRow(h.compare.a)||!lbVersionRow(h.compare.b)))lbCompareExit();
       lbVersionsPaint();if(h.compare)lbComparePaint();
-      if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
+      // Une figure du chat ouverte depuis un ancien message montre sa propre
+      // version, pas la dernière : on reste dessus, la bande offre les autres.
+      const held=h.selected==null&&/^images-generees\//.test(h.rel)?h.copies.find(c=>c.rel===h.rel)?.version:undefined;
+      if(held!=null&&held!==h.rows.at(-1).version){h.follow=false;await lbVersionDisplay(held);}
+      else if(h.follow)await lbVersionDisplay(h.rows.at(-1).version,true);
       if(adopted&&h===lbHistory){
         if(adopted.shown){annotSelected=null;annotHover=null;annotBind(lb().classList.contains('annot'));}
         if(lb().classList.contains('annot')||annotPanelOpen){annotLayout();annotRedraw();}else annotPillUpdate();
