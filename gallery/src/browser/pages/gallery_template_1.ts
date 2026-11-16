@@ -2711,6 +2711,8 @@ lbStrip.before(lbCompare);
 new ResizeObserver(()=>lb().style.setProperty('--lb-strip-h',(lbStrip.hidden?0:lbStrip.offsetHeight)+'px')).observe(lbStrip);
 const lbStripRow=(document.getElementById('lbStripRow') as HTMLDivElement),lbCompareBtn=(document.getElementById('lbCompareBtn') as HTMLButtonElement);
 let lbStripOpen=true;try{lbStripOpen=localStorage.getItem('atelier.figureStrip')!=='0';}catch{}
+// Curseur de comparaison (voir lbComparePaint) : déclaré ici, le sondage le lit.
+let lbcDispose: (()=>void)|null=null,lbcApply: (()=>void)|null=null,lbcDragging=false;
 let lbHistory: FigureHistory={rel:'',rels:[],rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:0,busy:false,manual:false,compare:null};
 let lbVersionReady=Promise.resolve();
 const lbVersionRow=(version: number|null)=>lbHistory.rows.find(r=>r.version===version);
@@ -2844,7 +2846,7 @@ async function lbVersionDisplay(version: number,automatic=false){
   if(provOpen){provState=null;provRel='';provSync();}
 }
 function lbVersionsPoll(){
-  const h=lbHistory;if(!h.rel||h.busy||document.hidden||!lb().classList.contains('show'))return lbVersionReady;
+  const h=lbHistory;if(!h.rel||h.busy||lbcDragging||document.hidden||!lb().classList.contains('show'))return lbVersionReady;
   h.busy=true;const started=performance.now();
   lbVersionReady=(async()=>{
     try{
@@ -2926,10 +2928,17 @@ function lbCompareEnter(pair?: {a: number; b: number}){
 function lbCompareExit(){
   const h=lbHistory;h.compare=null;
   lb().classList.remove('comparing');lbCompare.hidden=true;
-  lbCompare.querySelector('.lbc-stage').replaceChildren();
+  lbcDispose?.();lbcDispose=null;
+  const stage=lbCompare.querySelector<HTMLDivElement>('.lbc-stage');stage.replaceChildren();delete stage.dataset.key;
   if(lbStrip.isConnected)lbVersionsPaint();
 }
 const lbCmpLabel=(slot: string,version: number)=>{const r=lbVersionRow(version);return r?slot+' · v'+r.version+' · '+lbWhen(r.created):'';};
+// Curseur A/B : le glissement ne touche que des `transform` posés sur des
+// calques à part (volet B, son image en contre-sens, poignée), donc ni mise en
+// page ni repeinte des images à chaque mouvement : le compositeur seul déplace
+// la coupure. Une position par image (requestAnimationFrame), pointeur capturé,
+// et la scène n'est jamais reconstruite tant qu'elle montre les mêmes versions
+// (le sondage des versions repasse ici toutes les 2,5 s).
 function lbComparePaint(){
   const cmp=lbHistory.compare;if(!cmp)return;
   const a=lbVersionRow(cmp.a),b=lbVersionRow(cmp.b);if(!a||!b)return;
@@ -2937,36 +2946,75 @@ function lbComparePaint(){
   (document.getElementById('lbCmpB') as HTMLSpanElement).textContent=lbCmpLabel('B',cmp.b);
   lbCompare.querySelectorAll<HTMLButtonElement>('.lbc-seg button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.mode===cmp.mode)));
   const stage=lbCompare.querySelector<HTMLDivElement>('.lbc-stage'),src=(r: FigureVersion)=>escA('/figure-version?hash='+r.hash);
+  const key=cmp.mode+':'+a.hash+':'+b.hash;
+  if(stage.dataset.key===key&&stage.firstElementChild)return;
+  lbcDispose?.();lbcDispose=null;stage.dataset.key=key;
   if(cmp.mode==='side'){
-    stage.innerHTML='<div class="lbc-side"><figure><img alt="" src="'+src(a)+'"><figcaption>A · v'+a.version+'</figcaption></figure><figure><img alt="" src="'+src(b)+'"><figcaption>B · v'+b.version+'</figcaption></figure></div>';
+    stage.innerHTML='<div class="lbc-side"><figure><img alt="" decoding="async" src="'+src(a)+'"><figcaption>A · v'+a.version+'</figcaption></figure><figure><img alt="" decoding="async" src="'+src(b)+'"><figcaption>B · v'+b.version+'</figcaption></figure></div>';
     return;
   }
-  stage.innerHTML='<div class="lbc-split"><img class="lbc-a" alt="" src="'+src(a)+'"><div class="lbc-b"><img alt="" src="'+src(b)+'"></div>'
+  stage.innerHTML='<div class="lbc-split"><img class="lbc-a" alt="" draggable="false" decoding="async" src="'+src(a)+'"><div class="lbc-b"><img alt="" draggable="false" decoding="async" src="'+src(b)+'"></div>'
     +'<div class="lbc-handle" role="slider" tabindex="0" aria-label="Partage entre A et B" aria-valuemin="0" aria-valuemax="100"><span></span></div>'
     +'<span class="lbc-tag l">A · v'+a.version+'</span><span class="lbc-tag r">B · v'+b.version+'</span></div>';
   const split=stage.querySelector<HTMLDivElement>('.lbc-split'),imgA=split.querySelector<HTMLImageElement>('.lbc-a');
+  const paneB=split.querySelector<HTMLDivElement>('.lbc-b'),imgB=paneB.querySelector<HTMLImageElement>('img'),handle=split.querySelector<HTMLDivElement>('.lbc-handle');
+  let width=0;
+  // Abscisse arrondie au pixel physique : le volet et son image se décalent de
+  // la même quantité en sens contraires, B reste net et immobile à l'écran.
+  lbcApply=()=>{
+    const c=lbHistory.compare;if(!c)return;
+    const dpr=window.devicePixelRatio||1,x=Math.round(c.pos*width*dpr)/dpr;
+    paneB.style.transform='translate3d('+x+'px,0,0)';imgB.style.transform='translate3d('+(-x)+'px,0,0)';
+    handle.style.transform='translate3d('+x+'px,0,0)';
+  };
   const fit=()=>{
-    if(!imgA.naturalWidth)return;
-    const W=stage.clientWidth-32,H=stage.clientHeight-32,s=Math.min(W/imgA.naturalWidth,H/imgA.naturalHeight,1);
-    split.style.width=Math.round(imgA.naturalWidth*s)+'px';split.style.height=Math.round(imgA.naturalHeight*s)+'px';
+    if(imgA.naturalWidth){
+      const W=stage.clientWidth-32,H=stage.clientHeight-32,s=Math.min(W/imgA.naturalWidth,H/imgA.naturalHeight,1);
+      split.style.width=Math.round(imgA.naturalWidth*s)+'px';split.style.height=Math.round(imgA.naturalHeight*s)+'px';
+    }
+    width=split.clientWidth;lbcApply?.();
   };
   imgA.onload=fit;if(imgA.complete)fit();
-  new ResizeObserver(fit).observe(stage);
+  const ro=new ResizeObserver(fit);ro.observe(stage);
   lbCompareSlide(cmp.pos);
-  const move=(e: PointerEvent)=>{const r=split.getBoundingClientRect();lbCompareSlide((e.clientX-r.left)/r.width);};
-  split.addEventListener('pointerdown',e=>{e.preventDefault();split.setPointerCapture(e.pointerId);move(e);split.onpointermove=move;});
-  split.addEventListener('pointerup',e=>{split.releasePointerCapture(e.pointerId);split.onpointermove=null;});
-  split.querySelector<HTMLDivElement>('.lbc-handle').addEventListener('keydown',e=>{
-    if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
-    e.preventDefault();e.stopPropagation();lbCompareSlide(lbHistory.compare.pos+(e.key==='ArrowRight'?.05:-.05));
+  let raf=0,next=-1,grab=0,box: DOMRect|null=null;
+  const flush=()=>{raf=0;if(next>=0)lbCompareSlide(next);next=-1;};
+  const at=(clientX: number)=>box&&box.width?(clientX-grab-box.left)/box.width:lbHistory.compare?.pos??.5;
+  split.addEventListener('pointerdown',e=>{
+    if(e.button!==0||!lbHistory.compare)return;
+    e.preventDefault();
+    box=split.getBoundingClientRect();
+    // Prise sur la poignée : on garde l'écart au trait, rien ne saute.
+    grab=(e.target as Element).closest('.lbc-handle')?e.clientX-(box.left+lbHistory.compare.pos*box.width):0;
+    split.setPointerCapture(e.pointerId);split.classList.remove('glide');split.classList.add('dragging');lbcDragging=true;
+    lbCompareSlide(at(e.clientX));
   });
+  split.addEventListener('pointermove',e=>{
+    if(!box||!split.hasPointerCapture(e.pointerId))return;
+    next=at(e.clientX);if(!raf)raf=requestAnimationFrame(flush);
+  });
+  const end=(e: PointerEvent)=>{
+    if(!box)return;
+    if(e.type==='pointerup')next=at(e.clientX);
+    if(raf)cancelAnimationFrame(raf);flush();
+    box=null;lbcDragging=false;split.classList.remove('dragging');
+    if(split.hasPointerCapture(e.pointerId))split.releasePointerCapture(e.pointerId);
+  };
+  split.addEventListener('pointerup',end);split.addEventListener('pointercancel',end);split.addEventListener('lostpointercapture',end);
+  handle.addEventListener('keydown',e=>{
+    const c=lbHistory.compare;if(!c)return;
+    const step=e.shiftKey?.01:.05;
+    const to=e.key==='ArrowRight'?c.pos+step:e.key==='ArrowLeft'?c.pos-step:e.key==='Home'?0:e.key==='End'?1:null;
+    if(to==null)return;
+    e.preventDefault();e.stopPropagation();split.classList.add('glide');lbCompareSlide(to);
+  });
+  lbcDispose=()=>{ro.disconnect();if(raf)cancelAnimationFrame(raf);lbcApply=null;lbcDragging=false;};
 }
 function lbCompareSlide(pos: number){
   const cmp=lbHistory.compare;if(!cmp)return;
   cmp.pos=Math.min(1,Math.max(0,pos));
-  const split=lbCompare.querySelector<HTMLDivElement>('.lbc-split');if(!split)return;
-  split.style.setProperty('--lbc-pos',(cmp.pos*100).toFixed(1)+'%');
-  split.querySelector('.lbc-handle').setAttribute('aria-valuenow',String(Math.round(cmp.pos*100)));
+  lbcApply?.();
+  lbCompare.querySelector('.lbc-handle')?.setAttribute('aria-valuenow',String(Math.round(cmp.pos*100)));
 }
 lbCompareBtn.onclick=e=>{e.stopPropagation();if(lbHistory.compare)lbCompareExit();else lbCompareEnter();};
 lbCompare.addEventListener('click',e=>{
@@ -3953,6 +4001,7 @@ export type PageGlobals = {
   lbVersionGo: typeof lbVersionGo;
   lbVersionsPoll: typeof lbVersionsPoll;
   lbCompareSlide: typeof lbCompareSlide;
+  lbcDragging: typeof lbcDragging;
   lbAttachDisplayed: typeof lbAttachDisplayed;
   annotToggle: typeof annotToggle;
   annotRedraw: typeof annotRedraw;

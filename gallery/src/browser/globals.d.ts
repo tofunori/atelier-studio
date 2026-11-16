@@ -29,6 +29,7 @@ declare global {
   var figureGroups: import('./pages/gallery_template_1').PageGlobals['figureGroups'];
   var lbVersionGo: import('./pages/gallery_template_1').PageGlobals['lbVersionGo'];
   var lbCompareSlide: import('./pages/gallery_template_1').PageGlobals['lbCompareSlide'];
+  var lbcDragging: import('./pages/gallery_template_1').PageGlobals['lbcDragging'];
   var lbAttachDisplayed: import('./pages/gallery_template_1').PageGlobals['lbAttachDisplayed'];
   var annotToggle: import('./pages/gallery_template_1').PageGlobals['annotToggle'];
   var annotRedraw: import('./pages/gallery_template_1').PageGlobals['annotRedraw'];
