@@ -476,7 +476,9 @@ test('outils de la barre : note unique et personnelle, tampon, zone de texte, ra
   }).toBe(true);
   // La note aussi, même quand une resynchro du store (veille de 2,5 s)
   // redessine la page en plein glissé : le glissé suit la marque redessinée.
-  await pin.scrollIntoViewIfNeeded();
+  // Le défilement aussi : une resynchro peut remplacer la marque pendant
+  // qu'il attend qu'elle soit stable, on le refait alors sur la nouvelle.
+  await expect(async () => { await pin.scrollIntoViewIfNeeded({ timeout: 1000 }); }).toPass({ timeout: 10000 });
   const pinBefore = await boxOf(pin);
   await page.mouse.move(pinBefore.x + 12, pinBefore.y + 12);
   await page.mouse.down();
