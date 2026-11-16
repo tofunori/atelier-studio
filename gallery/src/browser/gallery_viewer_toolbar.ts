@@ -20,12 +20,13 @@
   get('lbAdd').innerHTML = chat + '<span class="viewer-label">Joindre</span>';
   get('lbAnnot').insertAdjacentHTML('beforeend', '<span class="viewer-label">Annoter</span>');
   get('lbClose').innerHTML = svg('<path d="m6 6 12 12M6 18 18 6"/>');
+  // The palette gets its own band between the toolbar and the figure, so it
+  // never covers the image; the caption gets its own row under the figure.
   const palette = get('annotBar');
-  viewer.append(palette);
-  const caption=document.createElement('div');caption.id='lbFigureCaption';viewer.append(caption);
+  const band = document.createElement('div'); band.id = 'annotBand'; band.append(palette); head.after(band);
+  const caption=document.createElement('div');caption.id='lbFigureCaption';get('lbViewport').after(caption);
   const syncCaption=()=>caption.textContent=get('lbCap').querySelector<HTMLElement>('b')?.textContent||'';
   new MutationObserver(syncCaption).observe(get('lbCap'),{childList:true,subtree:true,characterData:true});syncCaption();
-  palette.append(button('annotDone', 'Terminer l’annotation', svg('<path d="m5 12 4 4L19 6"/>'), () => get('lbAnnot').click()));
   // Annotation count remains available without occupying the reading toolbar.
   more.querySelector<HTMLDivElement>('div').append(get('annotPill'));
   get('annotPillN').addEventListener('click',()=>{more.open=false;});
@@ -56,8 +57,8 @@
   const syncAdd = () => (get('lbOverflowAdd') as HTMLInputElement).disabled = (get('lbAdd') as HTMLInputElement).disabled;
   new MutationObserver(syncAdd).observe(get('lbAdd'), {attributes:true,attributeFilter:['disabled']}); syncAdd();
   more.querySelector<HTMLDivElement>('div').append(button('lbResetView','Réinitialiser la vue','Réinitialiser la vue',()=>{lbSetZoom(1);more.open=false;}));
-  for(const details of [zoom,more,(get('annotShapes') as HTMLDetailsElement)])details.addEventListener('toggle',()=>{
-    if(details.open)for(const other of [zoom,more,(get('annotShapes') as HTMLDetailsElement)])if(other!==details)other.open=false;
+  for(const details of [zoom,more])details.addEventListener('toggle',()=>{
+    if(details.open)for(const other of [zoom,more])if(other!==details)other.open=false;
   });
   document.addEventListener('pointerdown', e => {
     if (!zoom.contains(e.target as Node) && !(e.target as Element).closest<HTMLElement>('#lbOverflowZoom')) zoom.open=false;
@@ -65,7 +66,7 @@
   });
   document.addEventListener('keydown', e => {
     if(e.key!=='Escape')return;
-    const open=[zoom,more,(get('annotShapes') as HTMLDetailsElement)].find(d=>d.open);
+    const open=[zoom,more].find(d=>d.open);
     if(open){open.open=false;open.querySelector<HTMLElement>('summary').focus();e.preventDefault();e.stopImmediatePropagation();}
   },true);
   new MutationObserver(()=>{

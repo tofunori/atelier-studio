@@ -4,7 +4,8 @@
 #lb.responsive-viewer #lbHead .lb-space{min-width:0}
 #lb.responsive-viewer #lbHead>button,#lb.responsive-viewer summary{width:auto;min-width:32px;height:32px;padding:0 8px;flex:none;border-radius:6px;font-size:13px;box-sizing:border-box;gap:8px}
 #lb.responsive-viewer svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
-#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--primary);background:var(--primary-soft)}
+/* « Annoter » actif est neutre, comme « vN » : seules les marques portent l'encre. */
+#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--txt);background:color-mix(in srgb,var(--txt) 9%,transparent)}
 #lb.responsive-viewer #lbZoomMenu{position:relative;flex:none}
 #lb.responsive-viewer #lbZoomMenu summary{display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;color:var(--txt)}
 #lb.responsive-viewer summary::-webkit-details-marker{display:none}
@@ -17,22 +18,28 @@
 #lb.responsive-viewer #lbZoom #lbFit{flex:1}
 #lb.responsive-viewer .viewer-menu>button,#lb.responsive-viewer #lbOverflow button{display:flex;align-items:center;justify-content:flex-start;width:100%;height:28px;border:0;background:transparent;color:var(--txt);font:inherit;font-size:12px;gap:8px;padding:0 8px;box-sizing:border-box;white-space:nowrap}
 #lb.responsive-viewer #lbOverflow{display:none}
-#lb.responsive-viewer #annotBar{position:absolute!important;top:58px;left:50%;right:auto;transform:translateX(-50%)!important;display:none!important;width:max-content;max-width:calc(100% - 16px);padding:4px;gap:4px;background:var(--card);border:0;border-radius:10px;box-shadow:var(--elev);z-index:108;box-sizing:border-box}
-#lb.responsive-viewer.annot #annotBar{display:flex!important}
-#lb.responsive-viewer #annotBar>button,#lb.responsive-viewer #annotShapes summary{display:inline-flex;align-items:center;justify-content:center;width:32px;min-width:32px;height:32px;padding:0;box-sizing:border-box}
-#lb.responsive-viewer #annotShapes summary{width:40px;gap:0}
-#lb.responsive-viewer #annotBar i{display:none}
-#lb.responsive-viewer #annotBar #annotZoomOut,#lb.responsive-viewer #annotBar #annotFit,#lb.responsive-viewer #annotBar #annotZoomIn{display:none}
-#lb.responsive-viewer #annotBar .sel{background:var(--primary-soft);color:var(--primary)}
-#lb.responsive-viewer #annotDone{color:var(--txt)}
+/* Palette d'annotation (lot 1, 2026-11-16) : une bande à elle entre la barre et
+   la figure, jamais posée sur la figure. Outils à plat, outil actif neutre. */
+#annotBand{display:none;flex:none;width:100%;justify-content:center;padding:8px 8px 0;box-sizing:border-box}
+#lb.responsive-viewer.annot #annotBand{display:flex}
+#lb.responsive-viewer #annotBar{position:static!important;transform:none!important;display:flex!important;align-items:center;width:max-content;max-width:100%;padding:4px;gap:4px;background:var(--card);border:0;border-radius:10px;box-shadow:var(--elev);box-sizing:border-box}
+#lb.responsive-viewer #annotBar>button{display:inline-flex;align-items:center;justify-content:center;width:32px;min-width:32px;height:32px;padding:0;box-sizing:border-box;border-radius:6px;color:var(--muted);opacity:1;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotBar>button.sel{background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}
+#lb.responsive-viewer #annotBar>button:disabled{opacity:.35}
+#lb.responsive-viewer #annotBar i{display:block;flex:none;width:1px;height:16px;margin:0 4px;background:var(--border)}
+@media (prefers-reduced-motion:reduce){#lb.responsive-viewer #annotBar>button{transition:none}}
+/* Volet très étroit : les sept outils tiennent encore sur une ligne. */
+@container figure-viewer (max-width:320px){#lb.responsive-viewer #annotBar{gap:0}#lb.responsive-viewer #annotBar>button{width:28px;min-width:28px}#lb.responsive-viewer #annotBar i{display:none}}
 #lb.responsive-viewer #annotPill{position:static!important;display:flex!important;transform:none!important;opacity:1;margin:4px 0;padding:0;width:100%;flex-wrap:wrap}
 #lb.responsive-viewer #annotPillN{font-size:12px;text-align:left}
 #lb.responsive-viewer #lbSheet{max-width:calc(100% - 16px);box-sizing:border-box}
-#lb.responsive-viewer #lbFigureCaption{position:absolute;bottom:calc(var(--lb-strip-h,0px) + 16px);left:16px;right:16px;text-align:center;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+/* Légende : une ligne à elle sous la figure ; une figure agrandie ne passe plus dessous. */
+#lb.responsive-viewer #lbFigureCaption{flex:none;width:100%;box-sizing:border-box;padding:0 16px 12px;text-align:center;font-size:11px;line-height:1.5;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 #lb.responsive-viewer.vw #lbFigureCaption{display:none}
 #lb.responsive-viewer.dark-backdrop #lbFigureCaption{color:color-mix(in srgb,var(--on-media,#fff) 72%,transparent)}
-#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:24px 24px 48px}
-#lb.responsive-viewer #lbHead:has(~ #annotBar) {border-bottom:1px solid color-mix(in srgb,var(--txt) 4%,transparent)}
+#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding:24px 24px 12px}
+#lb.responsive-viewer.annot #lbViewport{padding-top:16px}
+#lb.responsive-viewer #lbHead{border-bottom:1px solid color-mix(in srgb,var(--txt) 4%,transparent)}
 #lb.responsive-viewer button:focus-visible,#lb.responsive-viewer summary:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 @media(hover:hover){#lb.responsive-viewer button:hover,#lb.responsive-viewer summary:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}}
 @container figure-viewer (max-width:760px){#lb.responsive-viewer .viewer-label{display:none}#lb.responsive-viewer #lbViewport,#lb.responsive-viewer.annot #lbViewport{padding-left:16px;padding-right:16px}}
@@ -45,7 +52,7 @@
   #lb.responsive-viewer #lbOverflow{display:block}
   #lb.responsive-viewer #lbOverflow .viewer-label{display:inline}
 }
-@container figure-viewer (max-width:300px){#lb.responsive-viewer #lbHead{padding:6px}}
+@container figure-viewer (max-width:300px){#lb.responsive-viewer #lbHead{padding:4px}}
 #lb.responsive-viewer #lbMore{position:static}
 #lb.responsive-viewer #lbMore>div{right:8px;top:54px}
 
@@ -55,8 +62,7 @@
 html.emb #lb.responsive-viewer.fs #lbHead{display:flex;padding-left:112px}
 html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 @media(max-width:360px){
-  html.emb #lb.responsive-viewer.fs #lbHead{margin-top:40px;padding-left:6px}
-  html.emb #lb.responsive-viewer.fs #annotBar{top:98px}
+  html.emb #lb.responsive-viewer.fs #lbHead{margin-top:40px;padding-left:8px}
 }
 /* GAL-27 : le libellé de zoom garde sa largeur quand les chiffres changent */
 #lb.responsive-viewer #lbZoomLabel{display:inline-block;min-width:40px;text-align:center;font-variant-numeric:tabular-nums}
@@ -66,6 +72,8 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 #lb.responsive-viewer #lbHistBtn{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
 #lb.responsive-viewer #lbHistBtn[hidden]{display:none}
 #lb.responsive-viewer #lbHistBtn.on{color:var(--txt);background:color-mix(in srgb,var(--txt) 9%,transparent)}
+/* Une version ancienne est affichée : le numéro le signale, sans ouvrir la bande. */
+#lb.responsive-viewer #lbHistBtn.pending .lbh-v{color:var(--status-warning,#e0b74a)}
 #lbStrip{flex:none;width:100%;box-sizing:border-box;display:flex;align-items:flex-end;gap:16px;padding:12px 16px 16px;border-top:1px solid var(--border);background:var(--bg);cursor:default}
 #lbStrip[hidden]{display:none}
 #lbStripRow{flex:1;min-width:0;display:flex;align-items:flex-start;overflow-x:auto;scrollbar-width:thin;scroll-behavior:smooth}
@@ -104,10 +112,12 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 #lbCompare .lbc-split{--lbc-pos:50%;position:relative;background:var(--figure-paper);touch-action:none;user-select:none;cursor:ew-resize}
 #lbCompare .lbc-split img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
 #lbCompare .lbc-b{position:absolute;inset:0;background:var(--figure-paper);clip-path:inset(0 0 0 var(--lbc-pos))}
-#lbCompare .lbc-handle{position:absolute;top:0;bottom:0;left:var(--lbc-pos);width:2px;margin-left:-1px;background:var(--txt)}
+/* La poignée se pose sur le papier de la figure, blanc dans les deux thèmes :
+   encre du papier et liseré papier, pas la couleur du texte de l'app. */
+#lbCompare .lbc-handle{position:absolute;top:0;bottom:0;left:var(--lbc-pos);width:2px;margin-left:-1px;background:var(--figure-ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--figure-paper) 80%,transparent)}
 #lbCompare .lbc-handle:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
-#lbCompare .lbc-handle span{position:absolute;top:50%;left:50%;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;background:var(--txt);box-shadow:0 4px 16px rgba(0,0,0,.25)}
-#lbCompare .lbc-handle span::before,#lbCompare .lbc-handle span::after{content:"";position:absolute;top:8px;width:5px;height:5px;border:solid var(--bg);border-width:0 0 1.5px 1.5px}
+#lbCompare .lbc-handle span{position:absolute;top:50%;left:50%;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;background:var(--figure-ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--figure-paper) 80%,transparent),0 4px 16px rgba(0,0,0,.25)}
+#lbCompare .lbc-handle span::before,#lbCompare .lbc-handle span::after{content:"";position:absolute;top:8px;width:5px;height:5px;border:solid var(--figure-paper);border-width:0 0 1.5px 1.5px}
 #lbCompare .lbc-handle span::before{left:6px;transform:rotate(45deg)}
 #lbCompare .lbc-handle span::after{right:6px;transform:rotate(-135deg)}
 #lbCompare .lbc-tag{position:absolute;top:8px;padding:0 8px;border-radius:999px;background:color-mix(in srgb,var(--media-bg,#000) 70%,transparent);color:var(--on-media,#fff);font-size:11px;font-weight:500;pointer-events:none}

@@ -47,7 +47,7 @@ test('responsive toolbar keeps real actions reachable and fullscreen icons after
   await page.locator('#lbAnnot').click();
   await expect(page.locator('#annotBar')).toBeVisible();
   expect(await page.locator('#annotBar').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true);
-  await page.locator('#annotDone').click();
+  await page.locator('#lbAnnot').click();
   await expect(page.locator('#annotBar')).toBeHidden();
   for(let i=0;i<2;i++){
     await page.locator('#lbFs').click();

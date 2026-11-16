@@ -48,7 +48,9 @@ export interface GalleryPresentation {mode: 'grid' | 'list'; size: number; rows:
 export interface GalleryPresentationAdapter {getState(): GalleryPresentation; set(patch: Partial<GalleryPresentation>): void}
 export type GalleryColumn = 'name' | 'type' | 'size' | 'mtime' | 'status';
 export interface Point {x: number; y: number}
-export interface FigureShape {tool: 'rect' | 'ellipse' | 'arrow'; x1: number; y1: number; x2: number; y2: number}
+export interface FigureShape {tool: 'rect' | 'ellipse' | 'arrow' | 'point'; x1: number; y1: number; x2: number; y2: number}
+/** Poignée d'une marque sélectionnée, en pixels de l'image. */
+export interface FigureHandle {id: string; x: number; y: number}
 export type FigureStroke = FigureShape & {id?: string; color?: string; n?: number; note?: string};
 export interface AnnotationSession {strokes: FigureStroke[]; undo: FigureStroke[][]; redo: FigureStroke[][]}
 export interface FigureVersion {version: number; hash: string; created: number; rel: string; bytes: number}

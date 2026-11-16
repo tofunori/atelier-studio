@@ -27,6 +27,7 @@ function installFigureAnnotationGeometryApi(root) {
 
   function hit(stroke, p                           , tolerance = 0) {
     const padding = Math.max(0, tolerance);
+    if (kind(stroke) === 'point') return Math.hypot(p.x - stroke.x1, p.y - stroke.y1) <= padding;
     if (kind(stroke) === 'arrow') return segmentDistance(stroke, p) <= padding;
     const box = bounds(stroke);
     if (kind(stroke) === 'ellipse') {
@@ -53,7 +54,53 @@ function installFigureAnnotationGeometryApi(root) {
     return { ...stroke, x2: end.x, y2: end.y };
   }
 
+  // Boxes are stored top-left to bottom-right so every handle has one meaning.
+  // Arrows keep their direction and points their single position.
+  function normalize                       (stroke   )    {
+    if (kind(stroke) !== 'rect' && kind(stroke) !== 'ellipse') return stroke;
+    const box = bounds(stroke);
+    return { ...stroke, x1: box.x, y1: box.y, x2: box.x + box.width, y2: box.y + box.height };
+  }
+
+  // Handles of the selected mark, in image coordinates. A box has no top-left
+  // handle: its number sits there and moves the whole mark.
+  function handles(stroke             )                 {
+    const type = kind(stroke);
+    if (type === 'point') return [];
+    if (type === 'arrow') return [{ id: 'start', x: stroke.x1, y: stroke.y1 }, { id: 'end', x: stroke.x2, y: stroke.y2 }];
+    const box = bounds(stroke);
+    const left = box.x, top = box.y, right = box.x + box.width, bottom = box.y + box.height;
+    const centerX = left + box.width / 2, centerY = top + box.height / 2;
+    const sides                 = [
+      { id: 'e', x: right, y: centerY }, { id: 's', x: centerX, y: bottom }, { id: 'w', x: left, y: centerY },
+    ];
+    if (type === 'ellipse') return sides;
+    return [
+      { id: 'n', x: centerX, y: top }, { id: 'ne', x: right, y: top }, sides[0],
+      { id: 'se', x: right, y: bottom }, sides[1], { id: 'sw', x: left, y: bottom }, sides[2],
+    ];
+  }
+
+  // Drag one handle to `p`. Edges may cross: the result is normalized again.
+  function resizeHandle                       (stroke   , handle        , p       , width        , height        )    {
+    const end = point(p, width, height);
+    if (kind(stroke) === 'arrow') {
+      return handle === 'start' ? { ...stroke, x1: end.x, y1: end.y } : { ...stroke, x2: end.x, y2: end.y };
+    }
+    const box = normalize(stroke);
+    const next = { ...box };
+    if (handle.includes('w')) next.x1 = end.x;
+    if (handle.includes('e')) next.x2 = end.x;
+    if (handle.includes('n')) next.y1 = end.y;
+    if (handle.includes('s')) next.y2 = end.y;
+    return normalize(next);
+  }
+
   function create(tool        , start       , end       , width        , height        )                      {
+    if (tool === 'point') {
+      const at = point(start, width, height);
+      return { tool: 'point', x1: at.x, y1: at.y, x2: at.x, y2: at.y };
+    }
     if (!['rect', 'ellipse', 'arrow'].includes(tool)) return null;
     const a = point(start, width, height);
     const b = point(end, width, height);
@@ -63,7 +110,7 @@ function installFigureAnnotationGeometryApi(root) {
     return { tool: tool                       , x1: a.x, y1: a.y, x2: b.x, y2: b.y };
   }
 
-  const publicApi = Object.freeze({ bounds, hit, move, resize, create });
+  const publicApi = Object.freeze({ bounds, hit, move, resize, create, normalize, handles, resizeHandle });
   root.FigureAnnotationGeometry = publicApi;
   return publicApi;
 }
