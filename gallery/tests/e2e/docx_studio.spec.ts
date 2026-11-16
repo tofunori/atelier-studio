@@ -1543,8 +1543,12 @@ test("docx: accepter une modification loin d'un tableau coupé en deux feuilles 
   expect(figAt(await disk(page, project))).toBeGreaterThan(fig + 18);
   // Des lignes avant le tableau jusqu'à ce qu'une de ses rangées passe à la feuille suivante.
   await open(page, project);
+  // Attendre que la page montre chaque ligne avant d'en ajouter une autre :
+  // sinon (WebKit lent en CI) la vue saute plusieurs lignes d'un coup et le
+  // tableau passe d'une feuille à l'autre sans jamais être vu à cheval.
   for (let k = 0; k < 40 && !(await page.locator('#paper tr.d-gap').count()); k++) {
     await post({op: 'insert_paragraph', after: 'p2', text: `Ligne ${k + 1}.`});
+    await page.waitForFunction(t => Array.from(document.querySelectorAll('#paper .d-p')).some(e => e.textContent!.trim() === t), `Ligne ${k + 1}.`);
     await page.waitForTimeout(150);
   }
   await expect(page.locator('#paper tr.d-gap')).toHaveCount(1);
