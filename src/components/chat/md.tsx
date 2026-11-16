@@ -57,7 +57,7 @@ for (const [nom, def] of [
   ["typescript", typescript], ["xml", xml], ["yaml", yaml],
 ] as const) hljs.registerLanguage(nom, def);
 
-export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb|png|pdf|svg)(:\d+(?:-\d+)?)?$/i;
+export const FILE_REF = /^[\w~./-]*[\w-]\.(tex|py|jl|md|r|bib|json|toml|yaml|yml|sh|js|ts|tsx|jsx|css|html|txt|csv|sql|rs|mjs|ipynb|png|pdf|svg|docx)(:\d+(?:-\d+)?)?$/i;
 
 export type OpenFileRefOptions = {
   diff?: boolean;

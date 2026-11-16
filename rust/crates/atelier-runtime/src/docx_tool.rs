@@ -680,6 +680,36 @@ fn cite_action(project_root: &str, provider: &str, action: &str, req: &Value, pa
     Ok(out)
 }
 
+/// Bilan des commentaires d'un relecteur depuis la version reçue (gardée
+/// par l'historique d'Atelier, même après Accepter), pour que l'agent dise
+/// à l'utilisateur ce qui est traité, partiel ou pas traité.
+fn review_progress(project_root: &str, path: &Path, req: &Value) -> Result<Value, String> {
+    let user = signer(project_root, path)?;
+    let keep = atelier_docx::bilan::reviewer_filter(str_arg(req, "author"), &user);
+    let since = match str_arg(req, "since") {
+        Some(s) => Some(resolve(project_root, s)?),
+        None => None,
+    };
+    let (label, report) = atelier_docx::bilan::report(path, since.as_deref(), &keep).map_err(|e| e.0)?;
+    let root = Path::new(project_root).canonicalize().unwrap_or_else(|_| PathBuf::from(project_root));
+    let rel = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().into_owned();
+    let start = usize_arg(req, "start").unwrap_or(1);
+    let text = atelier_docx::bilan::render(&report, &rel, &label, start);
+    Ok(json!({
+        "comments": report.items.len(),
+        "text": text,
+        "note": format!(
+            "Judge every comment yourself from what changed: done (the passage changed as asked, or the user's reply \
+explains a choice), partly done, or not done (passage unchanged and nothing answers it; a comment deleted \
+without change counts as not done). Read more of the document only if a case is unclear. Answer the user \
+in their language, briefly: one sentence with the three counts, then ONLY the not-done and partly-done \
+comments, grouped, one line each as `[c14 · ¶ 13]({rel}:13) the comment in a few words — why` (13 = the \
+paragraph number of today, p13). Done ones are only counted. Never paste this report, and change nothing \
+in the document."
+        ),
+    }))
+}
+
 #[cfg(test)]
 fn run(project_root: &str, provider: &str, action: &str, req: &Value) -> Result<Value, String> {
     run_with(project_root, provider, action, req, None)
@@ -702,6 +732,9 @@ fn run_with(project_root: &str, provider: &str, action: &str, req: &Value, lib: 
         let from = usize_arg(req, "from").unwrap_or(0);
         let to = usize_arg(req, "to").map(|t| t + 1);
         return Ok(json!({"revision": model.revision, "text": ops::outline(&model, from, to, READ_MAX_CHARS)}));
+    }
+    if action == "review_progress" {
+        return review_progress(project_root, &path, req);
     }
     if action == "split" {
         // Coupe juste après `find` : la fin du paragraphe devient un nouveau
@@ -1050,6 +1083,33 @@ mod tests {
         assert!(m.changes.iter().filter(|c| c.author == "Thierry").count() >= 4);
         let e = run(root, "claude", "insert_equation", &json!({"path": "article.docx", "latex": "x"})).unwrap_err();
         assert!(e.contains("find manquant"), "{e}");
+    }
+
+    #[test]
+    fn le_bilan_des_commentaires_part_de_la_version_recue_meme_apres_accepter() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = fixture(dir.path());
+        std::fs::create_dir_all(dir.path().join(".fig_thumbs")).unwrap();
+        std::fs::write(dir.path().join(".fig_thumbs/docx_prefs.json"), r#"{"author":"Thierry"}"#).unwrap();
+        let root = dir.path().to_str().unwrap();
+        // Rien de retouché encore : Atelier n'a gardé aucune version reçue.
+        let e = run(root, "claude", "review_progress", &json!({"path": "article.docx"})).unwrap_err();
+        assert!(e.contains("since"), "{e}");
+        // Thierry accepte une retouche de Christophe : elle disparaît du fichier...
+        let origin = atelier_docx::history::Origin { source: "panneau", author: "Thierry", label: "accepter" };
+        let sig = atelier_docx::Signature::now("Thierry");
+        atelier_docx::edit_file_as(&path, None, &origin, |d| ops::apply(d, &Op::Accept { id: 106 }, true, &sig)).unwrap();
+        // ... mais le bilan part de la version reçue, gardée par l'historique.
+        let out = run(root, "claude", "review_progress", &json!({"path": "article.docx"})).unwrap();
+        let text = out["text"].as_str().unwrap();
+        assert!(text.starts_with("Bilan des commentaires de Christophe : article.docx, depuis la version reçue le "), "{text}");
+        assert!(text.contains("Pourquoi 0,6"), "{text}");
+        assert!(text.contains("1 accepté"), "{text}");
+        assert_eq!(out["comments"], 1);
+        assert!(out["note"].as_str().unwrap().contains("](article.docx:13)"), "{out}");
+        // Un autre relecteur demandé : rien de lui.
+        let none = run(root, "claude", "review_progress", &json!({"path": "article.docx", "author": "Fabienne"})).unwrap_err();
+        assert!(none.contains("aucune version reçue"), "{none}");
     }
 
     #[test]

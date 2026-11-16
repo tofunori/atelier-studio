@@ -319,7 +319,9 @@ ask the user to delete one; other authors' stay untouched. Replies to another au
 comments (draft_reply) are written as the user, in the language of the comment they answer: one or two \
 short, natural sentences, {voice}, never a long or formal answer, and never a rewritten passage. \
 A correction you suggest for another author's comment goes first in your chat answer (before / after); \
-make it a tracked edit in the .docx only once the user says so.\n</atelier-docx>"
+make it a tracked edit in the .docx only once the user says so. To tell what became of a reviewer's \
+comments since they sent the file (progress, what is left), action=review_progress: Atelier keeps the received \
+version even after changes are accepted or comments deleted.\n</atelier-docx>"
     )
 }
 

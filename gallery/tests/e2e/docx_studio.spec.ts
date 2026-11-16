@@ -1543,8 +1543,12 @@ test("docx: accepter une modification loin d'un tableau coupé en deux feuilles 
   expect(figAt(await disk(page, project))).toBeGreaterThan(fig + 18);
   // Des lignes avant le tableau jusqu'à ce qu'une de ses rangées passe à la feuille suivante.
   await open(page, project);
+  // Attendre que la page montre chaque ligne avant d'en ajouter une autre :
+  // sinon (WebKit lent en CI) la vue saute plusieurs lignes d'un coup et le
+  // tableau passe d'une feuille à l'autre sans jamais être vu à cheval.
   for (let k = 0; k < 40 && !(await page.locator('#paper tr.d-gap').count()); k++) {
     await post({op: 'insert_paragraph', after: 'p2', text: `Ligne ${k + 1}.`});
+    await page.waitForFunction(t => Array.from(document.querySelectorAll('#paper .d-p')).some(e => e.textContent!.trim() === t), `Ligne ${k + 1}.`);
     await page.waitForTimeout(150);
   }
   await expect(page.locator('#paper tr.d-gap')).toHaveCount(1);
@@ -1645,6 +1649,27 @@ test('docx: feuilles et numéros de ligne suivent la page quand le panneau chang
   await page.evaluate(() => { document.getElementById('scroll')!.style.display = ''; });
   await check();
   await expect.poll(() => page.locator('#sheets .sheet').count()).toBeGreaterThanOrEqual(1);
+});
+
+test('docx: un lien du chat vers file.docx:N ouvre le document sur le paragraphe pN', async ({page, project}) => {
+  // Le bilan des commentaires de l'agent renvoie chaque ligne à son paragraphe.
+  await page.setViewportSize({width: 1200, height: 800});
+  const doc = path.join(project.root, 'Bibliographie.docx');
+  const model = await (await page.request.get(`${project.url}/docx/model?path=${encodeURIComponent(doc)}`)).json() as Model;
+  const target = model.paragraphs.length - 3;
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(doc)}&line=${target}`);
+  const para = page.locator(`.d-p[data-idx="${target}"]`);
+  await expect(para).toBeAttached();
+  await expect.poll(() => page.evaluate((i) => {
+    const r = document.querySelector(`.d-p[data-idx="${i}"]`)!.getBoundingClientRect();
+    const v = document.getElementById('scroll')!.getBoundingClientRect();
+    return r.top >= v.top && r.top < v.top + v.height / 2;
+  }, target)).toBe(true);
+  // Sans line, le document s'ouvre en haut.
+  await page.goto(`${project.url}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(doc)}`);
+  await expect(page.locator('.d-p[data-idx="0"]')).toBeAttached();
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => document.getElementById('scroll')!.scrollTop)).toBe(0);
 });
 
 test('docx: pendant que le panneau change de taille, la page s\'étire sans se recouper, puis se recoupe une fois à la même place', async ({page, project}) => {

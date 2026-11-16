@@ -2904,7 +2904,8 @@ export default function App() {
     } else if (ext === "svg") {
       url = `${origin}/.fig_thumbs/svg_viewer.html?file=${encodeURIComponent(rel)}`;
     } else if (ext === "docx") {
-      url = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
+      // `:13` = paragraphe p13 (bilan des commentaires de l'agent).
+      url = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
     } else if (renderHtml) {
@@ -2973,7 +2974,7 @@ export default function App() {
         target += `&page=${Number(options.page)}`;
       }
     }
-    else if (ext === "docx") target = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path)}`;
+    else if (ext === "docx") target = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path)}${line ? `&line=${encodeURIComponent(line)}` : ""}`;
     else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
     if ((line || options.diff) && ext !== "docx") {
       target = `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
