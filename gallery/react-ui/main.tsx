@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Ellipsis,
   Filter,
+  FolderTree,
   LayoutGrid,
   NotebookPen,
   Plus,
@@ -84,7 +85,7 @@ import "./styles.css"
 
 type LegacyOption = { value: string; label: string }
 type LegacyMenuItem = { key: string; label: string; active: boolean; element: HTMLElement }
-import type {GalleryFileType, GalleryFileTypePreset, GalleryFileTypeState, GalleryFileTypeAdapter, GallerySelectionState, GallerySelectionAdapter} from "../src/contracts/gallery"
+import type {GalleryFileType, GalleryFileTypePreset, GalleryFileTypeState, GalleryFileTypeAdapter, GalleryFolderNode, GallerySelectionState, GallerySelectionAdapter} from "../src/contracts/gallery"
 type ConfirmRequest = { message: string; acceptLabel: string; resolve: (accepted: boolean) => void }
 type ConfirmPresentation = {
   title: string
@@ -157,6 +158,51 @@ function stripLegacyCount(label: string) {
   return label.replace(/\s+\d+$/, "").trim()
 }
 
+/** Bouton Dossier (2026-11-16) : le dossier montré, et un menu des dossiers
+ *  de premier niveau avec leur nombre de fichiers. Le dossier choisi déplie ses
+ *  sous-dossiers. Un dossier montre tout son contenu, formats compris. */
+function GalleryFolderMenu({ state }: { state: GalleryFileTypeState }) {
+  const tree = state.folderTree
+  const current = state.folder ?? ""
+  if (!tree || tree.folders.length === 0) return null
+  const flat = tree.folders.flatMap(node => [node, ...node.children])
+  const selected = flat.find(node => node.path === current)
+  const openTop = tree.folders.find(node => current === node.path || current.startsWith(node.path + "/"))
+  const pick = (path: string) => window.__galleryFileTypes?.setFolder?.(path)
+  const item = (node: GalleryFolderNode, nested: boolean) => (
+    <DropdownMenuCheckboxItem key={node.path} closeOnClick checked={current === node.path} onClick={() => pick(node.path)}
+      className={nested ? "gallery-folder-item gallery-folder-sub" : "gallery-folder-item"} data-gallery-folder={node.path} title={node.path}>
+      <span className="gallery-folder-name">{node.label}</span><span className="gallery-folder-count">{node.count}</span>
+    </DropdownMenuCheckboxItem>
+  )
+  const label = selected ? selected.label : "Tous les dossiers"
+  return (
+    <DropdownMenu modal={false}>
+      <Tooltip label={selected ? `Dossier : ${selected.path}` : "Dossiers"}>
+        <DropdownMenuTrigger render={
+          <Button variant="ghost" size="sm" data-gallery-command="folder" data-gallery-folder-active={selected ? "true" : undefined}
+            aria-label={selected ? `Dossier ${label}, ${selected.count} fichiers` : "Dossiers"}>
+            <FolderTree data-icon="inline-start"/>
+            {selected && <><span className="gallery-folder-label">{label}</span><span className="gallery-folder-count">{selected.count}</span></>}
+            <ChevronDown data-icon="inline-end"/>
+          </Button>
+        }/>
+      </Tooltip>
+      <DropdownMenuContent align="start" className="gallery-refined-menu gallery-folder-menu">
+        <DropdownMenuGroup>
+          <DropdownMenuCheckboxItem closeOnClick checked={!current} onClick={() => pick("")} className="gallery-folder-item" data-gallery-folder="">
+            <span className="gallery-folder-name">Tout le projet</span><span className="gallery-folder-count">{tree.total}</span>
+          </DropdownMenuCheckboxItem>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator/>
+        <DropdownMenuGroup>
+          {tree.folders.flatMap(node => [item(node, false), ...(openTop === node ? node.children.map(child => item(child, true)) : [])])}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function GalleryFileTypePanel({ state, folder, collectionItems }: {
   state: GalleryFileTypeState; folder: HTMLSelectElement | null; collectionItems: LegacyMenuItem[]
 }) {
@@ -178,7 +224,6 @@ function GalleryFileTypePanel({ state, folder, collectionItems }: {
   const visible = new Set(visibleTypes.map(type => type.key))
   const statusNames: Record<string,string> = {"":"Tous",draft:"Brouillon",candidate:"Candidat",final:"Final",rejected:"Rejeté"}
   const workflow = legacyItems("wfMenu", "[data-wfpick]").map(item => ({...item,label:statusNames[item.key] ?? stripLegacyCount(item.label)}))
-  const folders = selectOptions("folder")
   const preset = state.presets.find(item => item.active && item.custom) ?? state.presets.find(item => item.active)
   const save = () => { if (name.trim()) { adapter?.savePreset(name.trim()); setSaving(false); setName("") } }
   return <>
@@ -207,7 +252,6 @@ function GalleryFileTypePanel({ state, folder, collectionItems }: {
       {(state.archiveCount ?? 0) > 0 && <div className="gallery-filter-field"><span>Archives <span className="gallery-filter-hint">{state.archiveCount}</span></span><Switch aria-label="Afficher les archives" data-gallery-archives checked={state.archives === true} onCheckedChange={checked => adapter?.setArchives?.(checked)}/></div>}
       <div className="gallery-filter-field"><span>Statut</span><Select modal={false} value={workflow.find(item => item.active)?.key || ""} onValueChange={value => workflow.find(item => item.key === value)?.element.click()}><SelectTrigger size="sm" aria-label="Filtrer par statut"><SelectValue>{workflow.find(item => item.active)?.label || "Tous"}</SelectValue></SelectTrigger><SelectContent className="gallery-filter-select" align="end" alignItemWithTrigger={false} sideOffset={5}><SelectGroup>{workflow.map(item => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
       <div className="gallery-filter-field"><span>Collection</span><Select modal={false} value={collectionItems.find(item => item.active)?.key || ""} onValueChange={value => { if(!value) get("collMenu")?.querySelector<HTMLElement>("[data-clear]")?.click(); else collectionItems.find(item => item.key === value)?.element.click() }}><SelectTrigger size="sm" aria-label="Filtrer par collection"><SelectValue>{stripLegacyCount(collectionItems.find(item => item.active)?.label || "Toutes")}</SelectValue></SelectTrigger><SelectContent className="gallery-filter-select" align="end" alignItemWithTrigger={false} sideOffset={5}><SelectGroup><SelectItem value="">Toutes</SelectItem>{collectionItems.map(item => <SelectItem key={item.key} value={item.key}>{stripLegacyCount(item.label)}</SelectItem>)}</SelectGroup></SelectContent></Select></div>
-      {folders.length > 1 && <div className="gallery-filter-field"><span>Sous-dossier</span><Select modal={false} value={folder?.value || ""} onValueChange={value => setSelect("folder", typeof value === "string" ? value : "")}><SelectTrigger size="sm" aria-label="Filtrer par sous-dossier"><SelectValue>{folder?.value || "Tous"}</SelectValue></SelectTrigger><SelectContent className="gallery-filter-select" align="end" alignItemWithTrigger={false} sideOffset={5}><SelectGroup>{folders.map(item => <SelectItem key={item.value} value={item.value}>{item.value ? item.label : "Tous"}</SelectItem>)}</SelectGroup></SelectContent></Select></div>}
       <Separator/>
       {saving ? <InputGroup><InputGroupInput aria-label="Nom de la vue" placeholder="Nom de la vue…" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if(e.key === "Enter") save(); if(e.key === "Escape") {e.stopPropagation();setSaving(false)} }} autoFocus/><InputGroupAddon align="inline-end"><InputGroupButton disabled={!name.trim()} onClick={save}>Enregistrer</InputGroupButton></InputGroupAddon></InputGroup> : <Button variant="ghost" size="sm" className="tw:justify-start" data-gallery-new-preset onClick={() => setSaving(true)}><Plus/>Enregistrer cette vue…</Button>}
       {preset?.custom && <Button variant="ghost" size="xs" onClick={() => adapter?.removePreset(preset.id)}><Trash2/>Supprimer cette vue</Button>}
@@ -550,6 +594,7 @@ function GalleryToolbar() {
           />
         </PopoverContent>
       </Popover>
+      <GalleryFolderMenu state={fileTypeState}/>
 
       </div>
 
