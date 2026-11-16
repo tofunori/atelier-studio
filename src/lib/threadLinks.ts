@@ -189,6 +189,11 @@ export type LinkedAgentSummary = {
   running?: boolean;
   since?: number | null;
   updatedAt?: string;
+  /** Fil confié par ce fil (spécialiste ou fil de travail) : le chat le
+   *  réduit à une rangée (variante B « une seule voix », 2026-11-16). */
+  delegated?: boolean;
+  /** Son état, tel que la colonne l'écrit sous son parent. */
+  state?: DelegatedState;
 };
 
 /** Conversations liées au fil actif, telles que l'en-tête du chat les liste. */
@@ -210,14 +215,17 @@ export function linkedAgentSummaries(
       direction: relation.direction,
     };
     const specialiste = relation.direction === "child" ? thread.consigne?.specialiste : undefined;
-    if (specialiste) {
+    const delegated = relation.direction === "child" && isDelegatedThread(thread);
+    if (specialiste || delegated) {
       const since = workingSince?.[thread.id] ?? null;
+      const running = since != null || thread.status === "running";
       Object.assign(summary, {
-        specialiste: { nom: specialiste.nom, nomCourt: specialiste.nomCourt },
-        running: since != null || thread.status === "running",
+        running,
         since,
         updatedAt: thread.updatedAt,
       });
+      if (specialiste) summary.specialiste = { nom: specialiste.nom, nomCourt: specialiste.nomCourt };
+      if (delegated) Object.assign(summary, { delegated: true, state: delegatedState(thread, running, false) });
     }
     return summary;
   });

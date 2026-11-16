@@ -6940,6 +6940,13 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact.is-soft .tool-output-icon { color: var(--text-disabled); }
 .tool-output-why { color: var(--text-muted); }
 .tool-output-why::before { content: "·"; margin: 0 4px; }
+/* Spécialiste ou fil de travail dans le fil principal : une rangée calme,
+   à l'envoi comme au retour (variante B « une seule voix », 2026-11-16).
+   Elle mène à son fil ; c'est le coordinateur qui résume. */
+.delegate-row { margin: 4px 0; }
+.delegate-row .tool-output-head { min-height: 28px; }
+.delegate-row-task { color: var(--text-muted); }
+.delegate-row-task::before { content: "·"; margin: 0 4px; }
 .tool-output.is-compact.failed .tool-duration { color: var(--status-error); }
 .tool-output.is-compact .tool-status { color: var(--text-muted); }
 /* Ce qui a arrêté le travail, écrit sous la rangée : dernière ligne de la sortie. */
