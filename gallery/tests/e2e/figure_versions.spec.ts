@@ -385,3 +385,63 @@ test('figure notes stay with their version, leave the figure once sent and live 
   await expect(page.locator('#lbNotesN')).toHaveText('1');
   expect(errors).toEqual([]);
 });
+
+// Bande repliée (Thierry 2026-11-16) : à 12 versions, la bande ne défile plus de
+// côté ; les plus anciennes se rangent dans une pile, et un clic sur la pile
+// ouvre au-dessus de la bande la grille de toutes les versions. Échap, un clic
+// ailleurs ou un choix la referment ; rien ne s'ouvre seul.
+test('many versions fold the oldest into a pile that opens a grid of every version',async({page,request})=>{
+  const errors: string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.setViewportSize({width:1280,height:800});
+  await page.goto(origin+'/?embedded=atelier');
+  const png=async(color: string)=>Buffer.from(await page.evaluate(color=>{const c=document.createElement('canvas');c.width=400;c.height=300;const x=c.getContext('2d');x.fillStyle=color;x.fillRect(0,0,400,300);return c.toDataURL('image/png').split(',')[1];},color),'base64');
+  const lead=path.join(root,'many.png');
+  for(let i=0;i<12;i++){
+    fs.writeFileSync(lead,await png('hsl('+(i*30)+',55%,80%)'));
+    expect((await request.post(origin+'/rescan',{headers:{Origin:origin}})).ok()).toBe(true);
+    await expect.poll(async()=>(await request.get(origin+'/figure-version?path=many.png&version='+(i+1))).status(),{timeout:8000}).toBe(200);
+  }
+  await page.evaluate(async()=>{lbList=([{rel:'many.png',name:'many.png',ext:'png',folder:'.'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});
+  await expect(ver(page)).toHaveText('v12');
+  await expect(page.locator('#lbVersionsN')).toHaveText('12');
+  const pile=page.locator('#lbStripRow .lbs-pile'),grid=page.locator('#lbVersGrid'),shown=page.locator('#lbStripRow .lbs-tile:not(.lbs-pile)');
+  // The latest versions that fit, the rest in the pile: no sideways scrolling.
+  await expect(pile).toBeVisible();
+  const kept=await shown.count(),folded=12-kept;
+  expect(kept).toBeGreaterThan(2);expect(folded).toBeGreaterThan(1);
+  await expect(pile.locator('.lbs-more')).toHaveText('+'+folded);
+  await expect(pile.locator('.lbs-l b')).toHaveText('v1 – v'+folded);
+  await expect(shown.last().locator('.lbs-l b')).toHaveText('v12');
+  expect(await page.locator('#lbStripRow').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+  await expect(grid).toBeHidden();
+  // A click on the pile opens the grid above the band, newest first; the figure does not move.
+  const figure=()=>page.evaluate(()=>{const r=document.getElementById('lbWrap').getBoundingClientRect();return[r.left,r.top,r.width,r.height].map(Math.round);});
+  const placed=await figure();
+  await pile.click();await expect(grid).toBeVisible();await expect(pile).toHaveAttribute('aria-expanded','true');
+  await expect(grid.locator('.lbs-tile')).toHaveCount(12);
+  await expect(grid.locator('.lbs-tile').first().locator('.lbs-l b')).toHaveText('v12');
+  await expect(grid.locator('.lbs-tile').first().locator('.lbs-n')).toHaveText('actuelle');
+  await expect(grid.locator('.lbs-tile.sel .lbs-l b')).toHaveText('v12');
+  await expect.poll(()=>page.evaluate(()=>{const g=document.getElementById('lbVersGrid').getBoundingClientRect(),b=document.getElementById('lbStrip').getBoundingClientRect();return g.bottom<=b.top+.5&&g.height>0;})).toBe(true);
+  expect(await figure()).toEqual(placed);
+  // Escape closes the grid, not the viewer.
+  await page.keyboard.press('Escape');await expect(grid).toBeHidden();
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);await expect(pile).toHaveAttribute('aria-expanded','false');
+  // A click elsewhere closes it too.
+  await pile.click();await expect(grid).toBeVisible();
+  await page.locator('#lbViewport').click({position:{x:20,y:20}});await expect(grid).toBeHidden();
+  await expect(page.locator('#lb')).toHaveClass(/\bshow\b/);
+  // Picking an old version shows it; it takes the pile's place, with the count of the others.
+  await pile.click();await grid.locator('.lbs-tile[data-version="2"]').click();
+  await expect(grid).toBeHidden();await expect(ver(page)).toHaveText('v2');
+  await expect(pile).toHaveClass(/\bsel\b/);
+  await expect(pile.locator('.lbs-l b')).toHaveText('v2');
+  await expect(pile.locator('.lbs-n')).toHaveText('+'+(folded-1)+' plus anciennes');
+  // A latest version in the band brings the pile back to its range.
+  await shown.last().click();await expect(ver(page)).toHaveText('v12');
+  await expect(pile.locator('.lbs-l b')).toHaveText('v1 – v'+folded);await expect(pile).not.toHaveClass(/\bsel\b/);
+  // A wide viewer shows every version again.
+  await page.setViewportSize({width:2200,height:800});
+  await expect(pile).toHaveCount(0);await expect(shown).toHaveCount(12);
+  expect(errors).toEqual([]);
+});

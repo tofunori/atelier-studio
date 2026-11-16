@@ -3741,6 +3741,13 @@ lbStrip.innerHTML='<div id="lbBandHead"><div id="lbTabs" role="tablist" aria-lab
   +'<span class="lbt-sp"></span>'
   +'<div id="lbStripSide"><span id="lbStripSize"></span><button type="button" id="lbCompareBtn" aria-pressed="false">'+CMP_ICON+'<span>Comparer</span></button></div></div>'
   +'<div id="lbStripRow" role="listbox" aria-label="Versions de la figure" aria-orientation="horizontal"></div>';
+// Bande repliée (Thierry 2026-11-16) : quand les versions ne tiennent plus dans
+// la largeur, les plus anciennes se rangent dans une pile ; un clic sur la pile
+// ouvre, au-dessus de la bande, la grille de toutes les versions.
+const lbVersGrid=document.createElement('div');lbVersGrid.id='lbVersGrid';lbVersGrid.hidden=true;
+lbVersGrid.setAttribute('role','dialog');lbVersGrid.setAttribute('aria-label','Toutes les versions');
+lbVersGrid.innerHTML='<div class="lvg-head"><b>Toutes les versions</b><span id="lbVersGridN"></span></div><div class="lvg-list" role="listbox" aria-label="Toutes les versions de la figure"></div>';
+lbStrip.append(lbVersGrid);
 (document.getElementById('lbViewport')                  ).after(lbStrip);
 (lbStrip.firstElementChild                  ).append((document.getElementById('annotActs')                  ));
 lbStrip.append((document.getElementById('annotPanel')                  ));
@@ -3769,6 +3776,7 @@ function lbHistoryRels(f            ){
 }
 function lbVersionsReset(f                 ){
   if(lbHistory.compare)lbCompareExit();
+  lbVersGridOpen(false);
   const rels=f?lbHistoryRels(f):[];
   lbHistory={rel:rels[0]||'',rels,rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:lbHistory.epoch+1,busy:false,manual:false,compare:null};
   lbVersionReady=Promise.resolve();
@@ -3828,18 +3836,24 @@ function lbVersionsPaint(){
   lbStripRow.hidden=tab!=='versions';(document.getElementById('lbStripSide')                  ).hidden=tab!=='versions';
   (document.getElementById('annotPanel')                  ).hidden=tab!=='notes';(document.getElementById('annotActs')                  ).hidden=tab!=='notes';
   if(notes&&!read&&!lb().classList.contains('annot')&&(document.getElementById('lbImg')                    ).naturalWidth){annotLayout();annotDraw();}
+  // La grille des versions ne survit ni à la bande fermée ni à l'onglet « Notes ».
+  if((!visible||tab!=='versions')&&!lbVersGrid.hidden)lbVersGridOpen(false);
   // Les vignettes restent à jour sous l'onglet « Notes » : revenir à « Versions » ne repeint rien.
   if(!visible)return;
-  const sig=h.rows.map(r=>r.hash).join(',')+'|'+h.copies.map(c=>c.rel+':'+c.version).join(',');
+  const fold=lbStripFold(),cmp=h.compare;
+  // Version repliée montrée sur la pile : celle qu'on affiche, ou un côté de la comparaison.
+  const folded=(v                       )=>v!=null&&fold>0&&h.rows.findIndex(r=>r.version===v)<fold;
+  const pick=cmp?(folded(cmp.b)?cmp.b:folded(cmp.a)?cmp.a:null):folded(h.selected)?h.selected:null;
+  const sig=h.rows.map(r=>r.hash).join(',')+'|'+h.copies.map(c=>c.rel+':'+c.version).join(',')+'|'+fold+'|'+(pick??'');
   if(lbStripRow.dataset.sig!==sig){
     lbStripRow.dataset.sig=sig;
-    lbStripRow.innerHTML=h.rows.map((r,i)=>{
+    lbStripRow.innerHTML=(fold?lbPileHtml(h.rows.slice(0,fold),pick):'')+h.rows.slice(fold).map((r,i)=>{
       const late=lbLateCopies(r.version),lateTitle=late.map(c=>c.rel).join('\n');
       const note=r===last?'<span class="lbs-n">actuelle</span>'
         :late.length?'<span class="lbs-n warn" title="'+escA('Copie restée sur cette version :\n'+lateTitle)+'">'+WARN_ICON
           +esc(late.length>1?late.length+' copies en retard':/^manuscrit(\/|$)/.test(late[0].rel)?'copie du manuscrit':'copie dans '+lbFolderOf(late[0].rel))+'</span>'
         :'<span class="lbs-n"></span>';
-      return (i?'<span class="lbs-link" aria-hidden="true"></span>':'')
+      return (i||fold?'<span class="lbs-link" aria-hidden="true"></span>':'')
         +'<button type="button" class="lbs-tile" role="option" data-version="'+r.version+'" aria-selected="false" title="'+escA('v'+r.version+' · '+lbWhen(r.created)+' · '+r.rel)+'">'
         +'<span class="lbs-th"><img loading="lazy" decoding="async" alt="" src="'+escA('/figure-version?hash='+r.hash)+'"><span class="lbs-mk" hidden></span></span>'
         +'<span class="lbs-l"><b>v'+r.version+'</b><span>'+esc(lbWhen(r.created))+'</span></span>'+note+'<span class="lbs-notes" hidden></span></button>';
@@ -3847,9 +3861,18 @@ function lbVersionsPaint(){
     const total=h.bytes>1048576?(h.bytes/1048576).toFixed(1).replace('.',',')+' Mo':Math.max(1,Math.round(h.bytes/1024))+' Ko';
     (document.getElementById('lbStripSize')                   ).textContent=total;
     if(h.rows.length<2&&!h.compare)lbStripRow.insertAdjacentHTML('beforeend','<span class="lbs-hint">Chaque nouvelle version de cette figure s’ajoutera ici.</span>');
+    // Le premier rendu dit la vraie largeur d'une vignette (plus étroite dans un volet étroit).
+    if(lbStripFold()!==fold){lbStripRow.dataset.sig='';lbVersionsPaint();return;}
   }
-  const cmp=h.compare;
-  lbStripRow.querySelectorAll                   ('.lbs-tile').forEach(b=>{
+  const pile=lbStripRow.querySelector                   ('.lbs-pile');
+  if(pile){
+    const mark=cmp&&pick!=null?(pick===cmp.a?'A':'B'):'',on=pick!=null;
+    pile.classList.toggle('sel',on);pile.setAttribute('aria-expanded',String(!lbVersGrid.hidden));
+    pile.tabIndex=on?0:-1;
+    const mk=pile.querySelector                 ('.lbs-mk');mk.hidden=!mark;mk.textContent=mark;
+  }else if(!lbVersGrid.hidden)lbVersGridOpen(false);
+  if(!lbVersGrid.hidden)lbVersGridPaint();
+  lbStripRow.querySelectorAll                   ('.lbs-tile:not(.lbs-pile)').forEach(b=>{
     const v=Number(b.dataset.version),mark=cmp?(v===cmp.a?'A':v===cmp.b?'B':''):'';
     const on=cmp?!!mark:v===h.selected;
     b.classList.toggle('sel',on);b.setAttribute('aria-selected',String(on));b.tabIndex=(cmp?v===cmp.b:v===h.selected)?0:-1;
@@ -3863,6 +3886,66 @@ function lbVersionsPaint(){
   });
   lbCompareBtn.disabled=h.rows.length<2||lb().classList.contains('annot');
   lbCompareBtn.setAttribute('aria-pressed',String(!!cmp));lbCompareBtn.classList.toggle('on',!!cmp);
+}
+/** Combien de versions, les plus anciennes, se rangent dans la pile : 0 quand
+ *  toutes tiennent dans la largeur de la bande. */
+function lbStripFold(){
+  const n=lbHistory.rows.length,width=lbStripRow.clientWidth;if(n<3||!width)return 0;
+  const tile=lbStripRow.querySelector             ('.lbs-tile')?.offsetWidth||144,gap=8;
+  const fit=Math.floor((width+gap)/(tile+gap));
+  if(n<=fit)return 0;
+  return n-Math.max(1,fit-1);
+}
+/** La pile des plus anciennes : trois vignettes en éventail, « +N », et la
+ *  version repliée qu'on regarde, s'il y en a une. */
+function lbPileHtml(rows                 ,pick             ){
+  const top=pick!=null?rows.findIndex(r=>r.version===pick):rows.length-1;
+  const layers=[top-2,top-1,top].map(i=>rows[Math.max(0,i)]);
+  const rest=pick!=null?rows.length-1:rows.length,label=pick!=null?'v'+pick:'v'+rows[0].version+' – v'+rows.at(-1).version;
+  const sub=pick!=null?esc(lbWhen(lbVersionRow(pick).created)):'';
+  const title=rows.length+' versions plus anciennes : toutes les versions';
+  return '<button type="button" class="lbs-tile lbs-pile" aria-haspopup="dialog" aria-expanded="false" aria-controls="lbVersGrid" title="'+escA(title)+'" aria-label="'+escA(title)+'">'
+    +'<span class="lbs-th">'+layers.map(r=>'<i><img loading="lazy" decoding="async" alt="" src="'+escA('/figure-version?hash='+r.hash)+'"></i>').join('')
+    +'<span class="lbs-mk" hidden></span><span class="lbs-more">+'+rest+'</span></span>'
+    +'<span class="lbs-l"><b>'+label+'</b>'+(sub?'<span>'+sub+'</span>':'')+'</span>'
+    +'<span class="lbs-n">'+(pick!=null?'+'+rest+' plus anciennes':'plus anciennes')+'</span></button>';
+}
+/** La grille de toutes les versions, la plus récente en premier. */
+function lbVersGridPaint(){
+  const h=lbHistory,list=lbVersGrid.querySelector                ('.lvg-list'),last=h.rows.at(-1),cmp=h.compare;
+  (document.getElementById('lbVersGridN')                   ).textContent=h.rows.length+' · la plus récente en premier';
+  const sig=h.rows.map(r=>r.hash).join(',');
+  if(list.dataset.sig!==sig){
+    list.dataset.sig=sig;
+    list.innerHTML=h.rows.slice().reverse().map(r=>'<button type="button" class="lbs-tile" role="option" data-version="'+r.version+'" aria-selected="false" title="'+escA('v'+r.version+' · '+lbWhen(r.created)+' · '+r.rel)+'">'
+      +'<span class="lbs-th"><img loading="lazy" decoding="async" alt="" src="'+escA('/figure-version?hash='+r.hash)+'"><span class="lbs-mk" hidden></span></span>'
+      +'<span class="lbs-l"><b>v'+r.version+'</b><span>'+esc(lbWhen(r.created))+'</span></span>'
+      +'<span class="lbs-n">'+(r===last?'actuelle':'')+'</span></button>').join('');
+  }
+  list.querySelectorAll                   ('.lbs-tile').forEach(b=>{
+    const v=Number(b.dataset.version),mark=cmp?(v===cmp.a?'A':v===cmp.b?'B':''):'',on=cmp?!!mark:v===h.selected;
+    b.classList.toggle('sel',on);b.setAttribute('aria-selected',String(on));
+    const mk=b.querySelector                 ('.lbs-mk');mk.hidden=!mark;mk.textContent=mark;
+  });
+}
+function lbVersGridOpen(open         ){
+  if(open===!lbVersGrid.hidden)return;
+  lbVersGrid.hidden=!open;
+  lbStripRow.querySelector('.lbs-pile')?.setAttribute('aria-expanded',String(open));
+  if(open){
+    lbVersGridPaint();
+    const sel=lbVersGrid.querySelector                   ('.lbs-tile.sel')||lbVersGrid.querySelector                   ('.lbs-tile');
+    sel?.focus({preventScroll:true});sel?.scrollIntoView({block:'nearest'});
+  }
+}
+/** Une version choisie, dans la bande ou dans la grille : l'afficher, ou la
+ *  prendre comme côté de la comparaison. */
+function lbStripPick(v        ){
+  const cmp=lbHistory.compare;
+  if(!cmp){void lbVersionGo(v);return;}
+  if(v===cmp.a||v===cmp.b)return;
+  if(v>cmp.a)cmp.b=v;else cmp.a=v;
+  lbVersionsPaint();lbComparePaint();
 }
 async function lbVersionDisplay(version        ,automatic=false){
   const h=lbHistory,row=lbVersionRow(version);if(!h.rel||!row||h.selected===version)return;
@@ -3966,12 +4049,28 @@ lbHistBtn.onclick=e=>{
 };
 lbStripRow.addEventListener('click',e=>{
   const tile=(e.target           ).closest                   ('.lbs-tile');if(!tile)return;
-  e.stopPropagation();const v=Number(tile.dataset.version),cmp=lbHistory.compare;
-  if(!cmp){void lbVersionGo(v);return;}
-  if(v===cmp.a||v===cmp.b)return;
-  if(v>cmp.a)cmp.b=v;else cmp.a=v;
-  lbVersionsPaint();lbComparePaint();
+  e.stopPropagation();
+  if(tile.classList.contains('lbs-pile')){lbVersGridOpen(!!lbVersGrid.hidden);return;}
+  lbStripPick(Number(tile.dataset.version));
 });
+lbVersGrid.addEventListener('click',e=>{
+  const tile=(e.target           ).closest                   ('.lbs-tile');if(!tile)return;
+  e.stopPropagation();lbVersGridOpen(false);lbStripPick(Number(tile.dataset.version));
+  lbStripRow.querySelector                   ('.lbs-tile.sel')?.focus({preventScroll:true});
+});
+// Échap ou un clic ailleurs referme la grille ; rien d'autre ne l'ouvre ni ne la ferme.
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape'||lbVersGrid.hidden)return;
+  e.preventDefault();e.stopImmediatePropagation();lbVersGridOpen(false);
+  lbStripRow.querySelector                   ('.lbs-pile')?.focus({preventScroll:true});
+},true);
+document.addEventListener('pointerdown',e=>{
+  if(lbVersGrid.hidden)return;const t=e.target           ;
+  if(lbVersGrid.contains(t)||t.closest?.('.lbs-pile'))return;
+  lbVersGridOpen(false);
+},true);
+// La largeur de la bande décide de ce qui se replie.
+new ResizeObserver(()=>{if(!lbStrip.hidden&&lbHistory.rows.length>2)lbVersionsPaint();}).observe(lbStripRow);
 // ← → feuillettent les versions quand la bande a le focus (sinon : figures).
 lbStripRow.addEventListener('keydown',e=>{
   if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight'&&e.key!=='Home'&&e.key!=='End')return;

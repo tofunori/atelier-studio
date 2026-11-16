@@ -959,7 +959,10 @@ test('annotation add-to-chat waits for the host ACK and retries', async ({ page 
     // premier tir perdu, relance bornée : l'hôte finit par accuser réception
     await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBeGreaterThan(1);
     await expect(g.locator('#annotNote')).toBeHidden();
-    await expect(g.locator('#lbNotesN')).toHaveText('1');
+    // Partie, la note quitte la figure et la liste à envoyer : « Envoyées 1 » la garde.
+    await expect(g.locator('#lbNotesN')).toHaveText('');
+    await expect(g.locator('#annotSentBtn')).toBeVisible();
+    await expect(g.locator('#annotSentN')).toHaveText('1');
     const msg = await page.evaluate(() => window.__msgs[0]);
     expect(msg.text).toContain('annotation-previews');
     expect(msg.text).toContain('note ack');
