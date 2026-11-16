@@ -40,6 +40,10 @@ declare global {
   var annotCur: import('./pages/gallery_template_1').PageGlobals['annotCur'];
   var annotDrag: import('./pages/gallery_template_1').PageGlobals['annotDrag'];
   var annotSelected: import('./pages/gallery_template_1').PageGlobals['annotSelected'];
+  var annotEditing: import('./pages/gallery_template_1').PageGlobals['annotEditing'];
+  var annotHover: import('./pages/gallery_template_1').PageGlobals['annotHover'];
+  var annotPanelOpen: boolean;
+  var annotSendAll: import('./pages/gallery_template_1').PageGlobals['annotSendAll'];
   var annotClient: import('./pages/gallery_template_1').PageGlobals['annotClient'];
   var annotBadge: import('./pages/gallery_template_1').PageGlobals['annotBadge'];
   var annotUnit: import('./pages/gallery_template_1').PageGlobals['annotUnit'];

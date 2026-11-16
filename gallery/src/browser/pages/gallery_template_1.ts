@@ -1300,7 +1300,7 @@ async function lbShow(i: number){
   if(i<0||i>=lbList.length) return;
   lbZoomLevel=1;lbPanX=0;lbPanY=0;(document.getElementById('lbWrap') as HTMLDivElement).style.transform='';
   lbIdx=i; const f=lbList[i]; annotLeave();
-  lbVersionsReset(f);
+  lbVersionsReset(f);annotSelected=null;annotBind(false);annotPillUpdate();
   markRecent(f.rel);
   const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv', isDocx=f.ext==='docx';
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
@@ -1320,6 +1320,8 @@ async function lbShow(i: number){
   const img=(document.getElementById('lbImg') as HTMLImageElement), pdf=(document.getElementById('lbPdf') as HTMLIFrameElement), vid=(document.getElementById('lbVid') as HTMLVideoElement);
   const vw=isPdf||isMd||isCode||isSvg;
   (document.getElementById('lbViewport') as HTMLDivElement).style.display=(vw||isVid)?'none':'flex';
+  // #lbBody (figure + panneau Notes) est posé par gallery_viewer_toolbar.ts.
+  const figureRow=document.getElementById('lbBody');if(figureRow)figureRow.style.display=(vw||isVid)?'none':'';
   (document.getElementById('lbZoom') as HTMLDivElement).style.display=(vw||isVid)?'none':'';
   img.alt=f.name;
   img.style.display=(vw||isVid)?'none':'';
@@ -1344,6 +1346,7 @@ async function lbShow(i: number){
   (document.getElementById('lbMore') as HTMLDetailsElement).open=false;
   document.getElementById('lbPosition').textContent=(i+1)+' / '+lbList.length;
   (document.getElementById('lbAnnot') as HTMLButtonElement).style.display=(imgExt(f.ext)&&!isSvg)?'flex':'none';
+  (document.getElementById('lbNotes') as HTMLButtonElement).hidden=!(imgExt(f.ext)&&!isSvg);
   (document.getElementById('lbAdd') as HTMLButtonElement).disabled=!EMB;
   provSync();
   lb().classList.add('show');
@@ -1677,7 +1680,7 @@ function lbFitImage(){
   wrap.style.height=Math.round(img.naturalHeight*scale*lbZoomLevel)+'px';
   (document.getElementById('lbFit') as HTMLButtonElement).textContent=lbZoomLevel===1?'Ajuster':Math.round(scale*lbZoomLevel*100)+' %';
   (document.getElementById('lbFit') as HTMLButtonElement).setAttribute('aria-label','Ajuster toute l’image à la fenêtre');
-  if(lb().classList.contains('annot')){annotLayout();annotRedraw();}
+  if(lb().classList.contains('annot')||lb().classList.contains('notes')){annotLayout();annotRedraw();}
 }
 // Le point sous le curseur (ou, sans curseur, le milieu de la vue) reste à sa
 // place : zoomer ne fait plus perdre l'endroit qu'on regardait.
@@ -1856,13 +1859,14 @@ document.addEventListener('keydown',e=>{
   const plain=!e.metaKey&&!e.ctrlKey&&!e.altKey;
   if(lb().classList.contains('annot')){
     if(annotBusy){if(e.key==='Escape')e.preventDefault();return;}
+    // ⌘↵ : le bouton toujours visible du panneau Notes, d'où que l'on soit.
+    if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();annotNoteCommit();void annotSendAll(true);return;}
     if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){
       if(typing)return;e.preventDefault();annotHistory(e.shiftKey);return;
     }
     if(e.key==='Escape'){
       if(annotDrag){if(annotDrag.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();return;}
-      const box=(document.getElementById('annotNote') as HTMLDivElement);
-      if(box.style.display==='block'){box.querySelector<HTMLTextAreaElement>('textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));return;}
+      if(annotNoteOpen()){annotNoteCommit();return;}
       if(annotSelected){annotSelected=null;annotRedraw();return;}
       annotToggle(); return;
     }
@@ -1882,6 +1886,7 @@ document.addEventListener('keydown',e=>{
 
   if(e.key==='Escape'){
     if(lb().classList.contains('fs')||fsActiveEl()){void lbFsLeave();return;}
+    if(annotPanelOpen){annotPanelSet(false);return;}
     lbClose();
   }
   if(e.key==='ArrowLeft')lbNav(-1);
@@ -2551,6 +2556,15 @@ document.addEventListener('keydown',e=>{
 let annotTool='rect', annotStrokes: FigureStroke[]=[], annotCur: FigureStroke | null=null, annotSent=true, annotSpace=false;
 const annotSessions=new Map<string, AnnotationSession>();
 let annotSession: AnnotationSession | null=null, annotSelected: FigureStroke | null=null, annotDrag=null, annotSendOne=null, annotBusy=false;
+// Panneau Notes (lot 2, 2026-11-16) : la note s'écrit dans le panneau, à sa
+// place dans la liste, jamais sur la figure. `annotEditing` = la note ouverte.
+let annotEditing: FigureStroke | null=null, annotHover: FigureStroke | null=null, annotPanelOpen=false;
+let annotNoteClose: (()=>void) | null=null, annotSendAll: (direct: boolean)=>Promise<void>=async()=>{};
+const annotNoteOpen=()=>annotEditing!==null;
+/** Enregistre et referme la note ouverte (Entrée, Échap, clic ailleurs). */
+function annotNoteCommit(){annotNoteClose?.();}
+/** Referme la note ouverte sans rien enregistrer de plus. */
+function annotNoteHide(){annotEditing=null;annotNoteClose=null;(document.getElementById('annotNote') as HTMLDivElement).style.display='none';}
 
 // Barre unique du visionneur (B′, Thierry 2026-09-11) : ⓘ · ‹ n/N › · zoom ·
 // annoter · chat · ⋯ · ×. Le nom et tout ce qui décrit le fichier vivent
@@ -2559,6 +2573,7 @@ const lbHead=document.createElement('div');lbHead.id='lbHead';
 lbHead.innerHTML='<button id="lbInfoBtn" aria-label="Informations sur le fichier" aria-expanded="false" aria-controls="lbSheet"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8v.2"/></svg></button>'
  +'<div id="lbSheet" role="dialog" aria-label="Informations sur le fichier" hidden><div id="lbInfo"></div><div id="lbSheetActs"><a id="lbOriginal" target="_blank" rel="noopener">Ouvrir l’original ↗</a><button id="lbCopyPath" type="button">Copier le chemin</button></div></div>'
  +'<span class="lb-space"></span>'
+ +'<button id="lbNotes" type="button" hidden aria-pressed="false" aria-controls="annotPanel" title="Notes de la figure" aria-label="Notes de la figure"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg><span class="viewer-label">Notes</span><span id="lbNotesN"></span></button>'
  +'<button id="lbHistBtn" type="button" hidden aria-expanded="false" aria-controls="lbStrip"></button>'
  +'<button id="lbAdd" title="Ajouter au brouillon du chat" aria-label="Ajouter au brouillon du chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H5l-3 3V11a9 9 0 0 1 18 0ZM8 11h8m-4-4v8"/></svg></button>'
  +'<details id="lbMore"><summary aria-label="Autres actions"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></summary><div><div id="lbBackground" role="group" aria-label="Fond de la figure"><span>Fond</span><button data-backdrop="atelier" title="Atelier" aria-label="Fond Atelier" aria-pressed="true" style="--swatch:var(--bg)"></button><button data-backdrop="#303335" title="Graphite" aria-label="Fond graphite" aria-pressed="false" style="--swatch:#303335"></button><button data-backdrop="#252b30" title="Ardoise" aria-label="Fond ardoise" aria-pressed="false" style="--swatch:#252b30"></button></div></div></details>'
@@ -2581,7 +2596,7 @@ const lbSheet=(document.getElementById('lbSheet') as HTMLDivElement);
 lbSheet.prepend((document.getElementById('lbCap') as HTMLDivElement));
 (document.getElementById('lbSheetActs') as HTMLDivElement).prepend((document.getElementById('lbProv') as HTMLButtonElement));
 const lbSpace=lbHead.querySelector<HTMLSpanElement>('.lb-space');
-for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar','annotPill'])lbSpace.before(document.getElementById(id));
+for(const id of ['lbPrev','lbNext','lbZoom','lbAnnot','annotBar'])lbSpace.before(document.getElementById(id));
 lbHead.append((document.getElementById('lbClose') as HTMLButtonElement));
 lbHead.insertBefore((document.getElementById('lbFs') as HTMLButtonElement),(document.getElementById('lbClose') as HTMLButtonElement));
 const lbPosition=document.createElement('span');lbPosition.id='lbPosition';(document.getElementById('lbPrev') as HTMLButtonElement).after(lbPosition);
@@ -2694,7 +2709,7 @@ function lbVersionsPaint(){
 async function lbVersionDisplay(version: number,automatic=false){
   const h=lbHistory,row=lbVersionRow(version);if(!h.rel||!row||h.selected===version)return;
   const display= h.display=(h.display||0)+1;
-  const blocked=()=>annotBusy||annotDrag||annotCur||(document.getElementById('annotNote') as HTMLDivElement).style.display==='block'||(automatic&&lb().classList.contains('annot')&&annotStrokes.length>0);
+  const blocked=()=>annotBusy||annotDrag||annotCur||annotNoteOpen()||(automatic&&lb().classList.contains('annot')&&annotStrokes.length>0);
   if(blocked())return;
   const url='/figure-version?hash='+row.hash;
   const image=new Image();image.src=url;
@@ -2709,15 +2724,11 @@ async function lbVersionDisplay(version: number,automatic=false){
   h.selected=version;
   const img=(document.getElementById('lbImg') as HTMLImageElement);img.src=url;
   // The preloaded immutable URL has decoded; retain zoom and pan during updates.
-  annotSession=null;annotStrokes=[];annotSelected=null;annotPillUpdate();
+  annotSelected=null;annotBind(annotating);
   (document.getElementById('lbOriginal') as HTMLAnchorElement).href=url;
   lbVersionsPaint();
-  if(annotating){
-    const key=lbAnnotationKey();
-    if(!annotSessions.has(key))annotSessions.set(key,{strokes:[],undo:[],redo:[]});
-    annotSession=annotSessions.get(key);annotStrokes=annotSession.strokes;
-    cv().width=image.naturalWidth;cv().height=image.naturalHeight;annotRedraw();
-  }
+  // Les notes suivent la version affichée, dans le mode annotation comme dans le panneau.
+  if(annotating||annotPanelOpen){annotLayout();annotRedraw();}else annotPillUpdate();
   if(provOpen){provState=null;provRel='';provSync();}
 }
 function lbVersionsPoll(){
@@ -2747,7 +2758,7 @@ async function lbVersionNavigate(direction: number){
 }
 async function lbVersionGo(version: number){
   const h=lbHistory,row=lbVersionRow(version);if(!row)return;
-  if(annotBusy||annotDrag||annotCur||(document.getElementById('annotNote') as HTMLDivElement).style.display==='block')return;
+  if(annotBusy||annotDrag||annotCur||annotNoteOpen())return;
   h.display=(h.display||0)+1;
   const follow=h.follow;
   h.follow=row===h.rows.at(-1);
@@ -2784,7 +2795,7 @@ function lbCompareEnter(){
   const h=lbHistory;if(h.rows.length<2||lb().classList.contains('annot'))return;
   const last=h.rows.at(-1).version,shown=h.selected??last;
   h.compare={a:shown!==last?shown:h.rows.at(-2).version,b:last,mode:'slider',pos:.5};
-  lb().classList.add('comparing');lbCompare.hidden=false;
+  annotPanelSet(false);lb().classList.add('comparing');lbCompare.hidden=false;
   lbVersionsPaint();lbComparePaint();
 }
 function lbCompareExit(){
@@ -2878,7 +2889,7 @@ async function lbAttachDisplayed(){
   const j=await r.json();if(!j.path)throw new Error('snapshot missing');
   await postChatPayload({path:j.path,name:f.name,text:context,previewUrl:new URL(j.path,location.origin+'/').href});
 }
-(document.getElementById('lbAdd') as HTMLButtonElement).onclick=async()=>{if(annotBusy)return;document.querySelector<HTMLButtonElement>('#annotNote .annot-close').click();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))(document.getElementById('annotPillSend') as HTMLButtonElement).click();else if(EMB){try{annotBusy=true;await lbAttachDisplayed();}catch{(document.getElementById('lbAdd') as HTMLButtonElement).title='Ajout impossible — réessayer';}finally{annotBusy=false;}}};
+(document.getElementById('lbAdd') as HTMLButtonElement).onclick=async()=>{if(annotBusy)return;annotNoteCommit();if(lb().classList.contains('annot')&&annotStrokes.some(s=>s.note?.trim()))void annotSendAll(false);else if(EMB){try{annotBusy=true;await lbAttachDisplayed();}catch{(document.getElementById('lbAdd') as HTMLButtonElement).title='Ajout impossible — réessayer';}finally{annotBusy=false;}}};
 
 const cv=()=>(document.getElementById('annotCv') as HTMLCanvasElement);
 const annotGeometryReady=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='/.fig_thumbs/figure_annotation_geometry.js?v=__VER__';script.onload=resolve;script.onerror=reject;document.head.appendChild(script);});
@@ -2912,13 +2923,13 @@ function annotSetTool(tool: string){
 }
 /** Quitte le mode sans passer par la bascule (changement de figure, fermeture). */
 function annotLeave(){
-  lb().classList.remove('annot');annotSpace=false;annotCursor();
+  lb().classList.remove('annot');annotSpace=false;annotCursor();annotNoteHide();annotPanelSet(false);
   (document.getElementById('lbAnnot') as HTMLButtonElement).setAttribute('aria-pressed','false');
 }
 function annotDelete(stroke: FigureStroke){
   if(annotBusy||!annotStrokes.includes(stroke))return;
   annotCheckpoint();annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();
-  (document.getElementById('annotNote') as HTMLDivElement).style.display='none';annotRedraw();
+  annotNoteHide();annotRedraw();
 }
 function annotRemember(){if(annotSession)annotSession.strokes=annotStrokes;}
 function annotCheckpoint(){if(!annotSession)return;annotSession.undo.push(structuredClone(annotStrokes));annotSession.redo=[];}
@@ -2926,97 +2937,155 @@ function annotHistory(redo=false){
   if(!annotSession||annotBusy)return;
   const from=redo?annotSession.redo:annotSession.undo,to=redo?annotSession.undo:annotSession.redo;
   if(!from.length)return;to.push(structuredClone(annotStrokes));annotStrokes=from.pop();annotSelected=null;
-  (document.getElementById('annotNote') as HTMLDivElement).style.display='none';annotRenumber();annotRedraw();
+  annotNoteHide();annotRenumber();annotRedraw();
 }
-async function annotGuard(){if(annotBusy)return false;(document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();annotRemember();(document.getElementById('annotNote') as HTMLDivElement).style.display='none';(document.getElementById('annotList') as HTMLDivElement).hidden=true;return true;}
+async function annotGuard(){if(annotBusy)return false;annotNoteCommit();annotRemember();annotNoteHide();return true;}
 async function annotToggle(){
   const history=lbHistory,index=lbIdx;
   await annotGeometryReady;
   if(lbHistory.rel===lbList[lbIdx]?.rel&&lbHistory.selected==null&&lbHistory.busy)await lbVersionReady;
   if(history!==lbHistory||index!==lbIdx||!lb().classList.contains('show'))return;
   if(annotBusy)return;
-  (document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();
+  annotNoteCommit();
   if(lbHistory.compare)lbCompareExit();
   const on=lb().classList.toggle('annot');
   (document.getElementById('lbAnnot') as HTMLButtonElement).setAttribute('aria-pressed',String(on));
   if(on){
-    const img=(document.getElementById('lbImg') as HTMLImageElement);if(!img.naturalWidth){lb().classList.remove('annot');return;}
-    const rel=lbAnnotationKey();
-    if(!annotSessions.has(rel))annotSessions.set(rel,{strokes:[],undo:[],redo:[]});
-    annotSession=annotSessions.get(rel);annotStrokes=annotSession.strokes;annotCur=null;annotSelected=null;
-    annotSetTool(annotTool);lbFitImage();annotLayout();annotRedraw();
-  }else{annotSpace=false;annotCursor();annotRemember();(document.getElementById('annotNote') as HTMLDivElement).style.display='none';(document.getElementById('annotList') as HTMLDivElement).hidden=true;}
+    const img=(document.getElementById('lbImg') as HTMLImageElement);if(!img.naturalWidth){annotLeave();return;}
+    annotBind(true);annotCur=null;annotSelected=null;
+    annotPanelSet(true);annotSetTool(annotTool);lbFitImage();annotLayout();annotRedraw();
+  }else{annotSpace=false;annotCursor();annotRemember();annotNoteHide();annotSelected=null;annotPanelSet(false);annotPillUpdate();}
   // « Comparer » est fermé pendant l'annotation : son état suit la bascule tout de suite.
   lbVersionsPaint();
 }
 function annotPos(e: {clientX: number; clientY: number}){const r=cv().getBoundingClientRect(),i=annotImage();return{x:(e.clientX-r.left)*i.w/r.width,y:(e.clientY-r.top)*i.h/r.height};}
 function annotClient(p: {x: number; y: number}){const r=cv().getBoundingClientRect(),i=annotImage();return{x:r.left+p.x*r.width/i.w,y:r.top+p.y*r.height/i.h};}
+/** Lie les notes à la figure et à la version affichées. Hors du mode
+ *  annotation, une figure sans note n'ouvre pas de séance. */
+function annotBind(create: boolean){
+  const key=lbAnnotationKey();
+  if(create&&key&&!annotSessions.has(key))annotSessions.set(key,{strokes:[],undo:[],redo:[]});
+  annotSession=(key&&annotSessions.get(key))||null;annotStrokes=annotSession?annotSession.strokes:[];
+}
+/** Ouvre ou ferme le panneau Notes. Ouvert hors du mode annotation, il montre
+ *  les marques de la version affichée sans permettre de les déplacer. */
+function annotPanelSet(open: boolean){
+  annotPanelOpen=open;
+  (document.getElementById('annotPanel') as HTMLElement).hidden=!open;
+  lb().classList.toggle('notes',open);
+  (document.getElementById('lbNotes') as HTMLButtonElement).setAttribute('aria-pressed',String(open));
+  if(!open){annotHover=null;annotSendMenu(false);}
+  else if((document.getElementById('lbImg') as HTMLImageElement).naturalWidth){annotLayout();annotRedraw();}
+}
+function annotSendMenu(open: boolean){
+  const menu=(document.getElementById('annotSendMenu') as HTMLDivElement),more=(document.getElementById('annotSendMore') as HTMLButtonElement);
+  menu.style.display=open?'flex':'none';if(open){menu.dataset.open='';delete menu.dataset.closed;}else{menu.dataset.closed='';delete menu.dataset.open;}
+  more.setAttribute('aria-expanded',String(open));
+}
 function annotPillUpdate(){
-  const n=annotStrokes.length;
-  (document.getElementById('annotPillN') as HTMLButtonElement).textContent=n+(n>1?' annotations':' annotation');
-  (document.getElementById('annotPill') as HTMLDivElement).classList.toggle('on',n>0);
-  (document.getElementById('annotPillSend') as HTMLButtonElement).disabled=annotBusy||!annotStrokes.some(s=>s.note?.trim());
-  (document.getElementById('lbAdd') as HTMLButtonElement).disabled=annotBusy||(!EMB&&!annotStrokes.some(s=>s.note?.trim()));
+  const n=annotStrokes.length,ready=annotStrokes.some(s=>s.note?.trim()),annotating=lb().classList.contains('annot');
+  const notes=(document.getElementById('lbNotes') as HTMLButtonElement),label=n?(n>1?n+' notes sur cette figure':'1 note sur cette figure'):'Notes de la figure';
+  (document.getElementById('lbNotesN') as HTMLSpanElement).textContent=n?String(n):'';
+  notes.title=label;notes.setAttribute('aria-label',label);
+  const row=lbHistory.rel===lbList[lbIdx]?.rel?lbVersionRow(lbHistory.selected):null;
+  (document.getElementById('annotPanelMeta') as HTMLSpanElement).textContent=[n?String(n):'',row?'v'+row.version:''].filter(Boolean).join(' · ');
+  (document.getElementById('annotEmpty') as HTMLParagraphElement).hidden=n>0;
+  (document.getElementById('annotEmpty') as HTMLParagraphElement).textContent=annotating
+    ?'Aucune note sur cette version. Tracer un cadre ou cliquer un point sur la figure, puis écrire la note ici.'
+    :'Aucune note sur cette version. Annoter (A) pour en poser une.';
+  for(const id of ['annotSendAll','annotSendMore'])(document.getElementById(id) as HTMLButtonElement).disabled=annotBusy||!ready;
+  if(annotBusy||!ready)annotSendMenu(false);
+  (document.getElementById('lbAdd') as HTMLButtonElement).disabled=annotBusy||(!EMB&&!(annotating&&ready));
   (document.getElementById('annotUndo') as HTMLButtonElement).disabled=!annotSession?.undo.length;
   (document.getElementById('annotRedo') as HTMLButtonElement).disabled=!annotSession?.redo.length;
   annotRemember();annotListRender();
 }
+// Une rangée par note, gardée d'un rendu à l'autre : un clic en cours ne perd
+// pas sa cible, et la note ouverte ne perd ni sa place ni le curseur.
+const annotRows=new Map<string, HTMLButtonElement>();
+function annotRow(s: FigureStroke){
+  let row=annotRows.get(s.id);
+  if(!row){
+    const id=s.id,find=()=>annotStrokes.find(o=>o.id===id)||null;
+    row=document.createElement('button');row.type='button';row.className='annot-row';
+    row.innerHTML='<span class="annot-number"></span><span class="annot-text"></span>';
+    row.onclick=async()=>{
+      if(annotBusy)return;
+      if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}
+      const stroke=find();if(stroke)annotAskNote(stroke);
+    };
+    const hover=(on: boolean)=>{if(on||annotHover?.id===id)annotHoverSet(on?find():null);};
+    row.onpointerenter=()=>hover(true);row.onpointerleave=()=>hover(false);row.onfocus=()=>hover(true);row.onblur=()=>hover(false);
+    annotRows.set(id,row);
+  }
+  const text=s.note||'Note à compléter';
+  const number=row.firstElementChild as HTMLSpanElement,body=row.lastElementChild as HTMLSpanElement;
+  if(number.textContent!==String(s.n))number.textContent=String(s.n);
+  if(body.textContent!==text)body.textContent=text;
+  row.classList.toggle('todo',!s.note);row.classList.toggle('sel',s===annotSelected);row.classList.toggle('hot',s===annotHover);
+  row.setAttribute('aria-label','Note '+s.n+' : '+text);
+  return row;
+}
 function annotListRender(){
-  const list=(document.getElementById('annotItems') as HTMLDivElement);list.replaceChildren();
-  annotStrokes.forEach(s=>{const b=document.createElement('button');b.className='annot-row';b.textContent=s.n+'  '+(s.note||'Note à compléter');b.onclick=()=>{(document.getElementById('annotList') as HTMLDivElement).hidden=true;(document.getElementById('annotPillN') as HTMLButtonElement).setAttribute('aria-expanded','false');annotSelected=s;annotRedraw();annotAskNote(s);};list.appendChild(b);});
+  const list=(document.getElementById('annotItems') as HTMLDivElement),box=(document.getElementById('annotNote') as HTMLDivElement);
+  if(annotEditing&&!annotStrokes.includes(annotEditing))annotNoteHide();
+  if(annotHover&&!annotStrokes.includes(annotHover))annotHover=null;
+  const wanted: HTMLElement[]=annotStrokes.map(s=>s===annotEditing?box:annotRow(s));
+  // D'abord retirer ce qui n'a plus cours : la note ouverte ne bouge alors jamais.
+  for(const child of [...list.children])if(!wanted.includes(child as HTMLElement)&&child.parentNode===list){if(child===box)list.after(box);else child.remove();}
+  wanted.forEach((el,i)=>{if(list.children[i]!==el)list.insertBefore(el,list.children[i]||null);});
+  const live=new Set(annotStrokes.map(s=>s.id));for(const id of [...annotRows.keys()])if(!live.has(id))annotRows.delete(id);
 }
 function annotRenumber(){annotStrokes.forEach((s,i)=>s.n=i+1);annotRemember();}
+/** Ouvre la note d'une marque dans le panneau, à sa place dans la liste. */
 async function annotAskNote(stroke: FigureStroke){
-  annotSelected=stroke;
   const box=(document.getElementById('annotNote') as HTMLDivElement),inp=box.querySelector<HTMLTextAreaElement>('textarea');
+  if(annotEditing===stroke){inp.focus({preventScroll:true});return;}
+  annotNoteCommit();
+  if(!annotStrokes.includes(stroke))return;
+  annotSelected=stroke;annotEditing=stroke;
+  if(!annotPanelOpen)annotPanelSet(true);
+  const status=box.querySelector<HTMLSpanElement>('.annot-status'),send=box.querySelector<HTMLButtonElement>('.annot-send');
   box.querySelector<HTMLSpanElement>('.annot-number').textContent=String(stroke.n);
-  inp.value=stroke.note||'';box.style.display='block';
-  // La note se pose à côté de la marque, jamais dessus : à droite, sinon à
-  // gauche, sinon dessous, sinon dessus.
-  const position=()=>{
-    const host=lb().getBoundingClientRect(),b=annotGeometry().bounds(stroke),badge=annotClient(annotBadge(stroke,annotUnit())),r=ANNOT_MARK.badge;
-    const a=annotClient({x:b.x,y:b.y}),z=annotClient({x:b.x+b.width,y:b.y+b.height});
-    const left=Math.min(a.x,badge.x-r),right=Math.max(z.x,badge.x+r),top=Math.min(a.y,badge.y-r),bottom=Math.max(z.y,badge.y+r);
-    box.style.maxWidth=Math.max(120,host.width-16)+'px';
-    const w=box.offsetWidth,h=box.offsetHeight,gap=12,x0=host.left+8,x1=Math.max(x0,host.right-8-w),y0=host.top+8,y1=Math.max(y0,host.bottom-8-h);
-    const fitX=(x: number)=>x>=x0&&x<=x1,fitY=(y: number)=>y>=y0&&y<=y1;
-    const clampX=(x: number)=>Math.max(x0,Math.min(x1,x)),clampY=(y: number)=>Math.max(y0,Math.min(y1,y));
-    let x=clampX(right+gap),y=clampY(top);
-    if(!fitX(right+gap)){
-      if(fitX(left-gap-w))x=left-gap-w;
-      else if(fitY(bottom+gap)){x=clampX(left);y=bottom+gap;}
-      else if(fitY(top-gap-h)){x=clampX(left);y=top-gap-h;}
-    }
-    box.style.left=x+'px';box.style.top=y+'px';
+  inp.value=stroke.note||'';box.style.display='grid';status.textContent='';
+  const sync=()=>{inp.style.height='auto';inp.style.height=Math.min(132,inp.scrollHeight)+'px';send.disabled=annotBusy||!inp.value.trim();};
+  const save=()=>{if(inp.value!==stroke.note){annotCheckpoint();stroke.note=inp.value.trim();}annotSent=false;};
+  // Comme partout dans Atelier : Entrée, Échap et un clic ailleurs ENREGISTRENT
+  // la note ; une note vide retire sa marque.
+  const close=()=>{
+    if(annotBusy||annotEditing!==stroke)return;
+    save();
+    if(!stroke.note){annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();}
+    const focused=box.contains(document.activeElement);
+    annotNoteHide();annotRedraw();
+    if(focused&&lb().classList.contains('annot'))cv().focus({preventScroll:true});
   };
-  const save=()=>{if(inp.value!==stroke.note){annotCheckpoint();stroke.note=inp.value.trim();}annotSent=false;annotRedraw();};
-  // Comme partout dans Atelier : Entrée, Échap, × et un clic ailleurs
-  // ENREGISTRENT la note ; une note vide retire sa marque.
-  const close=()=>{if(annotBusy)return;save();if(!stroke.note){annotStrokes=annotStrokes.filter(s=>s!==stroke);annotSelected=null;annotRenumber();}box.style.display='none';box.querySelector<HTMLButtonElement>('.annot-close').onclick=null;annotRedraw();if(box.contains(document.activeElement))cv().focus({preventScroll:true});};
-  box.querySelector<HTMLButtonElement>('.annot-close').onclick=close;
+  annotNoteClose=close;
   box.querySelector<HTMLButtonElement>('.annot-delete').onclick=()=>annotDelete(stroke);
-  for(const selector of ['.annot-draft','.annot-send'])box.querySelector<HTMLButtonElement>(selector).onclick=async function(this:HTMLButtonElement){
-    if(annotBusy||this.disabled)return;save();if(!stroke.note)return;
-    annotBusy=true;inp.disabled=true;annotPillUpdate();inp.oninput(undefined);
-    try{await annotSendOne(stroke,selector==='.annot-send');box.style.display='none';}
-    catch(error){box.querySelector<HTMLSpanElement>('.annot-status').textContent='Envoi impossible — réessayer';}
-    finally{annotBusy=false;inp.disabled=false;annotPillUpdate();inp.oninput(undefined);}
+  // Pilule « Envoyer au chat » : enregistre, puis envoie cette note seule.
+  send.onclick=async()=>{
+    if(annotBusy||send.disabled)return;save();if(!stroke.note)return;
+    annotBusy=true;inp.disabled=true;annotPillUpdate();sync();
+    try{await annotSendOne(stroke,true);if(annotEditing===stroke)annotNoteHide();}
+    catch{status.textContent='Envoi impossible — réessayer';}
+    finally{annotBusy=false;inp.disabled=false;annotRedraw();sync();}
   };
-  inp.oninput=()=>{inp.style.height='48px';inp.style.height=Math.min(132,inp.scrollHeight)+'px';for(const sel of ['.annot-send','.annot-draft'])(box.querySelector(sel) as HTMLInputElement).disabled=annotBusy||!inp.value.trim();position();};
+  inp.oninput=sync;
   inp.onkeydown=e=>{
     e.stopPropagation();
     if(e.key==='Escape'){e.preventDefault();close();}
-    else if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();box.querySelector<HTMLButtonElement>('.annot-send').click();}
+    else if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();close();void annotSendAll(true);}
     else if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();close();}
   };
-  box.querySelector<HTMLSpanElement>('.annot-status').textContent='';inp.oninput(undefined);inp.focus();annotRedraw();
+  annotRedraw();sync();
+  inp.focus({preventScroll:true});box.scrollIntoView({block:'nearest'});
 }
 function annotBindCanvas(){
   const c=cv(),stage=(document.getElementById('lbViewport') as HTMLDivElement),wrap=(document.getElementById('lbWrap') as HTMLDivElement);
   let pan=null;
   stage.addEventListener('pointerdown',e=>{
     if(!lb().classList.contains('annot')||!annotPanMode()||annotBusy||e.button!==0)return;
-    document.querySelector<HTMLButtonElement>('#annotNote .annot-close').click();
+    annotNoteCommit();
     pan={id:e.pointerId,x:e.clientX,y:e.clientY,left:stage.scrollLeft,top:stage.scrollTop,px:lbPanX,py:lbPanY};
     stage.setPointerCapture(e.pointerId);stage.style.cursor='grabbing';e.preventDefault();e.stopPropagation();
   },true);
@@ -3035,7 +3104,7 @@ function annotBindCanvas(){
   c.addEventListener('pointerdown',e=>{
     if(e.button!==0||annotBusy||annotPanMode())return;
     const p=annotPos(e);
-    (document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();
+    annotNoteCommit();
     // Plus d'outil « sélectionner » (Thierry 2026-09-11) : une marque se saisit
     // par son numéro, par son BORD (pas son aire, pour pouvoir dessiner une
     // forme à l'intérieur d'une autre) ou par une poignée ; ailleurs on crée.
@@ -3048,7 +3117,7 @@ function annotBindCanvas(){
     const p=annotPos(e),g=annotGeometry(),size=annotImage();
     if(!annotDrag){
       // Le curseur dit ce que fera le clic : déplacer, étirer ou dessiner.
-      if(!annotPanMode()&&!annotBusy){const grab=annotGrab(p);c.style.cursor=grab?(grab.handle?HANDLE_CURSOR[grab.handle]:'move'):'crosshair';}
+      if(!annotPanMode()&&!annotBusy){const grab=annotGrab(p),hot=grab?grab.stroke:null;c.style.cursor=grab?(grab.handle?HANDLE_CURSOR[grab.handle]:'move'):'crosshair';annotHoverSet(hot);}
       return;
     }
     const d=annotDrag;
@@ -3066,15 +3135,39 @@ function annotBindCanvas(){
     annotRedraw();
   });
   c.addEventListener('pointercancel',()=>{if(annotDrag?.original)Object.assign(annotDrag.stroke,annotDrag.original);annotDrag=null;annotCur=null;annotRedraw();});
+  c.addEventListener('pointerleave',()=>{if(!annotDrag)annotHoverSet(null);});
   // Un clic sur un outil entre en mode annotation s'il ne l'est pas déjà
   // (Thierry 2026-09-11). Après un clic de souris le clavier revient à la
   // figure, pour qu'Espace déplace la vue au lieu de recliquer l'outil.
   document.querySelectorAll<HTMLElement>('#annotBar [data-tool]').forEach(b=>b.onclick=async e=>{if(annotBusy)return;if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}annotSetTool(b.dataset.tool);if(e.detail)c.focus({preventScroll:true});});
   (document.getElementById('annotUndo') as HTMLButtonElement).onclick=()=>annotHistory();(document.getElementById('annotRedo') as HTMLButtonElement).onclick=()=>annotHistory(true);
-  (document.getElementById('annotPillN') as HTMLButtonElement).onclick=function(){(document.getElementById('annotNote') as HTMLDivElement).querySelector<HTMLButtonElement>('.annot-close').click();const list=(document.getElementById('annotList') as HTMLDivElement);list.hidden=!list.hidden;(this as HTMLButtonElement).setAttribute('aria-expanded',String(!list.hidden));};
-  document.addEventListener('pointerdown',e=>{if(!(e.target as Element).closest<HTMLDivElement>('#annotList,#annotPillN')){(document.getElementById('annotList') as HTMLDivElement).hidden=true;(document.getElementById('annotPillN') as HTMLButtonElement).setAttribute('aria-expanded','false');}});
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!(document.getElementById('annotList') as HTMLDivElement).hidden){e.preventDefault();e.stopImmediatePropagation();(document.getElementById('annotListClose') as HTMLButtonElement).click();}},true);
-  (document.getElementById('annotListClose') as HTMLButtonElement).onclick=()=>{(document.getElementById('annotList') as HTMLDivElement).hidden=true;(document.getElementById('annotPillN') as HTMLButtonElement).setAttribute('aria-expanded','false');};
+  // Panneau Notes : le compteur de la barre l'ouvre et le ferme ; un clic
+  // hors de la note ouverte l'enregistre, où qu'il tombe.
+  (document.getElementById('lbNotes') as HTMLButtonElement).onclick=async e=>{
+    e.stopPropagation();if(annotBusy)return;
+    if(annotPanelOpen){annotNoteCommit();if(!annotNoteOpen())annotPanelSet(false);return;}
+    const history=lbHistory,index=lbIdx;
+    await annotGeometryReady;
+    if(lbHistory.rel===lbList[lbIdx]?.rel&&lbHistory.selected==null&&lbHistory.busy)await lbVersionReady;
+    if(history!==lbHistory||index!==lbIdx||!lb().classList.contains('show')||annotBusy)return;
+    if(lbHistory.compare)lbCompareExit();
+    annotBind(lb().classList.contains('annot'));annotPanelSet(true);annotPillUpdate();
+  };
+  document.addEventListener('pointerdown',e=>{
+    const target=e.target as Element;
+    if(annotNoteOpen()&&!target.closest('#annotNote'))annotNoteCommit();
+    if(!target.closest('#annotSendMenu,#annotSendMore'))annotSendMenu(false);
+  },true);
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape'||(document.getElementById('annotSendMenu') as HTMLDivElement).style.display!=='flex')return;
+    e.preventDefault();e.stopImmediatePropagation();annotSendMenu(false);(document.getElementById('annotSendMore') as HTMLButtonElement).focus();
+  },true);
+  (document.getElementById('annotSendMore') as HTMLButtonElement).onclick=e=>{
+    e.stopPropagation();const open=(document.getElementById('annotSendMenu') as HTMLDivElement).style.display!=='flex';
+    annotSendMenu(open);if(open)document.querySelector<HTMLButtonElement>('#annotSendMenu button').focus();
+  };
+  (document.getElementById('annotSendAll') as HTMLButtonElement).onclick=()=>{annotNoteCommit();void annotSendAll(true);};
+  document.querySelectorAll<HTMLButtonElement>('#annotSendMenu [data-send]').forEach(b=>b.onclick=()=>{annotSendMenu(false);annotNoteCommit();void annotSendAll(b.dataset.send==='direct');});
 }
 
 /** Encre des marques : une seule, fixe, lue dans les variables du thème. Les
@@ -3097,7 +3190,7 @@ function annotBadge(s: FigureStroke,unit: number){
 /** Peint des marques. `k` = pixels de sortie par pixel d'image ; `u` = pixels
  *  de sortie par pixel d'écran (toutes les cotes de ANNOT_MARK s'y rapportent).
  *  Sert à l'écran comme à l'image envoyée à l'agent. */
-function annotPaint(x: CanvasRenderingContext2D,strokes: FigureStroke[],k: number,u: number,selected: FigureStroke | null=null){
+function annotPaint(x: CanvasRenderingContext2D,strokes: FigureStroke[],k: number,u: number,selected: FigureStroke | null=null,hover: FigureStroke | null=null){
   const M=ANNOT_MARK,C=annotInk();
   x.save();x.lineCap='round';x.lineJoin='round';
   // Liseré papier sous le trait d'encre : lisible sur une carte comme sur une courbe.
@@ -3110,7 +3203,7 @@ function annotPaint(x: CanvasRenderingContext2D,strokes: FigureStroke[],k: numbe
     if(s.tool==='rect'||s.tool==='ellipse'){
       const left=Math.min(x1,x2),top=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1);
       const path=()=>{x.beginPath();if(s.tool==='ellipse')x.ellipse(left+w/2,top+h/2,w/2||1,h/2||1,0,0,2*Math.PI);else if(x.roundRect)x.roundRect(left,top,w,h,Math.min(2*u,w/2,h/2));else x.rect(left,top,w,h);};
-      if(s===selected){path();x.globalAlpha=.07;x.fillStyle=C.ink;x.fill();x.globalAlpha=1;}
+      if(s===selected||s===hover){path();x.globalAlpha=.07;x.fillStyle=C.ink;x.fill();x.globalAlpha=1;}
       lined(path);
     }else if(s.tool==='arrow'){
       const angle=Math.atan2(y2-y1,x2-x1),head=Math.min(M.head*u,Math.hypot(x2-x1,y2-y1));
@@ -3130,6 +3223,7 @@ function annotPaint(x: CanvasRenderingContext2D,strokes: FigureStroke[],k: numbe
   for(const s of strokes){
     if(!s.n)continue;
     const badge=annotBadge(s,u/k),bx=badge.x*k,by=badge.y*k;
+    if(s===hover){x.beginPath();x.arc(bx,by,(M.badge+4)*u,0,2*Math.PI);x.globalAlpha=.22;x.fillStyle=C.ink;x.fill();x.globalAlpha=1;}
     x.beginPath();x.arc(bx,by,M.badge*u,0,2*Math.PI);x.fillStyle=C.ink;x.fill();x.strokeStyle=C.paper;x.lineWidth=M.line*u;x.stroke();
     x.fillStyle=C.on;x.fillText(String(s.n),bx,by+.5*u);
   }
@@ -3143,11 +3237,19 @@ function annotPaint(x: CanvasRenderingContext2D,strokes: FigureStroke[],k: numbe
   }
   x.restore();
 }
-function annotRedraw(){
+/** Marque survolée, sur la figure ou dans le panneau : la figure et la rangée
+ *  se répondent. Ne refait pas la liste (un survol ne déplace aucune rangée). */
+function annotHoverSet(next: FigureStroke | null){
+  if(annotHover===next)return;
+  annotHover=next;annotDraw();
+  for(const [id,row] of annotRows)row.classList.toggle('hot',id===next?.id);
+}
+function annotRedraw(){annotDraw();annotPillUpdate();}
+function annotDraw(){
   const c=cv(),x=c.getContext('2d'),size=annotImage();
   x.clearRect(0,0,c.width,c.height);
-  annotPaint(x,annotStrokes.concat(annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),annotStrokes.includes(annotSelected)?annotSelected:null);
-  annotPillUpdate();
+  const editable=lb().classList.contains('annot');
+  annotPaint(x,annotStrokes.concat(annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),editable&&annotStrokes.includes(annotSelected)?annotSelected:null,annotStrokes.includes(annotHover)?annotHover:null);
 }
 function annotEdgeHit(g,s,p,tol: number){
   if(!g.hit(s,p,tol))return false;
@@ -3267,6 +3369,29 @@ function annotInit(){
     annotPaint(x,strokes,out.width/img.naturalWidth,Math.max(1.25,out.width/1000));
     return out.toDataURL('image/png');
   }
+  /** Où tombe une marque, en fractions de l'image (origine en haut à gauche). */
+  function annotRegion(s: FigureStroke){
+    const {w,h}=annotImage(),r=(v: number)=>Math.round(v*1e4)/1e4;
+    if(s.tool==='arrow')return{kind:'arrow',x:r(s.x1/w),y:r(s.y1/h),w:r((s.x2-s.x1)/w),h:r((s.y2-s.y1)/h)};
+    if(s.tool==='point')return{kind:'point',x:r(s.x1/w),y:r(s.y1/h),w:0,h:0};
+    const b=annotGeometry().bounds(s);
+    return{kind:s.tool==='ellipse'?'ellipse':'box',x:r(b.x/w),y:r(b.y/h),w:r(b.width/w),h:r(b.height/h)};
+  }
+  /** Recadrage de la zone d'une note, avec sa marque seule et un peu de
+   *  contexte autour ; agrandi quand la zone est petite, pour rester lisible. */
+  function annotCrop(s: FigureStroke){
+    const img=(document.getElementById('lbImg') as HTMLImageElement),{w,h}=annotImage(),b=annotGeometry().bounds(s);
+    const pad=Math.max(24,.2*Math.max(b.width,b.height),.06*Math.min(w,h));
+    const x0=Math.max(0,Math.floor(b.x-pad)),y0=Math.max(0,Math.floor(b.y-pad));
+    const cw=Math.min(w,Math.ceil(b.x+b.width+pad))-x0,ch=Math.min(h,Math.ceil(b.y+b.height+pad))-y0;
+    if(cw<1||ch<1)return undefined;
+    const k=Math.max(.25,Math.min(3,800/Math.max(cw,ch)));
+    const out=document.createElement('canvas');out.width=Math.max(1,Math.round(cw*k));out.height=Math.max(1,Math.round(ch*k));
+    const x=out.getContext('2d');
+    x.drawImage(img,x0,y0,cw,ch,0,0,out.width,out.height);
+    x.translate(-x0*k,-y0*k);annotPaint(x,[s],k,1.5);
+    return out.toDataURL('image/png');
+  }
   const pendingFigureNotes=new Map();
   window.addEventListener('message',event=>{
     const d=event.data;
@@ -3284,9 +3409,12 @@ function annotInit(){
     const sentNotes=(only?[only]:annotStrokes).filter(s=>s.note).map(s=>({stroke:structuredClone(s),note:s.note,n:s.n}));
     // `rel` : le serveur y lit la recette de la figure et donne à l'agent le
     // script et la commande qui l'ont produite (chantier 2d).
+    // Chaque note part avec sa position (fractions de l'image, comme les notes
+    // du connecteur) et un recadrage de sa zone : l'agent sait où regarder.
+    const places=sentNotes.map(s=>({...annotRegion(s.stroke),crop:annotCrop(s.stroke)}));
     const body=(dataURL: string)=>JSON.stringify({name:f.name,rel:f.rel,dataURL,direct:!!direct,sourceContext:versionContext,
         target:claudeTarget(),embed:ANNOT_EMBEDDED,
-        notes:sentNotes.map(s=>({n:s.n,text:s.note}))});
+        notes:sentNotes.map((s,i)=>({n:s.n,text:s.note,...places[i]}))});
     const sentStrokes=sentNotes.map(s=>s.stroke);
     const imageLarge=annotRender(2200,sentStrokes), imageSmall=annotRender(1400,sentStrokes);
     let r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:body(imageLarge)});
@@ -3317,23 +3445,19 @@ function annotInit(){
     return j;
   }
   annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,stroke);if(!ANNOT_EMBEDDED){session.strokes=session.strokes.filter((s)=>s!==stroke);if(session===annotSession){annotStrokes=session.strokes;annotRenumber();annotRedraw();}}};
-  (document.getElementById('annotPillCancel') as HTMLButtonElement).onclick=async function(){
-    const n=annotStrokes.filter(s=>s.note).length;
-    if(!(await confirmDialog(n>1?`Supprimer les ${n} commentaires ?`:'Supprimer le commentaire ?','Supprimer')))return;
-    annotStrokes=[]; annotSent=true;
-    (document.getElementById('annotNote') as HTMLDivElement).style.display='none';
-    annotRedraw();
-  };
   function claudeTarget(){
     try{ return JSON.parse(localStorage.getItem('claudeTargetV1')||'null'); }catch(e){ return null; }
   }
   (function(){
-    const btn=(document.getElementById('annotPillTarget') as HTMLButtonElement), menu=(document.getElementById('tgMenu') as HTMLDivElement);
-    if(ANNOT_EMBEDDED)btn.style.display='none';
+    const btn=(document.getElementById('annotTarget') as HTMLButtonElement), menu=(document.getElementById('tgMenu') as HTMLDivElement);
+    // Dans l'app, la cible est le chat du projet : rien à choisir.
+    (document.getElementById('annotTargetItem') as HTMLDivElement).hidden=ANNOT_EMBEDDED;
+    // Hors de l'app il n'y a pas de brouillon : la note est collée dans la session, sans consigne d'appliquer.
+    if(!ANNOT_EMBEDDED)(document.getElementById('annotSendDraft') as HTMLButtonElement).textContent='Coller dans la session, sans appliquer';
     const mark=()=>btn.classList.toggle('set', !!claudeTarget());
     mark();
     btn.onclick=async e=>{
-      e.stopPropagation();
+      e.stopPropagation();annotSendMenu(false);
       const cur=claudeTarget();
       let html='<div class="hd">Envoyer vers</div>'
         +'<div class="it'+(cur?'':' on')+'" data-i="-1"><span class="app">auto</span><span class="t">Session du projet (auto)</span></div>';
@@ -3345,9 +3469,10 @@ function annotInit(){
             +esc(t.title||t.id)+(t.inProject?'':' — '+esc(String(t.cwd||'').split('/').pop()))+'</span></div>';
         });
         menu.innerHTML=html;
-        const r=btn.getBoundingClientRect();
+        const r=(document.getElementById('annotSendMore') as HTMLButtonElement).getBoundingClientRect();
         menu.style.display='flex';
-        menu.style.left=Math.max(8, r.left-120)+'px';
+        // Aligné à droite sur le chevron, sans sortir de la fenêtre.
+        menu.style.left=Math.max(8, Math.min(r.right,innerWidth-8)-menu.offsetWidth)+'px';
         menu.style.top=Math.max(8, r.top-menu.offsetHeight-10)+'px';
         menu.querySelectorAll<HTMLDivElement>('.it').forEach(it=>{
           it.onclick=(ev)=>{
@@ -3362,30 +3487,33 @@ function annotInit(){
       }catch(err){ console.warn('claude-targets failed', err); }
     };
   })();
-  (document.getElementById('annotPillSend') as HTMLButtonElement).onclick=async function(){
-    const lbl=(document.getElementById('annotPillN') as HTMLButtonElement);
-    if((this as HTMLInputElement).disabled||annotBusy)return;annotBusy=true;(this as HTMLInputElement).disabled=true;const sendingSession=annotSession;
-    (this as HTMLElement).classList.remove('is-ok','is-err'); (this as HTMLElement).classList.add('is-busy');
+  // « Envoyer à l'agent ⌘↵ » : toutes les notes de la version affichée. L'état
+  // d'envoi passe par des classes et une ligne d'état, jamais par le libellé.
+  annotSendAll=async(direct: boolean)=>{
+    const button=(document.getElementById('annotSendAll') as HTMLButtonElement),status=(document.getElementById('annotPanelStatus') as HTMLSpanElement);
+    if(annotBusy||!annotStrokes.some(s=>s.note?.trim()))return;
+    annotBusy=true;annotPillUpdate();const sendingSession=annotSession;
+    button.classList.remove('is-ok','is-err');button.classList.add('is-busy');status.classList.remove('is-err');status.textContent='';
     try{
-      const j=await annotPost(false);
-      if(!ANNOT_EMBEDDED){sendingSession.strokes=[];if(annotSession===sendingSession)annotStrokes=[];}annotSent=true;
-      (document.getElementById('annotNote') as HTMLDivElement).style.display='none';
-      if(!ANNOT_EMBEDDED)lb().classList.remove('annot');annotRedraw();
-      (this as HTMLElement).classList.remove('is-busy'); (this as HTMLElement).classList.add('is-ok');
-      lbl.textContent=ANNOT_EMBEDDED?'Ajouté au chat':(j.submitted?'Envoyé à la session':'Collé dans Claude');
+      const j=await annotPost(direct);
+      if(!ANNOT_EMBEDDED){sendingSession.strokes=[];if(annotSession===sendingSession){annotStrokes=[];annotSelected=null;}}annotSent=true;
+      annotNoteHide();
+      button.classList.remove('is-busy');button.classList.add('is-ok');
+      status.textContent=ANNOT_EMBEDDED?(direct?'Envoyé au chat':'Ajouté au brouillon du chat'):(j.submitted?'Envoyé à la session':'Collé dans Claude');
+      setTimeout(()=>{button.classList.remove('is-busy','is-ok','is-err');if(!annotBusy&&!status.classList.contains('is-err'))status.textContent='';},2400);
     }catch(e){
-      // Les marques restent en place : un nouveau clic sur la flèche rejoue l'envoi.
-      (this as HTMLElement).classList.remove('is-busy'); (this as HTMLElement).classList.add('is-err');
+      // Les marques restent en place : un nouvel envoi rejoue tout.
+      button.classList.remove('is-busy');button.classList.add('is-err');status.classList.add('is-err');
       // Trois échecs distincts, trois messages : l'ACK du chat, une réponse
       // HTTP du serveur (413 = image trop lourde), ou pas de serveur du tout.
-      // « Serveur off » sur un 413 envoyait chercher un serveur qui tournait.
-      lbl.textContent=/ack/.test(String(e&&e.message))
+      status.textContent=/ack/.test(String(e&&e.message))
         ? 'Chat injoignable — réessayer'
         : e&&e.status===413 ? 'Image trop lourde — serveur à relancer'
         : e&&e.status ? 'Erreur serveur '+e.status
         : 'Serveur off — démarrer le serveur';
+      setTimeout(()=>button.classList.remove('is-busy','is-ok','is-err'),2400);
     }
-    annotBusy=false;(this as HTMLInputElement).disabled=false;setTimeout(()=>{(this as HTMLElement).classList.remove('is-busy','is-ok','is-err'); annotPillUpdate();},2400);
+    annotBusy=false;annotRedraw();
   };
 }
 annotInit();
@@ -3463,6 +3591,10 @@ export type PageGlobals = {
   annotCur: typeof annotCur;
   annotDrag: typeof annotDrag;
   annotSelected: typeof annotSelected;
+  annotEditing: typeof annotEditing;
+  annotHover: typeof annotHover;
+  annotPanelOpen: typeof annotPanelOpen;
+  annotSendAll: typeof annotSendAll;
   annotClient: typeof annotClient;
   annotBadge: typeof annotBadge;
   annotUnit: typeof annotUnit;

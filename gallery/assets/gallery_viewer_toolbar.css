@@ -5,7 +5,10 @@
 #lb.responsive-viewer #lbHead>button,#lb.responsive-viewer summary{width:auto;min-width:32px;height:32px;padding:0 8px;flex:none;border-radius:6px;font-size:13px;box-sizing:border-box;gap:8px}
 #lb.responsive-viewer svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
 /* « Annoter » actif est neutre, comme « vN » : seules les marques portent l'encre. */
-#lb.responsive-viewer #lbAnnot[aria-pressed=true]{color:var(--txt);background:color-mix(in srgb,var(--txt) 9%,transparent)}
+#lb.responsive-viewer #lbAnnot[aria-pressed=true],#lb.responsive-viewer #lbNotes[aria-pressed=true]{color:var(--txt);background:color-mix(in srgb,var(--txt) 9%,transparent)}
+#lb.responsive-viewer #lbNotes[hidden],#lb.responsive-viewer.vw #lbNotes{display:none}
+#lb.responsive-viewer #lbNotesN{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+#lb.responsive-viewer #lbNotesN:empty{display:none}
 #lb.responsive-viewer #lbZoomMenu{position:relative;flex:none}
 #lb.responsive-viewer #lbZoomMenu summary{display:flex;align-items:center;justify-content:center;cursor:pointer;list-style:none;color:var(--txt)}
 #lb.responsive-viewer summary::-webkit-details-marker{display:none}
@@ -30,8 +33,6 @@
 @media (prefers-reduced-motion:reduce){#lb.responsive-viewer #annotBar>button{transition:none}}
 /* Volet très étroit : les sept outils tiennent encore sur une ligne. */
 @container figure-viewer (max-width:320px){#lb.responsive-viewer #annotBar{gap:0}#lb.responsive-viewer #annotBar>button{width:28px;min-width:28px}#lb.responsive-viewer #annotBar i{display:none}}
-#lb.responsive-viewer #annotPill{position:static!important;display:flex!important;transform:none!important;opacity:1;margin:4px 0;padding:0;width:100%;flex-wrap:wrap}
-#lb.responsive-viewer #annotPillN{font-size:12px;text-align:left}
 #lb.responsive-viewer #lbSheet{max-width:calc(100% - 16px);box-sizing:border-box}
 /* Légende : une ligne à elle sous la figure ; une figure agrandie ne passe plus dessous. */
 #lb.responsive-viewer #lbFigureCaption{flex:none;width:100%;box-sizing:border-box;padding:0 16px 12px;text-align:center;font-size:11px;line-height:1.5;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
@@ -134,3 +135,70 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
   #lbStrip{gap:8px;padding:8px}
 }
 @media (prefers-reduced-motion:reduce){#lbStripRow{scroll-behavior:auto}#lbStripRow .lbs-tile,#lbStripSide #lbCompareBtn,#lbCompare .lbc-seg button{transition:none}}
+
+/* Panneau Notes (lot 2, 2026-11-16) : à droite de la figure, jamais dessus.
+   La liste des notes de la version affichée ; la note ouverte s'écrit à sa
+   place dans la liste ; l'envoi à l'agent reste visible au pied du panneau. */
+#lbBody{flex:1;min-height:0;width:100%;display:flex}
+#lbMain{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center}
+#annotPanel{flex:none;display:flex;flex-direction:column;width:304px;min-height:0;margin:12px 12px 12px 0;box-sizing:border-box;background:var(--card);border-radius:10px;box-shadow:var(--elev);color:var(--txt);font-size:12px;line-height:1.5;text-align:left;cursor:default}
+#annotPanel[hidden],#lb.comparing #annotPanel,#lb.vw #annotPanel{display:none}
+/* Panneau ouvert hors du mode annotation : les marques se lisent, sans se déplacer. */
+#lb.responsive-viewer.notes:not(.annot) #annotCv{display:block;pointer-events:none}
+#lb.responsive-viewer.notes #provPanel{display:none!important}
+#annotPanel .annot-panel-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:16px 16px 8px}
+#annotPanel .annot-panel-head b{font-size:13px;font-weight:600;letter-spacing:-0.01em;line-height:1.3}
+#annotPanelMeta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+#annotItems{flex:0 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:0 8px 8px;scrollbar-width:thin}
+#annotItems:empty{display:none}
+#lb.responsive-viewer #annotItems .annot-row{flex:none;display:grid;grid-template-columns:16px minmax(0,1fr);gap:8px;align-items:start;width:100%;height:auto;margin:0;padding:8px;border:0;border-radius:6px;background:transparent;color:var(--txt);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotItems .annot-row.hot{background:color-mix(in srgb,var(--txt) 6%,transparent)}
+@media(hover:hover){#lb.responsive-viewer #annotItems .annot-row:hover{background:color-mix(in srgb,var(--txt) 6%,transparent)}}
+#lb.responsive-viewer #annotItems .annot-row.sel{background:color-mix(in srgb,var(--txt) 9%,transparent)}
+#annotItems .annot-text{min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}
+#annotItems .annot-row.todo .annot-text{color:var(--muted)}
+#annotPanel .annot-number{display:grid;place-items:center;width:16px;height:16px;margin:1px 0;border-radius:999px;background:var(--annot-ink);color:var(--annot-on-ink);font-size:10px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+/* La note ouverte : même rangée, en saisie. */
+#annotNote{display:none;flex:none;grid-template-columns:16px minmax(0,1fr);gap:4px 8px;align-items:start;padding:8px;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);box-sizing:border-box}
+#annotNote textarea{display:block;width:100%;min-height:18px;max-height:132px;margin:0;padding:0;border:0;outline:none;resize:none;overflow-y:auto;background:transparent;color:var(--txt);font:inherit;box-sizing:border-box}
+#annotNote textarea::placeholder{color:var(--muted)}
+#annotNote .annot-note-foot{grid-column:2;display:flex;align-items:center;gap:8px;min-height:24px}
+#annotNote .annot-status{flex:1;min-width:0;font-size:11px;color:var(--hot)}
+#lb.responsive-viewer #annotNote svg{width:14px;height:14px}
+#lb.responsive-viewer #annotNote .annot-delete{flex:none;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:0 0 0 -4px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out,color var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotNote .annot-send{flex:none;display:inline-flex;align-items:center;gap:4px;height:24px;margin:0;padding:0 8px;border:0;border-radius:999px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-size:11px;white-space:nowrap;cursor:pointer;transition:background-color var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotNote .annot-send:disabled{opacity:.4;cursor:default}
+@media(hover:hover){
+  #lb.responsive-viewer #annotNote .annot-delete:hover{background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt)}
+  #lb.responsive-viewer #annotNote .annot-send:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 14%,transparent)}
+}
+#annotEmpty{flex:none;margin:0;padding:0 16px 12px;color:var(--muted)}
+#annotEmpty[hidden]{display:none}
+/* Pied : « Envoyer à l'agent ⌘↵ », neutre, toujours visible. */
+#annotPanel .annot-panel-foot{flex:none;display:flex;flex-direction:column;gap:8px;margin-top:auto;padding:12px}
+#annotPanelStatus{font-size:11px;color:var(--muted)}
+#annotPanelStatus:empty{display:none}
+#annotPanelStatus.is-err{color:var(--hot)}
+#annotSendRow{position:relative;display:flex;gap:2px}
+#lb.responsive-viewer #annotSendAll,#lb.responsive-viewer #annotSendMore{display:inline-flex;align-items:center;justify-content:center;height:32px;margin:0;border:0;border-radius:6px;background:color-mix(in srgb,var(--txt) 9%,transparent);color:var(--txt);font:inherit;font-weight:500;cursor:pointer;box-sizing:border-box;transition:background-color var(--motion-fast,120ms) ease-out,opacity var(--motion-fast,120ms) ease-out}
+#lb.responsive-viewer #annotSendAll{flex:1;min-width:0;gap:8px;padding:0 12px;white-space:nowrap}
+#lb.responsive-viewer #annotSendMore{flex:none;width:32px;padding:0}
+#lb.responsive-viewer #annotSendAll:disabled,#lb.responsive-viewer #annotSendMore:disabled{opacity:.4;cursor:default}
+@media(hover:hover){#lb.responsive-viewer #annotSendAll:hover:not(:disabled),#lb.responsive-viewer #annotSendMore:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 14%,transparent)}}
+#annotSendAll kbd{font:inherit;font-size:11px;font-weight:400;color:var(--muted)}
+/* État d'envoi : classes et icônes SVG, jamais un glyphe ni un libellé remplacé. */
+#annotSendAll .ic-ok,#annotSendAll .ic-err{display:none}
+#annotSendAll.is-busy .lbl::after{content:'…'}
+#annotSendAll.is-ok kbd,#annotSendAll.is-err kbd{display:none}
+#annotSendAll.is-ok .ic-ok{display:block}
+#annotSendAll.is-err .ic-err{display:block;color:var(--hot)}
+#lb.responsive-viewer #annotSendMenu{position:absolute;right:0;bottom:36px;z-index:2;width:240px;min-width:0;max-width:100%;box-sizing:border-box}
+#lb.responsive-viewer #annotSendMenu button.lbl:hover{background:transparent}
+#annotSendMenu .mi[hidden]{display:none}
+/* Volet étroit : le panneau passe sous la figure, qui garde toute la largeur. */
+@container figure-viewer (max-width:760px){
+  #lbBody{flex-direction:column}
+  #annotPanel{width:auto;max-height:40%;margin:0 12px 12px}
+}
+@container figure-viewer (max-width:300px){#lb.responsive-viewer #lbNotes{display:none}}
+@media (prefers-reduced-motion:reduce){#lb.responsive-viewer #annotItems .annot-row,#lb.responsive-viewer #annotNote .annot-delete,#lb.responsive-viewer #annotNote .annot-send,#lb.responsive-viewer #annotSendAll,#lb.responsive-viewer #annotSendMore{transition:none}}

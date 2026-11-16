@@ -27,9 +27,15 @@
   const caption=document.createElement('div');caption.id='lbFigureCaption';get('lbViewport').after(caption);
   const syncCaption=()=>caption.textContent=get('lbCap').querySelector<HTMLElement>('b')?.textContent||'';
   new MutationObserver(syncCaption).observe(get('lbCap'),{childList:true,subtree:true,characterData:true});syncCaption();
-  // Annotation count remains available without occupying the reading toolbar.
-  more.querySelector<HTMLDivElement>('div').append(get('annotPill'));
-  get('annotPillN').addEventListener('click',()=>{more.open=false;});
+  // Notes panel: the figure column and the panel share one row, so the panel
+  // sits beside the figure and never over it. The version strip stays below.
+  const body=document.createElement('div');body.id='lbBody';
+  const main=document.createElement('div');main.id='lbMain';
+  get('lbViewport').before(body);
+  main.append(band,get('lbViewport'),caption,get('lbCompare'));
+  body.append(main,get('annotPanel'));
+  // Documents and videos have their own surface: the figure row steps aside.
+  body.style.display=get('lbViewport').style.display==='none'?'none':'';
   const zoom = document.createElement('details'); zoom.id = 'lbZoomMenu';
   zoom.innerHTML = `<summary title="Zoom et ajustement" aria-label="Zoom et ajustement">${fit}<span class="viewer-label" id="lbZoomLabel">Ajuster</span>${chevron}</summary><div class="viewer-menu"></div>`;
   get('lbZoom').before(zoom);

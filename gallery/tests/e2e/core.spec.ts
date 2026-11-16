@@ -427,13 +427,19 @@ test('annotate: launcher draws a rectangle and sends from the contextual capsule
     await page.locator('#annotNote .annot-send').click();
     await expect.poll(() => savePayload && savePayload.name).toBe('preview-alpha.png');
     expect(savePayload.dataURL).toMatch(/^data:image\/png;base64,/);
-    expect(savePayload.notes).toEqual([{ n: 1, text: 'note e2e' }]);
+    // Chaque note part avec sa position (fractions de l'image) et le recadrage de sa zone.
+    expect(savePayload.notes).toHaveLength(1);
+    expect(savePayload.notes[0]).toMatchObject({ n: 1, text: 'note e2e', kind: 'box' });
+    expect(savePayload.notes[0].w).toBeGreaterThan(0);
+    expect(savePayload.notes[0].crop).toMatch(/^data:image\/png;base64,/);
     expect(savePayload.rel).toBe('preview-alpha.png');
     await expect(page.locator('#annotNote')).toBeHidden();
     await expect(page.locator('#lb')).toHaveClass(/annot/);
 
     const previewDir = path.join(root, '.fig_thumbs', 'annotation-previews');
-    await expect.poll(() => existsSync(previewDir) ? readdirSync(previewDir).filter(name => name.endsWith('.png')).length : 0).toBe(1);
+    // L'image annotée et le recadrage de la note 1, côte à côte, hors de la galerie.
+    await expect.poll(() => existsSync(previewDir) ? readdirSync(previewDir).filter(name => name.endsWith('.png')).length : 0).toBe(2);
+    expect(readdirSync(previewDir).filter(name => name.endsWith('_note1.png'))).toHaveLength(1);
     expect(existsSync(path.join(root, 'annotations'))).toBe(false);
     await page.request.post(`${url}/rescan`, { data: {} as Record<string, any> });
     await expect(page.locator('#grid .card')).toHaveCount(3);
@@ -883,7 +889,7 @@ test('annotation add-to-chat waits for the host ACK and retries', async ({ page 
     // premier tir perdu, relance bornée : l'hôte finit par accuser réception
     await expect.poll(() => page.evaluate(() => window.__msgs.length)).toBeGreaterThan(1);
     await expect(g.locator('#annotNote')).toBeHidden();
-    await expect(g.locator('#annotPillN')).toHaveText('1 annotation');
+    await expect(g.locator('#lbNotesN')).toHaveText('1');
     const msg = await page.evaluate(() => window.__msgs[0]);
     expect(msg.text).toContain('annotation-previews');
     expect(msg.text).toContain('note ack');

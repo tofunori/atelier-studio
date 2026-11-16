@@ -1616,6 +1616,45 @@ fn annotation_d_une_figure_avec_recette_porte_script_et_commande() {
     assert!(body.contains("retrouve le script"), "{body}");
 }
 
+/// Lot 2 (2026-11-16) : chaque note part avec sa position en pourcentages et
+/// un recadrage de sa zone, écrit à côté de l'image annotée. La liste des
+/// notes lue par la carte du fil ne change pas.
+#[test]
+fn annotation_d_une_figure_donne_position_et_recadrage_de_chaque_note() {
+    let srv = start_server();
+    let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABpfZFQAAAAABJRU5ErkJggg==";
+    let payload = format!(
+        r#"{{"name":"tiny.png","rel":"tiny.png","dataURL":"{png}","previewOnly":true,"notes":[
+            {{"n":1,"text":"axe y en log","kind":"box","x":0.62,"y":0.4,"w":0.16,"h":0.15,"crop":"{png}"}},
+            {{"n":2,"text":"ce point","kind":"point","x":0.5,"y":0.25}},
+            {{"n":3,"text":"ancien client"}}]}}"#
+    );
+    let (st, body) = http(srv.port, "POST", "/save", Some(&payload));
+    assert_eq!(st, 200, "{body}");
+    let reply = serde_json::from_str::<serde_json::Value>(&body).unwrap();
+    let message = reply["message"].as_str().unwrap();
+    let lines: Vec<&str> = message.lines().collect();
+    let image = reply["path"].as_str().unwrap();
+    assert_eq!(lines[0], image);
+    assert_eq!(
+        &lines[1..5],
+        ["Annotations (badges numerotes sur l'image) :", "1. axe y en log", "2. ce point", "3. ancien client"]
+    );
+    assert!(lines[5].starts_with("Positions des notes : "), "{message}");
+    let crop = image.replace(".png", "_note1.png");
+    assert_eq!(lines[6], format!("Note 1 : cadre x 62–78 %, y 40–55 % ; détail {crop}"));
+    assert_eq!(lines[7], "Note 2 : point x 50 %, y 25 %");
+    assert_eq!(lines.len(), 8, "une note sans position n'a pas de ligne : {message}");
+    assert!(srv.root.join(&crop).is_file(), "recadrage écrit dans le projet");
+
+    // Sans position, le message reste celui d'avant.
+    let plain = format!(
+        r#"{{"name":"tiny.png","dataURL":"{png}","previewOnly":true,"notes":[{{"n":1,"text":"axe y en log"}}]}}"#
+    );
+    let (_, body) = http(srv.port, "POST", "/save", Some(&plain));
+    assert!(!body.contains("Positions des notes"), "{body}");
+}
+
 /// Confinement : `/prov` ne sort jamais du projet, et reste derrière le garde
 /// d'origine comme toute autre route (mémoire projet : CORS/ACAO commun).
 #[test]
