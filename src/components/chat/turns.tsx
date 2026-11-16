@@ -627,6 +627,39 @@ export function ActiveTurnTail(p: {
   );
 }
 
+/** Trois grains en enchaînement (choix de Thierry, 2026-11-16 ; maquette
+ * captures/thinking-anime-2026-11-16) : cinq gestes se relaient dans le même
+ * signe, Vague → Rebond → Pulsation → Rassemblement → Défilé, chacun pendant
+ * deux reflets du libellé (2 × --sweep-period). Tout le mouvement vit en CSS
+ * (App.css, `.tg-*`) ; les grains fixes servent au tour terminé, au fil figé
+ * et à prefers-reduced-motion. Ordre des couches = ordre de l'enchaînement. */
+const GRAIN_LAYERS: ReadonlyArray<{ name: string; xs: readonly number[]; y: number }> = [
+  { name: "wave", xs: [4, 10, 16], y: 10.5 },
+  { name: "bounce", xs: [4, 10, 16], y: 12.5 },
+  { name: "pulse", xs: [4, 10, 16], y: 10.5 },
+  { name: "gather", xs: [4, 10, 16], y: 10.5 },
+  { name: "slide", xs: [1, 1, 1], y: 10.5 },
+];
+
+function GrainGlyph() {
+  return (
+    <svg className="turn-activity-glyph" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <g className="tg-moving">
+        {GRAIN_LAYERS.map((layer) => (
+          <g key={layer.name} className={`tg-layer tg-${layer.name}`}>
+            {layer.xs.map((x, i) => <circle key={i} className="tg-dot" cx={x} cy={layer.y} r="2.1" />)}
+          </g>
+        ))}
+      </g>
+      <g className="tg-still">
+        <circle className="tg-pip" cx="4" cy="10.5" r="2.1" opacity=".55" />
+        <circle className="tg-pip" cx="10" cy="10.5" r="2.1" opacity=".8" />
+        <circle className="tg-pip" cx="16" cy="10.5" r="2.1" />
+      </g>
+    </svg>
+  );
+}
+
 /** Ligne de statut du tour quand aucune action ne tourne. Le temps du tour
  * n'y figure plus : il vit à côté du bouton Arrêter du compositeur, et les
  * rangées d'outil ne portent que leur propre durée (`since` reste accepté
@@ -635,9 +668,7 @@ export function TurnActivityStatus({ label, kind = "processing" }: { label: stri
   const settled = kind === "failed" || kind === "interrupted";
   return (
     <div className={`turn-tail-row${settled ? " is-settled" : ""}`} data-activity-state={kind}>
-        <svg className="turn-activity-glyph" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-          <path d="M10 2.5c.8 4.3 3.2 6.7 7.5 7.5-4.3.8-6.7 3.2-7.5 7.5C9.2 13.2 6.8 10.8 2.5 10 6.8 9.2 9.2 6.8 10 2.5Z" stroke="currentColor" strokeWidth="1.4" />
-        </svg>
+        <GrainGlyph />
         <span
           className="turn-quiet is-on turn-working-shimmer"
           role="status"

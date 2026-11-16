@@ -1456,8 +1456,9 @@ button.kernel-file:hover { color: var(--text-primary); }
 .turn-cumulative-sep { color: var(--text-disabled); }
 /* Persistent turn status: animation does not depend on incoming events. */
 .turn-quiet { color: var(--text-muted); font-size: max(12px, calc(var(--chat-fs, 13.5px) - .5px)); font-weight: 400; line-height: 24px; }
-/* Étoile FIXE, sans halo : sur la ligne vivante, le reflet du libellé est la
-   seule boucle (une boucle visible par tour — CHAT-04 / TRANS-07). */
+/* Trois grains en enchaînement (2026-11-16, choix de Thierry) : le signe de
+   la ligne vivante bat au rythme du reflet du libellé (--sweep-period) et se
+   fige avec lui (tour terminé, fil où une action tourne, mouvement réduit). */
 .turn-activity-glyph { width: 15px; height: 15px; flex: 0 0 auto; overflow: visible;
   color: var(--accent-text); }
 .turn-activity-elapsed { flex: 0 0 auto; margin-left: auto; padding-left: 16px;
@@ -1488,6 +1489,73 @@ button.kernel-file:hover { color: var(--text-primary); }
   animation: none; background: none; color: var(--text-secondary); -webkit-text-fill-color: currentColor; }
 @media (prefers-reduced-motion: reduce) {
   .turn-working-shimmer { animation: none; background: none; color: var(--text-primary); -webkit-text-fill-color: currentColor; }
+}
+/* Grains : cinq couches superposées (turns.tsx GrainGlyph), chacune tient
+   deux battements puis passe la main en fondu de 135 ms (0,84 % de 16 s).
+   Ordre : Vague, Rebond, Pulsation, Rassemblement, Défilé. Toutes les
+   animations sont harmoniques de --sweep-period : un seul rythme avec le
+   reflet. Les règles ci-dessous posent nom, durée et courbe ; la répétition
+   infinie est posée UNE fois, en dernier (contrat §9 de css-contract). */
+:root { --grain-hold: calc(var(--sweep-period) * 2); }
+.turn-activity-glyph .tg-still { display: none; }
+.turn-activity-glyph .tg-pip,
+.turn-activity-glyph .tg-dot { fill: currentColor; }
+.turn-activity-glyph .tg-dot { transform-box: fill-box; transform-origin: center; }
+.turn-activity-glyph .tg-layer { opacity: 0; animation: tg-turn calc(var(--grain-hold) * 5) linear; }
+.turn-activity-glyph .tg-layer:nth-child(2) { animation-delay: var(--grain-hold); }
+.turn-activity-glyph .tg-layer:nth-child(3) { animation-delay: calc(var(--grain-hold) * 2); }
+.turn-activity-glyph .tg-layer:nth-child(4) { animation-delay: calc(var(--grain-hold) * 3); }
+.turn-activity-glyph .tg-layer:nth-child(5) { animation-delay: calc(var(--grain-hold) * 4); }
+@keyframes tg-turn { 0% { opacity: 0; } 0.84%, 20% { opacity: 1; } 20.84%, 100% { opacity: 0; } }
+/* Vague : les grains montent l'un après l'autre */
+.tg-wave .tg-dot { animation: tg-wave var(--sweep-period) ease-in-out; }
+.tg-wave .tg-dot:nth-child(2) { animation-delay: calc(var(--sweep-period) * -0.88); }
+.tg-wave .tg-dot:nth-child(3) { animation-delay: calc(var(--sweep-period) * -0.76); }
+@keyframes tg-wave { 0%, 56%, 100% { transform: translateY(0); opacity: .3; } 24% { transform: translateY(-2.6px); opacity: 1; } }
+/* Rebond : petit saut, écrasé à l'atterrissage */
+.tg-bounce .tg-dot { transform-origin: 50% 100%; opacity: .9; animation: tg-bounce var(--sweep-period); }
+.tg-bounce .tg-dot:nth-child(2) { animation-delay: calc(var(--sweep-period) * -0.86); }
+.tg-bounce .tg-dot:nth-child(3) { animation-delay: calc(var(--sweep-period) * -0.72); }
+@keyframes tg-bounce {
+  0% { transform: translateY(0) scale(1, 1); animation-timing-function: ease-out; }
+  8% { transform: translateY(0) scale(1.25, .75); animation-timing-function: cubic-bezier(.2,.7,.4,1); }
+  30% { transform: translateY(-4px) scale(.9, 1.1); animation-timing-function: cubic-bezier(.6,0,.8,.4); }
+  48% { transform: translateY(0) scale(1.2, .8); animation-timing-function: ease-out; }
+  58%, 100% { transform: translateY(0) scale(1, 1); }
+}
+/* Pulsation : sur place, chaque grain s'allume tour à tour */
+.tg-pulse .tg-dot { animation: tg-pulse var(--sweep-period) ease-in-out; }
+.tg-pulse .tg-dot:nth-child(2) { animation-delay: calc(var(--sweep-period) * -0.84); }
+.tg-pulse .tg-dot:nth-child(3) { animation-delay: calc(var(--sweep-period) * -0.68); }
+@keyframes tg-pulse { 0%, 60%, 100% { transform: scale(.7); opacity: .3; } 26% { transform: scale(1.18); opacity: 1; } }
+/* Rassemblement : les grains se rejoignent au centre, puis se séparent */
+.tg-gather .tg-dot { animation: tg-gather-c var(--sweep-period) ease-in-out; }
+.tg-gather .tg-dot:nth-child(1) { animation-name: tg-gather-l; }
+.tg-gather .tg-dot:nth-child(3) { animation-name: tg-gather-r; }
+@keyframes tg-gather-l { 0%, 12%, 88%, 100% { transform: translateX(0); opacity: .45; } 44%, 56% { transform: translateX(6px); opacity: 1; } }
+@keyframes tg-gather-r { 0%, 12%, 88%, 100% { transform: translateX(0); opacity: .45; } 44%, 56% { transform: translateX(-6px); opacity: 1; } }
+@keyframes tg-gather-c { 0%, 12%, 88%, 100% { transform: scale(1); opacity: .45; } 44%, 56% { transform: scale(1.45); opacity: 1; } }
+/* Défilé : les grains naissent à gauche et s'éteignent à droite */
+.tg-slide .tg-dot { animation: tg-slide var(--sweep-period) linear; }
+.tg-slide .tg-dot:nth-child(2) { animation-delay: calc(var(--sweep-period) * -0.3333); }
+.tg-slide .tg-dot:nth-child(3) { animation-delay: calc(var(--sweep-period) * -0.6667); }
+@keyframes tg-slide {
+  0% { transform: translateX(0) scale(.4); opacity: 0; }
+  22% { transform: translateX(3.96px) scale(1); opacity: .55; }
+  50% { transform: translateX(9px) scale(1.1); opacity: 1; }
+  78% { transform: translateX(14.04px) scale(1); opacity: .55; }
+  100% { transform: translateX(18px) scale(.4); opacity: 0; }
+}
+.turn-tail-row .turn-activity-glyph .tg-layer,
+.turn-tail-row .turn-activity-glyph .tg-dot { animation-iteration-count: infinite; }
+/* Figé avec le reflet : grains fixes (une animation masquée ne tourne pas) */
+.turn-tail-row.is-settled .turn-activity-glyph .tg-moving,
+.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring, .ui-activity-label.is-shimmering) .turn-activity-glyph .tg-moving { display: none; }
+.turn-tail-row.is-settled .turn-activity-glyph .tg-still,
+.messages:has(.ui-activity-state .tool-run-ring, .tool-status .tool-run-ring, .ui-activity-label.is-shimmering) .turn-activity-glyph .tg-still { display: inline; }
+@media (prefers-reduced-motion: reduce) {
+  .turn-activity-glyph .tg-moving { display: none; }
+  .turn-activity-glyph .tg-still { display: inline; }
 }
 /* avancement du provider pendant l'attente (démarrage MCP) — même discrétion
    que le compteur de jetons, jamais concurrent du contenu */

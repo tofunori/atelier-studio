@@ -477,11 +477,16 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
       .filter((r) => /animation[^;]*infinite/.test(r.body))
       .map((r) => r.selector)
       .filter((selector) => chatScope.test(selector));
-    // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour. L'étoile de la
-    // ligne vivante, le carré du chrono et le glyphe d'un sous-agent sont
-    // FIXES ; restent le reflet de la ligne vivante (figé dès qu'un anneau
-    // d'action tourne), le reflet d'une rangée et l'anneau d'action.
+    // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour. Le carré du
+    // chrono et le glyphe d'un sous-agent sont FIXES ; restent le reflet de la
+    // ligne vivante (figé dès qu'un anneau d'action tourne), le reflet d'une
+    // rangée et l'anneau d'action. AMENDÉ le 2026-11-16 (choix de Thierry) :
+    // le signe de la ligne vivante devient trois grains en enchaînement. Ils
+    // battent au MÊME rythme que le reflet (harmoniques de --sweep-period,
+    // donc aucun battement contre lui) et se figent avec lui ; leur répétition
+    // infinie est posée en une seule règle.
     expect(loops.sort()).toEqual([
+      ".turn-tail-row .turn-activity-glyph .tg-layer, .turn-tail-row .turn-activity-glyph .tg-dot",
       ".turn-working-shimmer",
       ".ui-activity-label.is-shimmering .tool-ticker-row, .ui-activity-label.is-shimmering:not(:has(.tool-ticker))",
       // anneau d'une action en cours (colonne d'état d'une rangée à plat,
@@ -493,6 +498,12 @@ describe("contrat Quiet Instrument (sources CSS)", () => {
     // La ligne du bas se fige aussi quand une grappe vivante balaie (variante
     // B, 2026-11-01) : jamais deux reflets en même temps.
     expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring, \.ui-activity-label\.is-shimmering\) \.turn-working-shimmer/);
+    // Les grains se figent dans les mêmes cas que le reflet (grains fixes),
+    // et toutes leurs durées dérivent de --sweep-period.
+    expect(appCss).toMatch(/\.messages:has\(\.ui-activity-state \.tool-run-ring, \.tool-status \.tool-run-ring, \.ui-activity-label\.is-shimmering\) \.turn-activity-glyph \.tg-moving/);
+    const grainRules = rules.filter((r) => /\.tg-/.test(r.selector) && /animation(-duration)?:/.test(r.body));
+    expect(grainRules.length).toBeGreaterThan(0);
+    for (const r of grainRules) expect(r.body, r.selector).toMatch(/var\(--(sweep-period|grain-hold)\)/);
   });
 
   // Deux régressions VÉCUES au banc le 2026-08-26, invisibles en jsdom (rien

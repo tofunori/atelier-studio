@@ -24,9 +24,15 @@ test('live activity stays in the transcript tail and shows above the composer at
   const elapsed = page.locator('.composer .composer-turn-clock');
   await expect(elapsed).toBeVisible();
   const initialTime = await elapsed.innerText();
-  // A11 (CHAT-04 / TRANS-07) : une boucle visible par tour — l'étoile est
-  // fixe, le reflet du libellé (recette unique label-sweep, 1,6 s) bouge seul.
-  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
+  // Trois grains en enchaînement (2026-11-16) : le signe bat au rythme du
+  // reflet du libellé (recette unique label-sweep, 1,6 s), chaque geste tient
+  // deux battements, cinq gestes = 16 s.
+  const glyph = page.locator('.active-turn-tail .turn-activity-glyph');
+  await expect(glyph).toHaveCSS('animation-name', 'none');
+  await expect(glyph.locator('.tg-layer').first()).toHaveCSS('animation-name', 'tg-turn');
+  await expect(glyph.locator('.tg-layer').first()).toHaveCSS('animation-duration', '16s');
+  await expect(glyph.locator('.tg-wave .tg-dot').first()).toHaveCSS('animation-duration', '1.6s');
+  await expect(glyph.locator('.tg-still')).toBeHidden();
   await expect(status).toHaveCSS('font-size', '13px');
   await expect(status).toHaveCSS('font-weight', '400');
   await expect(status).toHaveCSS('animation-name', 'label-sweep');
@@ -73,7 +79,8 @@ test('live activity stays in the transcript tail and shows above the composer at
   await expect.poll(distanceToEnd).toBeLessThanOrEqual(2);
   await checkAboveComposer();
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(page.locator('.turn-activity-glyph')).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('.turn-activity-glyph .tg-moving').first()).toBeHidden();
+  await expect(page.locator('.turn-activity-glyph .tg-still').first()).toBeVisible();
   await expect(status).toHaveCSS('animation-name', 'none');
   await expect(status).not.toHaveCSS('color', 'rgba(0, 0, 0, 0)');
 });
