@@ -274,7 +274,7 @@ await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===3&&annotStrokes
 assert.equal(saves.length,2);assert.equal(saves[1].direct,false);assert.deepEqual(saves[1].notes.map((n: any)=>n.text),['Légende à déplacer']);
 // The outcome of this second send stays its full time: the timer armed by the first send never wipes it.
 await page.waitForFunction(()=>{const said=(window as any).annotSaid;return said.filter((s: [string,number])=>s[0]).length===2&&!said.at(-1)[0];},null,{timeout:8000});
-{const said: [string,number][]=await page.evaluate(()=>(window as any).annotSaid),last=said.findLastIndex(s=>!!s[0]);
+{const said: [string,number][]=await page.evaluate(()=>(window as any).annotSaid),last=said.map(s=>!!s[0]).lastIndexOf(true);
 assert.ok(said[last+1][1]-said[last][1]>=2300,JSON.stringify(said));}
 
 // Leaving the mode changes nothing below: the tab stays under the figure and the marks are
