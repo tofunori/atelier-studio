@@ -8,8 +8,8 @@ export const CLAUDE_READY = {
 };
 export const CODEX_READY = {
   id: "codex", label: "Codex", kind: "cli", installed: true, version: "0.155.1",
-  binPath: "/opt/homebrew/bin/codex", auth: "ready", models: 3, loginCommand: "codex login",
-  installCommand: "brew install --cask codex",
+  binPath: "/Users/t/.local/bin/codex", auth: "ready", models: 3, loginCommand: "codex login",
+  installCommand: "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
 };
 export const CLAUDE_MISSING = { ...CLAUDE_READY, installed: false, version: null, binPath: null, auth: "not_installed" };
 export const CODEX_MISSING = { ...CODEX_READY, installed: false, version: null, binPath: null, auth: "not_installed" };

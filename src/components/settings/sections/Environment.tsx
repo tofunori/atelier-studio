@@ -1,6 +1,7 @@
 // Section Environnement (premier lancement) : ce dont Atelier a besoin sur ce
-// Mac — un agent (Claude Code ou Codex) et des outils externes (Homebrew,
-// git, TeX, Zotero) — avec de quoi installer ce qui manque.
+// Mac — un agent (Claude Code ou Codex) et des outils externes (git, TeX,
+// Zotero) — avec de quoi installer ce qui manque. Homebrew n'y figure plus :
+// Codex a son installeur autonome, plus rien dans Atelier n'en dépend.
 //
 // Tout vient du store lib/setupEnvironment (setupStatus + environmentStatus,
 // demandés à la connexion). Rien n'est redemandé au montage : seul
@@ -48,7 +49,7 @@ export default function Environment(p: SectionProps) {
       <Group label={t("settings.group.tools")}>
         {env.tools === null
           ? <p className="set-empty">{t("settings.checking")}</p>
-          : env.tools.map((tool) => (
+          : env.tools.filter((tool) => tool.id !== "homebrew").map((tool) => (
             <ToolSetupRow key={tool.id} tool={tool} tools={env.tools} origin="environment" />
           ))}
       </Group>

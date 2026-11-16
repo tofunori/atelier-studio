@@ -9,6 +9,8 @@ import {
   RECHECK_TIMEOUT_MS,
   WELCOME_DONE_KEY,
   agentReady,
+  cancelSetupRun,
+  clearSetupRun,
   installPlan,
   normalizeProviders,
   normalizeTools,
@@ -16,9 +18,12 @@ import {
   registerSetupTerminal,
   resetSetupEnvironmentForTests,
   runSetupCommand,
+  sendSetupRunInput,
   setupEnvironmentSnapshot,
+  setupRunActive,
   shellQuote,
   shouldAutoShowWelcome,
+  startSetupRun,
   subscribeSetupEnvironment,
   withResolvedBinary,
 } from "./setupEnvironment";
@@ -58,7 +63,7 @@ describe("setupEnvironment — relais WS", () => {
     const s = setupEnvironmentSnapshot();
     expect(s.providers?.map((p) => [p.id, p.auth, p.installCommand])).toEqual([
       ["claude", "ready", "curl -fsSL https://claude.ai/install.sh | bash"],
-      ["codex", "login_needed", "brew install --cask codex"],
+      ["codex", "login_needed", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
     ]);
     expect(s.providers?.[1].loginCommand).toBe("codex login");
     expect(s.tools?.map((tool) => [tool.id, tool.found])).toEqual([
@@ -216,5 +221,73 @@ describe("commandes : Homebrew d'abord, binaires résolus", () => {
   it("shellQuote n'entoure que ce qui doit l'être", () => {
     expect(shellQuote("/opt/homebrew/bin/brew")).toBe("/opt/homebrew/bin/brew");
     expect(shellQuote("/a b/it's")).toBe(`'/a b/it'\\''s'`);
+  });
+});
+
+describe("setupEnvironment — installer et connecter un agent depuis Atelier", () => {
+  const run = (patch: Record<string, unknown>) => relaySidecarMessage({ type: "setupRun", agent: "claude", ...patch });
+
+  it("le lancement part une fois et s'affiche tout de suite", () => {
+    expect(startSetupRun("claude")).toBe(true);
+    expect(wsSendMock).toHaveBeenCalledWith({ type: "setupRun", agent: "claude" });
+    expect(setupEnvironmentSnapshot().runs.claude?.phase).toBe("starting");
+    // Deuxième clic pendant que ça tourne : rien ne repart.
+    expect(startSetupRun("claude")).toBe(true);
+    expect(wsSendMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("une socket fermée ne laisse pas une installation fantôme à l'écran", () => {
+    wsSendMock.mockReturnValue(false);
+    expect(startSetupRun("codex")).toBe(false);
+    expect(setupEnvironmentSnapshot().runs.codex).toBeUndefined();
+  });
+
+  it("suit les phases, garde la dernière ligne et l'adresse de connexion", () => {
+    startSetupRun("claude");
+    expect(run({ phase: "installing", detail: "Téléchargement…" })).toBe(true);
+    run({ phase: "installing" });
+    expect(setupEnvironmentSnapshot().runs.claude).toMatchObject({ phase: "installing", detail: "Téléchargement…" });
+    run({ phase: "signing_in" });
+    run({ phase: "signing_in", url: "https://claude.ai/oauth?x=1" });
+    run({ phase: "signing_in" });
+    expect(setupEnvironmentSnapshot().runs.claude).toMatchObject({
+      phase: "signing_in", detail: null, url: "https://claude.ai/oauth?x=1",
+    });
+    expect(setupRunActive(setupEnvironmentSnapshot().runs.claude)).toBe(true);
+    run({ phase: "ready" });
+    expect(setupEnvironmentSnapshot().runs.claude).toEqual({ phase: "ready", detail: null, url: null, error: null });
+    expect(setupRunActive(setupEnvironmentSnapshot().runs.claude)).toBe(false);
+  });
+
+  it("n'accepte qu'une adresse https, un agent et une phase connus", () => {
+    startSetupRun("claude");
+    run({ phase: "signing_in", url: "javascript:alert(1)" });
+    expect(setupEnvironmentSnapshot().runs.claude?.url).toBeNull();
+    relaySidecarMessage({ type: "setupRun", agent: "kimi", phase: "ready" });
+    run({ phase: "inconnue" });
+    expect(Object.keys(setupEnvironmentSnapshot().runs)).toEqual(["claude"]);
+    expect(setupEnvironmentSnapshot().runs.claude?.phase).toBe("signing_in");
+  });
+
+  it("un échec garde ses dernières lignes, puis s'efface à la demande", () => {
+    startSetupRun("codex");
+    relaySidecarMessage({ type: "setupRun", agent: "codex", phase: "failed", error: "curl: (6) hôte introuvable" });
+    expect(setupEnvironmentSnapshot().runs.codex).toMatchObject({ phase: "failed", error: "curl: (6) hôte introuvable" });
+    clearSetupRun("codex");
+    expect(setupEnvironmentSnapshot().runs.codex).toBeUndefined();
+  });
+
+  it("annuler et saisir un code ne partent que pendant une installation", () => {
+    cancelSetupRun("claude");
+    expect(sendSetupRunInput("claude", "1234")).toBe(false);
+    expect(wsSendMock).not.toHaveBeenCalled();
+    startSetupRun("claude");
+    clearSetupRun("claude");
+    expect(setupEnvironmentSnapshot().runs.claude?.phase).toBe("starting");
+    run({ phase: "signing_in" });
+    expect(sendSetupRunInput("claude", "  1234 ")).toBe(true);
+    expect(wsSendMock).toHaveBeenLastCalledWith({ type: "setupRunInput", agent: "claude", text: "1234" });
+    cancelSetupRun("claude");
+    expect(wsSendMock).toHaveBeenLastCalledWith({ type: "setupRunCancel", agent: "claude" });
   });
 });

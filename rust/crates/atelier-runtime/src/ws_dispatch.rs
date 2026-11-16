@@ -108,7 +108,12 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "projectResultStar"
         // N'ajoute que les CLI absents du registre (RwLock) : aucune session
         // vivante n'est touchée, donc pas de barrière globale.
-        | "refreshProviders" => Class::Read,
+        | "refreshProviders"
+        // Installation et connexion d'un agent : la tâche tourne à part et
+        // n'écrit dans aucun store ; annuler ne doit pas attendre son tour.
+        | "setupRun"
+        | "setupRunInput"
+        | "setupRunCancel" => Class::Read,
         _ => Class::Ordered,
     }
 }

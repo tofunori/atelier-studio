@@ -7,14 +7,14 @@ import { useSetupWelcomeOpen } from "../../lib/setupEnvironment";
 
 const SetupWelcomeDialog = lazyWithRetry(() => import("./SetupWelcomeDialog"));
 
-export function SetupWelcomeHost() {
+export function SetupWelcomeHost(p: { onOpenFolder?: () => void }) {
   const open = useSetupWelcomeOpen();
   const [loaded, setLoaded] = useState(open);
   if (open && !loaded) setLoaded(true);
   if (!loaded) return null;
   return (
     <LazyBoundary fallback={null}>
-      <SetupWelcomeDialog open={open} />
+      <SetupWelcomeDialog open={open} onOpenFolder={p.onOpenFolder} />
     </LazyBoundary>
   );
 }

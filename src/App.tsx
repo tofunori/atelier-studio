@@ -4865,7 +4865,7 @@ export default function App() {
           initialSection={settingsInitialSection}
         />
       </LazyBoundary>
-      <SetupWelcomeHost />
+      <SetupWelcomeHost onOpenFolder={addProject} />
       <UnsavedDocumentsGuard />
       {paletteOpen && (
         <LazyBoundary fallback={null}>

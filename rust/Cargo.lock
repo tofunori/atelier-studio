@@ -464,6 +464,7 @@ dependencies = [
  "oxc_semantic",
  "oxc_span",
  "png 0.17.16",
+ "portable-pty",
  "reqwest",
  "resvg",
  "serde",

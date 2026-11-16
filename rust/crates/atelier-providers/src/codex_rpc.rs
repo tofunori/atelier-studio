@@ -428,22 +428,31 @@ impl CodexAppServer {
         self.current().unwrap().fail("simulated transport failure");
     }
 
-    pub(crate) fn resolve_bin() -> PathBuf {
+    /// Binaire Codex : variable d'environnement, PATH, puis le dossier où
+    /// l'installeur officiel le pose (`~/.local/bin`). Ce dernier n'est pas
+    /// dans le PATH d'une app déjà lancée : sans lui, un Codex installé
+    /// depuis Atelier resterait introuvable jusqu'au prochain lancement.
+    pub(crate) fn find_bin() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("ATELIER_CODEX_BIN") {
             let pb = PathBuf::from(&p);
             if pb.is_file() {
-                return pb;
+                return Some(pb);
             }
         }
         if let Ok(out) = std::process::Command::new("which").arg("codex").output() {
             if out.status.success() {
                 let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !p.is_empty() {
-                    return PathBuf::from(p);
+                    return Some(PathBuf::from(p));
                 }
             }
         }
-        PathBuf::from("codex")
+        let local = PathBuf::from(std::env::var_os("HOME")?).join(".local/bin/codex");
+        local.is_file().then_some(local)
+    }
+
+    pub(crate) fn resolve_bin() -> PathBuf {
+        Self::find_bin().unwrap_or_else(|| PathBuf::from("codex"))
     }
 
     fn current(&self) -> Option<Arc<Connection>> {

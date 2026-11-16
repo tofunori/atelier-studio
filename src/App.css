@@ -5371,6 +5371,60 @@ button.ctx-ring-wrap { border: none; font: inherit; color: inherit;
 .setup-welcome-body .set-group { margin-bottom: 0; }
 .setup-welcome-body .set-row-ctl { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .setup-welcome-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* La croix vit dans le coin, hors du flux : .ui-iconbtn (position relative)
+ * l'emportait sur l'utilitaire du dialogue et la posait sous le pied. */
+.setup-welcome-dialog > .ui-close.ui-iconbtn { position: absolute; top: 12px; right: 12px; }
+/* Une question, un bouton : deux cartes au choix (radio), puis les étapes.
+ * La carte choisie se lit à son filet intérieur ET à sa coche, jamais à la
+ * seule couleur. */
+.setup-pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.setup-pick { display: flex; align-items: flex-start; gap: 12px; min-height: 92px; padding: 12px 16px;
+  border-radius: var(--radius-surface); background: var(--surface-hover); color: var(--text-primary);
+  text-align: left; cursor: pointer;
+  transition: box-shadow var(--motion-fast) var(--ease-out); }
+.setup-pick:hover { box-shadow: inset 0 0 0 1px var(--border-default); }
+.setup-pick[data-on] { box-shadow: inset 0 0 0 1px var(--text-disabled); }
+.setup-pick-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setup-pick-title { font-size: var(--fs-body); line-height: 1.5; }
+.setup-pick-desc { color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
+.setup-pick-check { flex: none; margin-top: 2px; opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out); }
+.setup-pick[data-on] .setup-pick-check { opacity: 1; }
+.setup-next { min-height: 0; align-items: center; }
+.setup-next-icon { flex: none; color: var(--text-muted); }
+.setup-quiet { margin: 0; color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5; }
+.setup-no-account { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+/* Lien discret aligné sur le bord du contenu : son remplissage de survol
+ * déborde dans la marge, pas son texte. */
+.setup-no-account > .ui-btn, .setup-run-actions > .ui-btn--ghost:first-child { margin-left: -12px; }
+.setup-no-account-body { display: flex; flex-direction: column; gap: 8px;
+  animation: disclose-in var(--motion-standard) var(--ease-out); }
+.setup-steps { display: flex; flex-direction: column; background: var(--surface-hover); }
+.setup-step { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; }
+.setup-step + .setup-step { border-top: 1px solid var(--border-subtle); }
+.setup-step-mark { flex: none; width: 14px; height: 14px; margin-top: 2px; display: grid; place-items: center;
+  color: var(--text-muted); }
+.setup-step[data-state="done"] .setup-step-mark { color: var(--status-success); }
+.setup-step[data-state="now"] .setup-step-mark { color: var(--text-secondary); }
+.setup-step-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: currentColor; }
+.setup-step-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setup-step-title { font-size: var(--fs-body); line-height: 1.5; }
+.setup-step[data-state="todo"] .setup-step-title { color: var(--text-muted); }
+.setup-step-desc { color: var(--text-muted); font-size: var(--fs-body-s); line-height: 1.5;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.setup-run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.setup-code { display: flex; align-items: center; gap: 8px;
+  animation: disclose-in var(--motion-standard) var(--ease-out); }
+.setup-code-input { flex: 1; min-width: 0; width: auto; font-family: var(--font-mono); }
+.setup-run-error { margin: 0; max-height: 132px; overflow: auto; color: var(--text-secondary);
+  font-family: var(--font-mono); font-size: var(--fs-body-s); line-height: 1.5; white-space: pre-wrap;
+  overflow-wrap: anywhere; user-select: text; }
+.setup-run-failed { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 16px; }
+.setup-run-failed > .setup-fallback { padding: 0; }
+.settings-refined .setup-run-failed { padding-inline: 0; }
+.set-card > .setup-run-failed + .set-row { border-top: 1px solid var(--border-subtle); }
+@media (max-width: 520px) { .setup-pick-grid { grid-template-columns: 1fr; } .setup-pick { min-height: 0; } }
+@media (prefers-reduced-motion: reduce) { .setup-no-account-body, .setup-code { animation: none; } }
 
 /* ===== Narval Run Monitor (plan 038) ===== */
 .narval-shell { flex: 1; min-width: 0; min-height: 0; display: flex; overflow: hidden;

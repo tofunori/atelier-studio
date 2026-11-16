@@ -60,17 +60,7 @@ async fn cancellation_requested(probe: &Arc<dyn Fn() -> bool + Send + Sync>) {
 
 impl CodexProvider {
     pub fn new() -> Option<Self> {
-        let present = std::env::var("ATELIER_CODEX_BIN")
-            .map(|p| std::path::Path::new(&p).is_file())
-            .unwrap_or(false)
-            || std::process::Command::new("which")
-                .arg("codex")
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-        if !present {
-            return None;
-        }
+        CodexAppServer::find_bin()?;
         Some(Self {
             server: Arc::new(CodexAppServer::new()),
             active: Arc::new(StdMutex::new(HashMap::new())),
