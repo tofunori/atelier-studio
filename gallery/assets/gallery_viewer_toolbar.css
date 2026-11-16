@@ -126,17 +126,22 @@ html.emb #lb.responsive-viewer.fs #lbHead .lbBtn{opacity:1;pointer-events:auto}
 #lbCompare .lbc-seg button{height:24px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:inherit;font-size:11px;cursor:pointer;transition:background-color var(--motion-fast,140ms) ease-out,color var(--motion-fast,140ms) ease-out}
 #lbCompare .lbc-seg button[aria-pressed=true]{background:var(--card);color:var(--txt);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 #lbCompare .lbc-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;overflow:hidden}
-#lbCompare .lbc-split{--lbc-pos:50%;position:relative;background:var(--figure-paper);touch-action:none;user-select:none;cursor:ew-resize}
-#lbCompare .lbc-split img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
-#lbCompare .lbc-b{position:absolute;inset:0;background:var(--figure-paper);clip-path:inset(0 0 0 var(--lbc-pos))}
+#lbCompare .lbc-split{position:relative;overflow:hidden;contain:layout paint;background:var(--figure-paper);touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:ew-resize}
+#lbCompare .lbc-split img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
+/* Volet B : décalé vers la droite, son image décalée d'autant vers la gauche ;
+   seuls des transform bougent, posés par lbComparePaint sur des calques à part. */
+#lbCompare .lbc-b{position:absolute;inset:0;overflow:hidden;background:var(--figure-paper);will-change:transform}
+#lbCompare .lbc-b img,#lbCompare .lbc-handle{will-change:transform}
 /* La poignée se pose sur le papier de la figure, blanc dans les deux thèmes :
    encre du papier et liseré papier, pas la couleur du texte de l'app. */
-#lbCompare .lbc-handle{position:absolute;top:0;bottom:0;left:var(--lbc-pos);width:2px;margin-left:-1px;background:var(--figure-ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--figure-paper) 80%,transparent)}
+#lbCompare .lbc-handle{position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-1px;background:var(--figure-ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--figure-paper) 80%,transparent)}
 #lbCompare .lbc-handle:focus-visible{outline:var(--focus-ring-width,1px) solid var(--focus-ring-color,var(--accent));outline-offset:var(--focus-ring-offset,1px)}
 #lbCompare .lbc-handle span{position:absolute;top:50%;left:50%;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;background:var(--figure-ink);box-shadow:0 0 0 1px color-mix(in srgb,var(--figure-paper) 80%,transparent),0 4px 16px rgba(0,0,0,.25)}
 #lbCompare .lbc-handle span::before,#lbCompare .lbc-handle span::after{content:"";position:absolute;top:8px;width:5px;height:5px;border:solid var(--figure-paper);border-width:0 0 1.5px 1.5px}
 #lbCompare .lbc-handle span::before{left:6px;transform:rotate(45deg)}
 #lbCompare .lbc-handle span::after{right:6px;transform:rotate(-135deg)}
+#lbCompare .lbc-split.glide .lbc-b,#lbCompare .lbc-split.glide .lbc-b img,#lbCompare .lbc-split.glide .lbc-handle{transition:transform var(--motion-fast,140ms) ease-out}
+@media (prefers-reduced-motion:reduce){#lbCompare .lbc-split.glide .lbc-b,#lbCompare .lbc-split.glide .lbc-b img,#lbCompare .lbc-split.glide .lbc-handle{transition:none}}
 #lbCompare .lbc-tag{position:absolute;top:8px;padding:0 8px;border-radius:999px;background:color-mix(in srgb,var(--media-bg,#000) 70%,transparent);color:var(--on-media,#fff);font-size:11px;font-weight:500;pointer-events:none}
 #lbCompare .lbc-tag.l{left:8px}#lbCompare .lbc-tag.r{right:8px}
 #lbCompare .lbc-side{display:flex;gap:16px;width:100%;height:100%}

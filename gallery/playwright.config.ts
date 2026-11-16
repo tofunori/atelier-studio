@@ -19,6 +19,8 @@ export default defineConfig({
     {name: 'webkit-markdown-selection', testMatch: /markdown_selection\.spec\.ts/, use: {browserName: 'webkit'}},
     {name: 'webkit-reading-chat', testMatch: /reading_chat_overlay\.spec\.ts/, use: {browserName: 'webkit'}},
     {name: 'webkit-annotations', testMatch: /figure_(annotations|versions)\.spec\.ts/, use: {browserName: 'webkit'}},
+    // Curseur A/B de « Comparer » : la fluidité se joue dans WKWebView.
+    {name: 'webkit-compare', testMatch: /figure_compare\.spec\.ts/, use: {browserName: 'webkit'}},
     {name: 'webkit-review', testMatch: /editor_cm6\.spec\.ts/, grep: /latex individual review/, use: {browserName: 'webkit'}},
     {name: 'webkit-toolbar', testMatch: /editor_cm6\.spec\.ts/, grep: /latex toolbar/, use: {browserName: 'webkit'}},
     {name: 'webkit-fluid', testMatch: /editor_cm6\.spec\.ts/, grep: /latex fluid text/, use: {browserName: 'webkit'}},
