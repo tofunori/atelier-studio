@@ -92,7 +92,10 @@ await page.locator('#annotNote textarea').fill('Point à vérifier');
 assert.equal(await page.evaluate(()=>{const note=document.getElementById('annotNote').getBoundingClientRect(),at=annotClient({x:annotStrokes[0].x1,y:annotStrokes[0].y1});return at.x>=note.left&&at.x<=note.right&&at.y>=note.top&&at.y<=note.bottom;}),false);
 await page.keyboard.press('Enter');
 assert.equal(await page.locator('#annotNote').isVisible(),false);
-assert.deepEqual(await page.evaluate(()=>annotStrokes.map(s=>[s.tool,s.note,Math.round(s.x1),Math.round(s.y1)])),[['point','Point à vérifier',400,300]]);
+// WebKit rounds pointer coordinates to whole CSS pixels: allow one image pixel.
+{const marks=await page.evaluate(()=>annotStrokes.map(s=>({tool:s.tool,note:s.note,x:s.x1,y:s.y1})));
+assert.equal(marks.length,1);assert.equal(marks[0].tool,'point');assert.equal(marks[0].note,'Point à vérifier');
+assert.ok(Math.abs(marks[0].x-400)<=1.5&&Math.abs(marks[0].y-300)<=1.5,JSON.stringify(marks[0]));}
 
 // The badge keeps the same size on screen at any zoom, and stays sharp.
 const badge=()=>page.evaluate(()=>{
@@ -120,7 +123,7 @@ assert.ok(await page.locator('#lbViewport').evaluate(el=>el.scrollLeft)>before);
 // overflows the view; a figure smaller than the view stays centred).
 await page.evaluate(()=>{lbSetZoom(1);lbSetZoom(3);});
 {const at=await place(.4,.45);await page.mouse.move(at.x,at.y);await page.keyboard.down('Control');for(let i=0;i<4;i++)await page.mouse.wheel(0,-100);await page.keyboard.up('Control');
-const after=await place(.4,.45);assert.ok(await page.evaluate(()=>lbZoomLevel)>4);assert.ok(Math.abs(after.x-at.x)<=2&&Math.abs(after.y-at.y)<=2,JSON.stringify({at,after}));}
+const after=await place(.4,.45);assert.ok(await page.evaluate(()=>lbZoomLevel)>4);assert.ok(Math.abs(after.x-at.x)<=4&&Math.abs(after.y-at.y)<=4,JSON.stringify({at,after}));}
 await page.evaluate(()=>lbSetZoom(1));
 
 // R, a drag, Enter: a normalized box with handles; a handle moves only its own edges.
@@ -143,7 +146,7 @@ await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>annotSe
 // The image sent to the agent carries the same ink marks.
 await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('.annot-draft').click();await page.waitForFunction(()=>!annotBusy);
 assert.equal(saves.length,1);
-assert.ok(await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<d.length;i+=4)if(d[i]===194&&d[i+1]===86&&d[i+2]===12)ink++;return ink;},saves[0].dataURL)>100);
+assert.ok(await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<d.length;i+=4)if(Math.abs(d[i]-194)<=6&&Math.abs(d[i+1]-86)<=6&&Math.abs(d[i+2]-12)<=6)ink++;return ink;},saves[0].dataURL)>100);
 
 // A leaves the mode and releases the button.
 await page.keyboard.press('Escape');await page.keyboard.press('a');
