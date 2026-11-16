@@ -43,6 +43,11 @@ declare global {
   var annotEditing: import('./pages/gallery_template_1').PageGlobals['annotEditing'];
   var annotHover: import('./pages/gallery_template_1').PageGlobals['annotHover'];
   var annotPanelOpen: boolean;
+  var annotStore: import('./pages/gallery_template_1').PageGlobals['annotStore'];
+  var annotFollow: import('./pages/gallery_template_1').PageGlobals['annotFollow'];
+  var annotGhosts: import('./pages/gallery_template_1').PageGlobals['annotGhosts'];
+  var annotSaveQueue: import('./pages/gallery_template_1').PageGlobals['annotSaveQueue'];
+  var annotSaving: number;
   var annotSendAll: import('./pages/gallery_template_1').PageGlobals['annotSendAll'];
   var annotClient: import('./pages/gallery_template_1').PageGlobals['annotClient'];
   var annotBadge: import('./pages/gallery_template_1').PageGlobals['annotBadge'];

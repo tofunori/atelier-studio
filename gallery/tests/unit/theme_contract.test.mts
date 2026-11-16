@@ -158,6 +158,36 @@ test("annotSendAll : l'état d'envoi passe par des classes is-busy/is-ok/is-err,
   assert.match(handler[0], /classList\.remove\('is-busy','is-ok','is-err'\)/, "le retour à l'état neutre doit retirer les trois classes d'état");
 });
 
+test("notes durables d'une figure : case « réglée », « Renvoyer » et ligne de suivi restent neutres, icônes SVG au trait", () => {
+  // Lot 3 (2026-11-16) : rien d'orange qui ne soit une marque, aucun glyphe.
+  const toolbarCss = fs.readFileSync(new URL("../../assets/gallery_viewer_toolbar.css", import.meta.url), "utf8");
+  const rule = (selector: string) => {
+    const at = toolbarCss.indexOf(selector + "{");
+    assert.ok(at >= 0, `règle introuvable : ${selector}`);
+    return toolbarCss.slice(at, toolbarCss.indexOf("}", at) + 1);
+  };
+  for (const selector of ["#lb.responsive-viewer #annotResend", "#lb.responsive-viewer #annotFollowCompare"]) {
+    assert.match(rule(selector), /background:color-mix\(in srgb,var\(--txt\) 9%,transparent\);color:var\(--txt\)/, `${selector} : bouton neutre`);
+    assert.doesNotMatch(rule(selector), /--primary|--accent|#fff|border:1px/);
+  }
+  const check = rule("#lb.responsive-viewer #annotPanel .annot-check");
+  assert.match(check, /background:transparent;color:var\(--muted\)/);
+  assert.doesNotMatch(check, /--primary|--accent|#[0-9a-f]{3,6}\b/i);
+  assert.match(rule("#lb.responsive-viewer #annotPanel .annot-check svg"), /fill:none;stroke:currentColor;stroke-width:1\.3/);
+  // La pastille d'un fantôme est creuse, à l'encre des marques : jamais une couleur de plus.
+  assert.match(rule("#annotPanel .annot-item.ghost .annot-number,#annotPanel .annot-item.done .annot-number"), /background:transparent;color:var\(--annot-ink\);box-shadow:inset 0 0 0 1px var\(--annot-ink\)/);
+  // Le balisage : libellés textuels, états en SVG ; les icônes du script sont des <svg> au trait.
+  const resend = galleryTemplate.match(/<button type="button" id="annotResend"[\s\S]*?<\/button>/);
+  assert.ok(resend && /<span class="lbl"><\/span><svg class="ic-ok"/.test(resend[0]), "« Renvoyer » = libellé + coche SVG");
+  for (const icon of ["CHECK_ICON", "PIN_ICON"]) {
+    const source = galleryTemplate.match(new RegExp("const " + icon + "='(<svg [^']*)'"));
+    assert.ok(source, `${icon} introuvable`);
+    assert.doesNotMatch(source[1], /fill="(?!none)|#[0-9a-f]{3,6}\b/i, `${icon} : monochrome, au trait`);
+  }
+  // Les états de la note ne sont jamais des glyphes dans le texte.
+  for (const glyph of ["✓", "✔", "☑", "◯"]) assert.ok(!galleryTemplate.includes("'" + glyph), `glyphe interdit : ${glyph}`);
+});
+
 test("aucun des hex de menu hérités (#ff9b9b, #8ab4ff, #3a4150) ne subsiste dans le fichier", () => {
   assert.doesNotMatch(galleryTemplate, /#ff9b9b/i);
   assert.doesNotMatch(galleryTemplate, /#8ab4ff/i);

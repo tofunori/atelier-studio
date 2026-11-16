@@ -5,6 +5,8 @@
 //! bytes count once, and each copy is reported with the version it holds.
 //! Replacing the source never rewrites an earlier version. SQLite commits the
 //! image and its metadata together, including across concurrent gallery panes.
+//! The notes drawn on a version (`figure_notes`) live in the same database,
+//! keyed by the version's hash; a version that carries notes is never thinned.
 use crate::{AppState, request_allowed};
 use atelier_core::safe_project_path;
 use axum::{
@@ -46,7 +48,7 @@ pub struct HistoryBody {
     paths: Vec<String>,
 }
 
-fn database(root: &Path) -> Result<Connection> {
+pub(crate) fn database(root: &Path) -> Result<Connection> {
     let dir = safe_project_path(root, ".fig_thumbs")?;
     fs::create_dir_all(&dir)?;
     let path = safe_project_path(root, ".fig_thumbs/figure_versions.sqlite")?;
@@ -59,7 +61,12 @@ fn database(root: &Path) -> Result<Connection> {
         PRIMARY KEY(path, version));
         CREATE INDEX IF NOT EXISTS figure_versions_hash ON figure_versions(hash);
         CREATE TABLE IF NOT EXISTS figure_seen (
-        path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL);",
+        path TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS figure_notes (
+        hash TEXT NOT NULL, id TEXT NOT NULL, n INTEGER NOT NULL, kind TEXT NOT NULL,
+        x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL,
+        text TEXT NOT NULL, status TEXT NOT NULL, t INTEGER NOT NULL,
+        sent INTEGER, done INTEGER, PRIMARY KEY(hash, id));",
     )?;
     Ok(db)
 }
@@ -162,6 +169,7 @@ fn prune(db: &Connection, cap: i64) -> Result<usize> {
             "SELECT v.path, v.version, length(v.image) FROM figure_versions v
              WHERE v.version > (SELECT MIN(version) FROM figure_versions m WHERE m.path=v.path)
                AND v.version <= (SELECT MAX(version) FROM figure_versions m WHERE m.path=v.path) - ?1
+               AND NOT EXISTS (SELECT 1 FROM figure_notes n WHERE n.hash=v.hash)
              ORDER BY v.created, v.path, v.version",
         )?;
         query
@@ -300,7 +308,13 @@ fn history(root: &Path, rels: &[String]) -> Result<Value> {
         }
         previous = &item.hash;
         bytes += item.size;
-        versions.push(json!({"version": versions.len() + 1, "hash": item.hash, "created": item.created, "rel": rels[item.file], "bytes": item.size}));
+        let mut version = json!({"version": versions.len() + 1, "hash": item.hash, "created": item.created, "rel": rels[item.file], "bytes": item.size});
+        // Les notes posées sur cette version voyagent avec elle.
+        let notes = crate::figure_notes::stored(&db, &item.hash)?;
+        if !notes.is_empty() {
+            version["notes"] = Value::Array(notes);
+        }
+        versions.push(version);
     }
     if versions.is_empty() {
         return Err("Aucune version lisible".into());
@@ -498,6 +512,34 @@ mod tests {
         assert_eq!(kept[0], 1);
         assert_eq!(kept.len(), 1 + KEEP_RECENT as usize);
         assert_eq!(*kept.last().unwrap(), 20);
+    }
+    #[test]
+    fn history_carries_each_version_notes_and_pruning_spares_a_noted_version() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("fig.png");
+        let mut db = database(root.path()).unwrap();
+        for i in 0..20u8 {
+            write(&path, &png(i));
+            capture_path(&mut db, &path).unwrap();
+        }
+        let hash: String = db
+            .query_row("SELECT hash FROM figure_versions WHERE version=4", [], |r| r.get(0))
+            .unwrap();
+        db.execute(
+            "INSERT INTO figure_notes VALUES (?1, 'n1', 1, 'box', 0.1, 0.2, 0.3, 0.4, 'Titre trop long', 'sent', 5, 6, NULL)",
+            [&hash],
+        )
+        .unwrap();
+        let versions = hist(root.path(), &["fig.png"])["versions"].clone();
+        assert_eq!(versions[3]["notes"][0]["text"], "Titre trop long");
+        assert_eq!(versions[3]["notes"][0]["status"], "sent");
+        assert!(versions[2].get("notes").is_none(), "une version sans note n'en annonce pas");
+        // v4 is old enough to be thinned out, but it carries a note.
+        assert_eq!(prune(&db, 1).unwrap(), 20 - 1 - KEEP_RECENT as usize - 1);
+        let kept: i64 = db
+            .query_row("SELECT COUNT(*) FROM figure_versions WHERE hash=?1", [&hash], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, 1);
     }
     #[test]
     fn rejects_partial_files_and_paths_outside_project() {

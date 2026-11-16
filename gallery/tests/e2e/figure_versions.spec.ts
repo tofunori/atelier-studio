@@ -217,3 +217,122 @@ test('top-bar Gallery icon closes the open figure and returns to the grid',async
   await page.evaluate(()=>window.postMessage({type:'atelier-gallery-grid'},'*'));
   await expect(page.locator('#lb')).not.toHaveClass(/\bshow\b/);
 });
+
+// Lot 3 (2026-11-16) : les notes d'une figure sont gardées par le serveur avec
+// la version où elles ont été posées ; la version suivante les montre en
+// fantômes, on les coche une à une et on renvoie celle qui reste.
+test('figure notes stay with their version, are checked off on the next one and the open one is sent again',async({page})=>{
+  const errors: string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.setViewportSize({width:1280,height:800});
+  await page.goto(origin+'/?embedded=atelier');
+  const picture=(w: number,h: number,color: string)=>page.evaluate(([w,h,color])=>{const c=document.createElement('canvas');c.width=w as number;c.height=h as number;const x=c.getContext('2d');x.fillStyle=color as string;x.fillRect(0,0,c.width,c.height);return c.toDataURL().split(',')[1];},[w,h,color]);
+  const first=Buffer.from(await picture(800,500,'#dbe7f0'),'base64'),second=Buffer.from(await picture(1000,625,'#e9e2d0'),'base64');
+  const file=path.join(root,'durable.png');fs.writeFileSync(file,first);
+  const show=async()=>{await page.evaluate(async()=>{lbList=([{rel:'durable.png',name:'durable.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);await lbVersionReady;});await expect(ver(page)).toHaveText(/v\d/);};
+  // What the server keeps, version by version: « n:status:text ».
+  const kept=()=>page.evaluate(async()=>{const r=await fetch('/figure-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths:['durable.png']})});return (await r.json()).versions.map((v: any)=>(v.notes||[]).map((n: any)=>n.n+':'+n.status+':'+n.text));});
+  const saves: any[]=[];
+  await page.route('**/save',async route=>{saves.push(route.request().postDataJSON());await route.fulfill({json:{path:'.fig_thumbs/annotation-previews/durable_annot.png'}});});
+  const at=async(x: number,y: number)=>{const r=await page.locator('#annotCv').boundingBox();return [r.x+x*r.width,r.y+y*r.height] as const;};
+  const drag=async(x1: number,y1: number,x2: number,y2: number)=>{const a=await at(x1,y1),b=await at(x2,y2);await page.mouse.move(a[0],a[1]);await page.mouse.down();await page.mouse.move(b[0],b[1],{steps:5});await page.mouse.up();};
+  const note=page.locator('#annotNote textarea'),own=page.locator('#annotItems .annot-row'),ghosts=page.locator('#annotFollowItems .annot-item');
+  await show();
+
+  // Two notes on v1: the server has them a moment later, still to send.
+  await page.locator('#lbAnnot').click();await page.waitForFunction(()=>lb().classList.contains('annot'));
+  await drag(.1,.1,.6,.2);await note.fill('Titre trop long');await note.press('Enter');
+  await page.keyboard.press('p');{const p=await at(.25,.7);await page.mouse.click(p[0],p[1]);}await note.fill('Unité manquante');await note.press('Enter');
+  await expect.poll(kept).toEqual([['1:draft:Titre trop long','2:draft:Unité manquante']]);
+  const drawn=await page.evaluate(()=>annotStrokes.map(s=>[s.tool,s.x1/800,s.y1/500,s.x2/800,s.y2/500]));
+
+  // A reload loses nothing: same notes, same places, read-only until « Annoter ».
+  await page.goto(origin+'/?embedded=atelier');await show();
+  await expect(page.locator('#lbNotesN')).toHaveText('2');
+  expect(await page.evaluate(()=>annotPanelOpen)).toBe(false);
+  {const back=await page.evaluate(()=>annotStrokes.map(s=>[s.tool,s.x1/800,s.y1/500,s.x2/800,s.y2/500]));
+  expect(back.map(s=>s[0])).toEqual(['rect','point']);
+  back.forEach((s,i)=>s.slice(1).forEach((v,j)=>expect(Math.abs((v as number)-(drawn[i][j+1] as number))).toBeLessThan(.001)));}
+  await page.locator('#lbNotes').click();
+  await expect(own).toHaveText(['1Titre trop long','2Unité manquante']);
+  // Still to send: no « réglée » box yet.
+  await expect(page.locator('#annotItems .annot-check:visible')).toHaveCount(0);
+
+  // Sent notes stay on v1, marked sent, each with its box.
+  await page.locator('#lbAnnot').click();await page.waitForFunction(()=>lb().classList.contains('annot'));
+  await page.locator('#annotSendAll').click();
+  await page.waitForFunction(()=>!annotBusy&&annotStrokes.every(s=>s.status==='sent'));
+  expect(saves).toHaveLength(1);expect(saves[0].notes.map((n: any)=>n.text)).toEqual(['Titre trop long','Unité manquante']);
+  await expect.poll(kept).toEqual([['1:sent:Titre trop long','2:sent:Unité manquante']]);
+  await expect(page.locator('#annotItems .annot-check:visible')).toHaveCount(2);
+  await expect(page.locator('#annotSendAll')).toBeDisabled();
+
+  // v2 arrives (another pixel size): the viewer leaves the drawing mode and
+  // shows v2 with the notes of v1 as ghosts, at the same place on the image.
+  fs.writeFileSync(file,second);
+  await expect(ver(page)).toHaveText('v2',{timeout:8000});
+  expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotPanelOpen,annotStrokes.length,annotFollow?.version,annotGhosts.length])).toEqual([false,true,0,1,2]);
+  await expect(page.locator('#annotFollowLine')).toBeVisible();
+  await expect(page.locator('#annotFollowText')).toHaveText('v2 répond aux notes de v1 · aucune réglée');
+  await expect(page.locator('#annotPanelMeta')).toHaveText('2 · posées sur v1');
+  await expect(page.locator('#lbNotesN')).toHaveText('2');
+  await expect(ghosts).toHaveCount(2);
+  await expect(page.locator('#annotSendRow')).toBeHidden();
+  await expect(page.locator('#annotResend')).toHaveText('Renvoyer les 2 notes');
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · envoyées');
+  await expect(tile(page,2).locator('.lbs-n')).toHaveText('actuelle');
+  {const ghost=await page.evaluate(()=>annotGhosts.map(s=>[s.x1/1000,s.y1/625,s.x2/1000,s.y2/625]));
+  ghost.forEach((s,i)=>s.forEach((v,j)=>expect(Math.abs(v-(drawn[i][j+1] as number))).toBeLessThan(.001)));}
+  // Ghosts are painted on the figure (hollow badges), and a row answers its mark.
+  expect(await page.locator('#annotCv').evaluate((c: HTMLCanvasElement)=>{const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=3;i<d.length;i+=4)if(d[i]>40)ink++;return ink;})).toBeGreaterThan(200);
+  await ghosts.nth(0).hover();expect(await page.evaluate(()=>annotHover===annotGhosts[0])).toBe(true);
+  // A ghost is not edited from here.
+  await ghosts.nth(0).locator('.annot-row').click();expect(await page.evaluate(()=>[lb().classList.contains('annot'),annotEditing])).toEqual([false,null]);
+
+  // Checking note 1 is kept by the server at once, without resending the list.
+  const boxes=page.locator('#annotFollowItems .annot-check');
+  await boxes.nth(0).click();
+  await expect(boxes.nth(0)).toHaveAttribute('aria-checked','true');
+  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+  await expect(page.locator('#annotFollowText')).toHaveText('v2 répond aux notes de v1 · 1 sur 2 réglée');
+  await expect(page.locator('#annotResend')).toHaveText('Renvoyer la note 2');
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · 1 réglée');
+  expect(await page.evaluate(()=>annotGhosts.map(s=>s.status))).toEqual(['done','sent']);
+
+  // The open note goes back to the agent on the image of v2, with its place.
+  await page.locator('#annotResend').click();await page.waitForFunction(()=>!annotBusy);
+  expect(saves).toHaveLength(2);
+  expect(saves[1].notes.map((n: any)=>[n.n,n.text,n.kind])).toEqual([[2,'Unité manquante','point']]);
+  expect(saves[1].sourceContext).toContain('Version affichée : v2');
+  expect(saves[1].sourceContext).toContain('Notes posées sur v1 et renvoyées : elles ne sont pas réglées sur v2.');
+  await expect(page.locator('#annotPanelStatus')).toHaveText('Renvoyé au chat');
+  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+
+  // Another view of the gallery checks note 2: this one follows.
+  await page.evaluate(async()=>{const hash=lbHistory.rows[0].hash,id=annotGhosts[1].id;await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash,id,status:'done'})});});
+  await expect(boxes.nth(1)).toHaveAttribute('aria-checked','true',{timeout:8000});
+  await expect(page.locator('#annotResend')).toBeHidden();
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · réglées');
+
+  // « Comparer v1 → v2 » opens the comparison on these two versions.
+  await expect(page.locator('#annotFollowCompare')).toHaveText('Comparer v1 → v2');
+  await page.locator('#annotFollowCompare').click();
+  expect(await page.evaluate(()=>[lbHistory.compare?.a,lbHistory.compare?.b])).toEqual([1,2]);
+  await page.keyboard.press('Escape');expect(await page.evaluate(()=>lbHistory.compare)).toBe(null);
+
+  // Back on v1 the notes are its own: unchecking reopens, editing a sent note makes it « à envoyer » again.
+  await tile(page,1).click();await expect(ver(page)).toHaveText('v1');
+  await page.locator('#lbNotes').click();await page.waitForFunction(()=>annotPanelOpen);
+  expect(await page.evaluate(()=>annotStrokes.map(s=>s.status))).toEqual(['done','done']);
+  await page.locator('#annotItems .annot-check').nth(1).click();
+  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+  await own.nth(1).click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[1]);
+  await note.fill('Unité manquante (mg m⁻²)');await note.press('Enter');
+  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:draft:Unité manquante (mg m⁻²)'],[]]);
+  await expect(page.locator('#annotSendAll')).toBeEnabled();
+  await expect(tile(page,1).locator('.lbs-notes')).toHaveText('2 notes · 1 à envoyer');
+  // Undo brings the text back, never an older status.
+  await page.keyboard.press('Control+z');
+  expect(await page.evaluate(()=>[annotStrokes[1].note,annotStrokes[1].status,annotStrokes[0].status])).toEqual(['Unité manquante','sent','done']);
+  await expect.poll(kept).toEqual([['1:done:Titre trop long','2:sent:Unité manquante'],[]]);
+  expect(errors).toEqual([]);
+});

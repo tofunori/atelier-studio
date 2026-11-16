@@ -51,9 +51,33 @@ export interface Point {x: number; y: number}
 export interface FigureShape {tool: 'rect' | 'ellipse' | 'arrow' | 'point'; x1: number; y1: number; x2: number; y2: number}
 /** Poignée d'une marque sélectionnée, en pixels de l'image. */
 export interface FigureHandle {id: string; x: number; y: number}
-export type FigureStroke = FigureShape & {id?: string; color?: string; n?: number; note?: string};
-export interface AnnotationSession {strokes: FigureStroke[]; undo: FigureStroke[][]; redo: FigureStroke[][]}
-export interface FigureVersion {version: number; hash: string; created: number; rel: string; bytes: number}
+/** `draft` : à envoyer ; `sent` : envoyée à l'agent ; `done` : réglée. */
+export type FigureNoteStatus = 'draft' | 'sent' | 'done';
+/** Une note gardée avec sa version, en fractions de l'image : le modèle des
+ *  notes de figure du connecteur (`atelier-annots-mcp/src/figures.rs`). */
+export interface FigureNote {
+  id: string; n: number; kind: 'box' | 'ellipse' | 'arrow' | 'point';
+  x: number; y: number; w: number; h: number; text: string;
+  status: FigureNoteStatus; t: number; sentAt?: number; doneAt?: number;
+}
+export type FigureStroke = FigureShape & {
+  id?: string; color?: string; n?: number; note?: string;
+  status?: FigureNoteStatus; t?: number; sentAt?: number; doneAt?: number;
+  /** Note d'une version précédente, montrée sur la version affichée. */
+  ghost?: boolean;
+};
+export interface AnnotationSession {
+  strokes: FigureStroke[]; undo: FigureStroke[][]; redo: FigureStroke[][];
+  /** Version où vivent ces notes ; absente, elles ne sont pas gardées. */
+  hash?: string; size?: {w: number; h: number};
+  /** Empreinte des notes déjà confiées au serveur. */
+  saved?: string;
+  /** Texte et tracé de chaque note à son envoi : un écart la rend « à envoyer ». */
+  base?: Record<string, string>;
+}
+/** Notes d'une version précédente auxquelles la version affichée répond. */
+export interface FigureFollow {version: number; hash: string; notes: FigureNote[]}
+export interface FigureVersion {version: number; hash: string; created: number; rel: string; bytes: number; notes?: FigureNote[]}
 /** A copy of the figure in another folder, with the history version it holds. */
 export interface FigureCopy {rel: string; version: number}
 export interface FigureCompare {a: number; b: number; mode: 'slider' | 'side'; pos: number}
