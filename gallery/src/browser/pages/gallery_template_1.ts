@@ -2646,9 +2646,10 @@ let lbStripOpen=true;try{lbStripOpen=localStorage.getItem('atelier.figureStrip')
 let lbHistory: FigureHistory={rel:'',rels:[],rows:[],copies:[],bytes:0,selected:null,follow:true,epoch:0,busy:false,manual:false,compare:null};
 let lbVersionReady=Promise.resolve();
 const lbVersionRow=(version: number|null)=>lbHistory.rows.find(r=>r.version===version);
-/** La figure ouverte et ses copies de même nature. Les copies du chat
- *  (images-generees/<nom>-<hachage>) sont jointes par le serveur : chacune est
- *  une version de la figure, même enregistrée après l'ouverture. */
+/** La figure ouverte et ses copies de même nature (pas les copies du chat).
+ *  Une figure du chat (images-generees/<nom>-<hachage>) reçoit du serveur ses
+ *  autres copies du chat : chacune est une version, même enregistrée après
+ *  l'ouverture. */
 function lbHistoryRels(f: GalleryRow){
   if(!f||!HISTORY_EXTS.includes(f.ext))return [];
   const copies=(figureGroups.get(f.rel)||[]).filter(m=>m.rel!==f.rel&&HISTORY_EXTS.includes(m.ext)&&!/^images-generees(\/|$)/.test(m.folder||''));

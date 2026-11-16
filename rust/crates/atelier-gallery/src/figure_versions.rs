@@ -321,10 +321,16 @@ fn with_chat_snapshots(root: &Path, rels: &[String]) -> Vec<String> {
             all.push(rel.clone());
         }
     }
-    let keys: Vec<(String, String)> = all.iter().filter_map(|r| figure_key(r)).collect();
-    if keys.is_empty() {
+    // Seulement pour une figure du chat : l'historique d'une figure du projet
+    // reste le sien (une copie du chat du même nom n'en est pas forcément une
+    // version).
+    let Some(key) = all
+        .first()
+        .filter(|r| is_chat_snapshot(r))
+        .and_then(|r| figure_key(r))
+    else {
         return all;
-    }
+    };
     let Ok(dir) = safe_project_path(root, CHAT_DIR.trim_end_matches('/')) else {
         return all;
     };
@@ -336,8 +342,7 @@ fn with_chat_snapshots(root: &Path, rels: &[String]) -> Vec<String> {
         .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
         .filter_map(|e| {
             let rel = format!("{CHAT_DIR}{}", e.file_name().to_str()?);
-            let key = figure_key(&rel)?;
-            if all.contains(&rel) || !keys.contains(&key) {
+            if all.contains(&rel) || figure_key(&rel)? != key {
                 return None;
             }
             Some((e.metadata().ok()?.modified().ok()?, rel))
@@ -352,8 +357,9 @@ fn with_chat_snapshots(root: &Path, rels: &[String]) -> Vec<String> {
 
 /// One history for a figure and all its copies (`rels`, lead first): versions
 /// ordered by date, a version that repeats the previous bytes counts once.
-/// The chat's saved copies of the figure join it ([`with_chat_snapshots`]); a
-/// chat copy whose bytes already are a version adds nothing.
+/// A figure saved from the chat gathers the chat's other copies of it
+/// ([`with_chat_snapshots`]); a chat copy whose bytes already are a version
+/// adds nothing.
 fn history(root: &Path, rels: &[String]) -> Result<Value> {
     if rels.is_empty() || rels.len() > 64 {
         return Err("Liste de fichiers invalide".into());
@@ -692,19 +698,17 @@ mod tests {
         assert_eq!(hist(&dir, &[second])["versions"].as_array().unwrap().len(), 2);
     }
     #[test]
-    fn a_project_figure_gains_the_chat_versions_saved_beside_it() {
+    fn a_project_figure_keeps_its_own_history_beside_chat_copies() {
         let root = tempfile::tempdir().unwrap();
         let dir = root.path().canonicalize().unwrap();
         fs::create_dir_all(dir.join("images-generees")).unwrap();
-        write(&dir.join("Fig4.png"), &png(1));
-        hist(&dir, &["Fig4.png"]);
-        write(&dir.join("images-generees/fig4-1111aaaa.png"), &png(1));
         write(&dir.join("images-generees/fig4-2222bbbb.png"), &png(2));
+        write(&dir.join("Fig4.png"), &png(1));
         let value = hist(&dir, &["Fig4.png"]);
-        let versions = value["versions"].as_array().unwrap();
-        assert_eq!(versions.len(), 2, "{value}");
-        assert_eq!(versions[1]["rel"], "images-generees/fig4-2222bbbb.png");
-        assert_eq!(value["copies"], json!([{"rel": "Fig4.png", "version": 1}]));
+        assert_eq!(value["versions"].as_array().unwrap().len(), 1, "{value}");
+        // Ouverte depuis le chat, la copie ne rattache que les autres copies du chat.
+        let chat = hist(&dir, &["images-generees/fig4-2222bbbb.png"]);
+        assert_eq!(chat["versions"].as_array().unwrap().len(), 1, "{chat}");
     }
     #[test]
     fn rejects_partial_files_and_paths_outside_project() {
