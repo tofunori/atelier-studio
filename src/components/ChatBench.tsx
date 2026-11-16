@@ -2,7 +2,7 @@
 // composer. Monté par main.tsx sur #chatbench[-état][-light] ; jamais dans le
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
-// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · calmes · arretnet · revision · epure · regarde · relecteur (-encours, -rien).
+// États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · calcul · outilsrecus · calmes · arretnet · revision · epure · regarde · relecteur (-encours, -rien).
 import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
@@ -822,6 +822,37 @@ const APPROVED: AgentEvent[] = [
   { kind: "text", text: "D'accord, je lis directement `resultats/surface_brulee_region_synthese.json`.", ts: ts(55) } as AgentEvent,
 ];
 
+// Carte de calcul (variante « Flottante », 2026-11-16) : une tâche proposée
+// (avant le clic) puis la même, envoyée et en attente sur Narval.
+const CALCUL_SCRIPT = [
+  "#!/bin/bash",
+  "#SBATCH --account=def-ckinnard_cpu",
+  "#SBATCH --cpus-per-task=1 --mem=2G --time=0:15:00",
+  "module load python/3.11",
+  "cd /scratch/tofunori",
+  "sacct -u tofunori -S 2026-10-01 \\",
+  "  --format=JobName%30,Elapsed,TotalCPU,MaxRSS \\",
+  "  | grep -E \"toposcale|manteau\"",
+  "python3 resume_durees.py --sortie durees_oct.csv",
+].join("\n");
+const calcul = (jobId: string, status: "proposed" | "queued", offsetS: number, remoteId?: string): AgentEvent => ({
+  kind: "compute_job", jobId, status, ...(remoteId ? { remoteId } : {}), ts: ts(offsetS),
+  job: {
+    host: "narval", hostLabel: "Narval", label: "Durée des calculs TopoSCALE gfmed passés (lecture seule)",
+    workDir: "/scratch/tofunori", script: CALCUL_SCRIPT,
+    resources: { cpus: 1, mem: "2G", time: "0:15:00", account: "def-ckinnard_cpu" },
+    estimate: { wallHours: 0.25, cpuHours: 0.25 },
+    purpose: "Lire la durée réelle des calculs TopoSCALE et manteau d’octobre, pour estimer le nouveau calcul (versions A, B, B′, C) avant de le lancer.",
+  },
+} as AgentEvent);
+const CALCUL: AgentEvent[] = [
+  { kind: "user", text: "Combien de temps ont pris les calculs TopoSCALE d'octobre sur Narval ?", ts: ts(90) } as AgentEvent,
+  { kind: "text", text: "Je te propose une petite tâche en lecture seule sur Narval.", ts: ts(85) } as AgentEvent,
+  calcul("calc-a", "proposed", 80),
+  { kind: "text", text: "Une fois lancée, la carte suit la tâche :", ts: ts(70) } as AgentEvent,
+  calcul("calc-b", "queued", 60, "9535495"),
+];
+
 // Capture de Thierry (2026-11-10) : un long tour où chaque commande est
 // autorisée — un reçu « Commande autorisée » entre chaque étape.
 const OUTILS_RECUS: AgentEvent[] = [
@@ -1198,6 +1229,7 @@ const STATES: Record<string, BenchState> = {
   reponses: { events: QUESTIONS_ANSWERED, workingSince: null, attachments: [], usage: null },
   approbation: { events: APPROVAL, workingSince: ts(50), attachments: [], usage: null },
   approuvees: { events: APPROVED, workingSince: null, attachments: [], usage: null },
+  calcul: { events: CALCUL, workingSince: null, attachments: [], usage: null },
   calmes: { events: CALMES, workingSince: ts(600), attachments: [], usage: { context: 48000, output: 1900, cost: null, turns: 1 } },
   arretnet: { events: ARRET_NET, workingSince: null, attachments: [], usage: { context: 52000, output: 2100, cost: null, turns: 1 } },
   outilsrecus: { events: OUTILS_RECUS, workingSince: ts(1973), attachments: [], usage: { context: 61000, output: 2400, cost: null, turns: 1 } },
