@@ -160,28 +160,25 @@ test("annotSendAll : l'état d'envoi passe par des classes is-busy/is-ok/is-err,
   assert.match(handler[0], /classList\.remove\('is-busy','is-ok','is-err'\)/, "le retour à l'état neutre doit retirer les trois classes d'état");
 });
 
-test("notes durables d'une figure : case « réglée », « Renvoyer » et ligne de suivi restent neutres, icônes SVG au trait", () => {
-  // Lot 3 (2026-11-16) : rien d'orange qui ne soit une marque, aucun glyphe.
+test("notes envoyées d'une figure : « Envoyées N », « Tout effacer » et corbeille restent neutres, icônes SVG au trait", () => {
+  // Variante A (2026-11-16) : rien d'orange qui ne soit une marque, aucun glyphe.
   const toolbarCss = fs.readFileSync(new URL("../../assets/gallery_viewer_toolbar.css", import.meta.url), "utf8");
   const rule = (selector: string) => {
     const at = toolbarCss.indexOf(selector + "{");
     assert.ok(at >= 0, `règle introuvable : ${selector}`);
     return toolbarCss.slice(at, toolbarCss.indexOf("}", at) + 1);
   };
-  for (const selector of ["#lb.responsive-viewer #annotResend", "#lb.responsive-viewer #annotFollowCompare"]) {
-    assert.match(rule(selector), /background:color-mix\(in srgb,var\(--txt\) 9%,transparent\);color:var\(--txt\)/, `${selector} : bouton neutre`);
-    assert.doesNotMatch(rule(selector), /--primary|--accent|#fff|border:1px/);
+  assert.match(rule("#lb.responsive-viewer #annotSentClear"), /background:color-mix\(in srgb,var\(--txt\) 9%,transparent\);color:var\(--txt\)/, "« Tout effacer » : bouton neutre");
+  for (const selector of ["#lb.responsive-viewer #annotSentBtn", "#lb.responsive-viewer #annotPanel .annot-trash"]) {
+    assert.match(rule(selector), /background:transparent;color:var\(--muted\)/, `${selector} : bouton discret`);
+    assert.doesNotMatch(rule(selector), /--primary|--accent|#fff|border:1px|#[0-9a-f]{3,6}\b/i);
   }
-  const check = rule("#lb.responsive-viewer #annotPanel .annot-check");
-  assert.match(check, /background:transparent;color:var\(--muted\)/);
-  assert.doesNotMatch(check, /--primary|--accent|#[0-9a-f]{3,6}\b/i);
-  assert.match(rule("#lb.responsive-viewer #annotPanel .annot-check svg"), /fill:none;stroke:currentColor;stroke-width:1\.3/);
-  // La pastille d'un fantôme est creuse, à l'encre des marques : jamais une couleur de plus.
-  assert.match(rule("#annotPanel .annot-item.ghost .annot-number,#annotPanel .annot-item.done .annot-number"), /background:transparent;color:var\(--annot-ink\);box-shadow:inset 0 0 0 1px var\(--annot-ink\)/);
-  // Le balisage : libellés textuels, états en SVG ; les icônes du script sont des <svg> au trait.
-  const resend = galleryTemplate.match(/<button type="button" id="annotResend"[\s\S]*?<\/button>/);
-  assert.ok(resend && /<span class="lbl"><\/span><svg class="ic-ok"/.test(resend[0]), "« Renvoyer » = libellé + coche SVG");
-  for (const icon of ["CHECK_ICON", "PIN_ICON"]) {
+  assert.match(rule("#lb.responsive-viewer #annotPanel .annot-trash svg"), /fill:none;stroke:currentColor;stroke-width:1\.4/);
+  // La pastille d'une note envoyée est creuse, à l'encre des marques : jamais une couleur de plus.
+  assert.match(rule("#annotPanel .annot-item.sent .annot-number"), /background:transparent;color:var\(--annot-ink\);box-shadow:inset 0 0 0 1px var\(--annot-ink\)/);
+  // Plus de case « réglée », de « Renvoyer » ni de notes héritées de la version précédente.
+  for (const gone of ["annotResend", "annotFollow", "annot-check"]) assert.ok(!galleryTemplate.includes(gone), `reste de l'ancien suivi : ${gone}`);
+  for (const icon of ["TRASH_ICON", "PIN_ICON"]) {
     const source = galleryTemplate.match(new RegExp("const " + icon + "='(<svg [^']*)'"));
     assert.ok(source, `${icon} introuvable`);
     assert.doesNotMatch(source[1], /fill="(?!none)|#[0-9a-f]{3,6}\b/i, `${icon} : monochrome, au trait`);

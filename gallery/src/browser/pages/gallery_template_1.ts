@@ -1,4 +1,4 @@
-import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory, FigureVersion, FigureNote, FigureFollow, GalleryExportMode, GalleryExportResult} from "../../contracts/gallery";
+import type {GalleryRow, GalleryColumn, GalleryPresentation, FigureStroke, AnnotationSession, FigureHistory, FigureVersion, FigureNote, GalleryExportMode, GalleryExportResult} from "../../contracts/gallery";
 
 (function(){
   try{ var m=(location.hash||'').match(/atelier_nonce=([\w-]+)/); if(m){ sessionStorage.setItem('atelier_nonce', m[1]); window.__atelierNonce = m[1]; } }catch(e){}
@@ -2636,12 +2636,13 @@ const annotNoteOpen=()=>annotEditing!==null;
 const annotStore=new Map<string, FigureNote[]>(), annotSaveQueue=new Map<string, FigureNote[]>();
 const annotSizes=new Map<string, {w: number; h: number}>();
 let annotSaveTimer=0, annotSaving=0, annotSavedAt=0, annotSaveFailed=false;
-// Notes de la version précédente auxquelles la version affichée répond, et
-// leurs marques fantômes à l'échelle de l'image affichée.
-let annotFollow: FigureFollow | null=null, annotGhosts: FigureStroke[]=[], annotFollowKey='';
-let annotResend: ()=>Promise<void>=async()=>{};
+// Variante A (Thierry 2026-11-16) : une note envoyée quitte la figure ; une
+// version neuve arrive propre. Les notes envoyées vivent dans la liste
+// « Envoyées » (toutes versions) ; un clic sur une rangée y montre sa marque
+// (`annotPeek`), un autre la cache. La séance ne tient que les notes à envoyer.
+let annotSentOpen=false, annotPeek: {hash: string; id: string} | null=null, annotJustSent='';
 const annotIsDraft=(s: {status?: string})=>!s.status||s.status==='draft';
-const CHECK_ICON='<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path class="tick" d="M5.2 8.3l2 2 3.7-4.4"/></svg>';
+const TRASH_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 10v7m4-7v7"/></svg>';
 const PIN_ICON='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.2s4.2-3.9 4.2-7.3a4.2 4.2 0 0 0-8.4 0c0 3.4 4.2 7.3 4.2 7.3z"/><circle cx="8" cy="6.9" r="1.4"/></svg>';
 /** Enregistre et referme la note ouverte (Entrée, Échap, clic ailleurs). */
 function annotNoteCommit(){annotNoteClose?.();}
@@ -2768,7 +2769,7 @@ function lbStripVisible(){
   if(annotPanelOpen)return true;
   if(!lbStripOpen)return false;
   // Des notes à lire ou à écrire : l'onglet « Notes » et son compteur restent en vue.
-  const noted=lbNotable&&(lb().classList.contains('annot')||annotStrokes.length>0||!!annotFollow);
+  const noted=lbNotable&&(lb().classList.contains('annot')||annotStrokes.length>0);
   return versions?h.rows.length>1||h.manual||!!h.compare||noted:noted;
 }
 const lbBandSig=()=>lbStripVisible()+'|'+lbBandTab()+'|'+lbHasVersions();
@@ -2843,8 +2844,8 @@ async function lbVersionDisplay(version: number,automatic=false){
   if(h!==lbHistory||h.display!==display||!lb().classList.contains('show')||blocked()||(automatic&&!h.follow))return;
   if(!(await annotGuard())||h!==lbHistory)return;
   // Toutes les notes sont parties et la version suivante arrive : on quitte le
-  // tracé pour vérifier ; l'onglet montré reste celui qu'on avait choisi.
-  if(automatic&&h.selected!=null&&lb().classList.contains('annot')&&annotStrokes.length){
+  // tracé pour la regarder ; l'onglet montré reste celui qu'on avait choisi.
+  if(automatic&&h.selected!=null&&lb().classList.contains('annot')&&!annotStrokes.length&&annotJustSent&&annotJustSent===annotHash()){
     lb().classList.remove('annot');annotSpace=false;annotCursor();
     (document.getElementById('lbAnnot') as HTMLButtonElement).setAttribute('aria-pressed','false');
   }
@@ -3142,11 +3143,8 @@ function annotHistory(redo=false){
   if(!annotSession||annotBusy)return;
   const from=redo?annotSession.redo:annotSession.undo,to=redo?annotSession.undo:annotSession.redo;
   if(!from.length)return;
-  // Annuler ne « désenvoie » pas une note : le statut suit la note, pas l'instantané.
-  const status=new Map(annotStrokes.map(s=>[s.id,s]));
+  // La séance ne tient que des notes à envoyer, et l'envoi vide l'historique.
   to.push(structuredClone(annotStrokes));annotStrokes=from.pop();annotSelected=null;
-  // Une note redevenue « à envoyer » parce qu'on l'a retouchée retrouve, elle, le statut de l'instantané.
-  for(const s of annotStrokes){const now=status.get(s.id);if(now&&!annotIsDraft(now)){s.status=now.status;s.sentAt=now.sentAt;s.doneAt=now.doneAt;}}
   annotNoteHide();annotRenumber();annotRedraw();
 }
 async function annotGuard(){if(annotBusy)return false;annotNoteCommit();annotRemember();annotNoteHide();return true;}
@@ -3216,28 +3214,33 @@ function annotStrokeOf(note: FigureNote,size: {w: number; h: number}): FigureStr
 // Deux listes de notes disent-elles la même chose ? L'ordre des clés du
 // serveur n'est pas celui de la visionneuse : on compare les valeurs.
 const annotNoteSig=(notes: FigureNote[])=>JSON.stringify(notes.map(n=>[n.id,n.n,n.kind,n.x,n.y,n.w,n.h,n.text,n.status,n.sentAt||0,n.doneAt||0]));
-const annotBaseSig=(s: FigureStroke)=>[s.note,s.tool,s.x1,s.y1,s.x2,s.y2].join('|');
-/** Séance d'une version, ouverte sur les notes que le serveur garde pour elle. */
+/** Ordre du serveur (`ORDER BY n, t, id`) : les deux listes se comparent telles quelles. */
+const annotNoteOrder=(a: FigureNote,b: FigureNote)=>a.n-b.n||a.t-b.t||(a.id<b.id?-1:a.id>b.id?1:0);
+/** Notes envoyées d'une version : gardées par le serveur, jamais sur la figure. */
+const annotKept=(hash: string)=>(annotStore.get(hash)||[]).filter(n=>!annotIsDraft(n));
+/** Séance d'une version : ses notes à envoyer, rien d'autre. */
 function annotSessionFrom(hash: string,size: {w: number; h: number}): AnnotationSession{
-  const strokes=(annotStore.get(hash)||[]).map(n=>annotStrokeOf(n,size));
-  const base: Record<string,string>={};
-  for(const s of strokes)if(!annotIsDraft(s))base[s.id]=annotBaseSig(s);
-  return{strokes,undo:[],redo:[],hash,size,base,saved:annotNoteSig(annotStore.get(hash)||[])};
+  const strokes=(annotStore.get(hash)||[]).filter(annotIsDraft).map(n=>annotStrokeOf(n,size));
+  return{strokes,undo:[],redo:[],hash,size,saved:annotNoteSig(annotStore.get(hash)||[])};
 }
 /** Confie au serveur les notes de la séance quand elles ont changé. Les
  *  gestes s'enchaînent (un glisser redessine à chaque pas) : un seul envoi,
  *  300 ms après le dernier. */
-function annotPersist(){
-  const session=annotSession;if(!session?.hash)return;
-  // Une note envoyée dont le texte ou le tracé change redevient « à envoyer ».
-  for(const s of session.strokes)if(!annotIsDraft(s)&&session.base?.[s.id]!==annotBaseSig(s)){s.status='draft';delete s.sentAt;delete s.doneAt;}
-  const size=session.size||annotImage();
-  const notes=session.strokes.filter(s=>s.note?.trim()).map(s=>annotNoteOf(s,size));
+function annotPersist(session=annotSession){
+  if(!session?.hash)return;
+  const size=session.size||annotImage(),own=new Set(session.strokes.map(s=>s.id));
+  // Le serveur tient la liste entière : les notes envoyées de la version, puis celles de la séance.
+  const notes=annotKept(session.hash).filter(n=>!own.has(n.id))
+    .concat(session.strokes.filter(s=>s.note?.trim()).map(s=>annotNoteOf(s,size))).sort(annotNoteOrder);
   const sig=annotNoteSig(notes);if(sig===session.saved)return;
-  const label=annotTileLabel(session.hash);
-  session.saved=sig;annotStore.set(session.hash,notes);annotSaveQueue.set(session.hash,notes);
+  annotStoreSet(session.hash,notes);session.saved=sig;
+}
+/** Change les notes gardées d'une version et les confie au serveur (300 ms). */
+function annotStoreSet(hash: string,notes: FigureNote[]){
+  const label=annotTileLabel(hash);
+  if(notes.length)annotStore.set(hash,notes);else annotStore.delete(hash);annotSaveQueue.set(hash,notes);
   clearTimeout(annotSaveTimer);annotSaveTimer=window.setTimeout(()=>void annotSaveFlush(),300);
-  if(label!==annotTileLabel(session.hash))lbVersionsPaint();
+  if(label!==annotTileLabel(hash))lbVersionsPaint();
 }
 async function annotSaveFlush(keepalive=false){
   clearTimeout(annotSaveTimer);
@@ -3277,59 +3280,42 @@ function annotAdopt(rows: FigureVersion[],started: number){
   }
   return any?{shown}:null;
 }
-/** « 4 notes · à envoyer », « 4 notes · 3 réglées » : ce que porte une version. */
+/** « 2 notes · à envoyer », « 3 notes envoyées » : ce que porte une version. */
 function annotTileLabel(hash: string|undefined){
   const notes=(hash&&annotStore.get(hash))||[],n=notes.length;if(!n)return '';
-  const drafts=notes.filter(annotIsDraft).length,done=notes.filter(note=>note.status==='done').length,many=n>1;
-  const state=drafts===n?'à envoyer':drafts?drafts+' à envoyer':done===n?(many?'réglées':'réglée'):done?done+(done>1?' réglées':' réglée'):(many?'envoyées':'envoyée');
-  return n+(many?' notes · ':' note · ')+state;
+  const drafts=notes.filter(annotIsDraft).length,sent=n-drafts;
+  if(drafts)return drafts+(drafts>1?' notes':' note')+' · à envoyer';
+  return sent+(sent>1?' notes envoyées':' note envoyée');
 }
-/** Notes auxquelles la version affichée répond : celles, déjà envoyées, de la
- *  version précédente la plus proche qui en porte. Une version plus ancienne
- *  ne revient que s'il lui reste une note à régler. */
-function annotFollowSync(){
-  const h=lbHistory,rel=lbList[lbIdx]?.rel,idx=h.rel===rel?h.rows.findIndex(r=>r.version===h.selected):-1;
-  let next: FigureFollow | null=null;
-  for(let i=idx-1;i>=0;i--){
-    // Une figure revenue à l'octet près à une version passée porte déjà ses notes.
-    if(h.rows[i].hash===h.rows[idx].hash)continue;
-    const notes=(annotStore.get(h.rows[i].hash)||[]).filter(n=>!annotIsDraft(n));
-    if(!notes.length)continue;
-    if(i===idx-1||notes.some(n=>n.status==='sent'))next={version:h.rows[i].version,hash:h.rows[i].hash,notes};
-    break;
+/** Toutes les notes envoyées de la figure affichée, la version la plus récente
+ *  en premier. Une figure revenue à l'octet près à une version passée ne
+ *  compte qu'une fois. */
+function annotSentNotes(){
+  const h=lbHistory;if(!h.rel||h.rel!==lbList[lbIdx]?.rel)return [];
+  const seen=new Set<string>(),out: {hash: string; version: number; note: FigureNote}[]=[];
+  for(let i=h.rows.length-1;i>=0;i--){
+    const row=h.rows[i];if(seen.has(row.hash))continue;seen.add(row.hash);
+    for(const note of annotKept(row.hash))out.push({hash:row.hash,version:row.version,note});
   }
-  const size=annotSizes.get(annotHash())||annotImage();
-  const key=next?next.hash+'|'+size.w+'x'+size.h+'|'+annotNoteSig(next.notes):'';
-  if(key===annotFollowKey)return;
-  annotFollowKey=key;annotFollow=next;
-  // Mêmes fractions, image de la version affichée : la marque retombe au même endroit.
-  annotGhosts=next?next.notes.map(n=>({...annotStrokeOf(n,size),ghost:true})):[];
-  if(annotHover?.ghost)annotHover=null;
+  return out;
 }
-/** Coche ou décoche « réglée ». Une note de la version affichée part avec sa
- *  séance ; une note de la version précédente change seule, chez le serveur. */
-async function annotSetDone(stroke: FigureStroke,done: boolean){
-  if(annotBusy||annotIsDraft(stroke))return;
-  if(!stroke.ghost){
-    stroke.status=done?'done':'sent';if(done)stroke.doneAt=Date.now();else delete stroke.doneAt;
-    if(!stroke.sentAt)stroke.sentAt=Date.now();
-    annotRedraw();return;
+/** Efface des notes envoyées, chez le serveur comme ici. */
+function annotSentDelete(items: {hash: string; id: string}[]){
+  if(annotBusy||!items.length)return;
+  const byHash=new Map<string, Set<string>>();
+  for(const it of items){if(!byHash.has(it.hash))byHash.set(it.hash,new Set());byHash.get(it.hash).add(it.id);}
+  for(const [hash,ids] of byHash){
+    annotStoreSet(hash,(annotStore.get(hash)||[]).filter(n=>!ids.has(n.id)));
+    if(annotPeek?.hash===hash&&ids.has(annotPeek.id))annotPeek=null;
   }
-  const follow=annotFollow,note=follow&&(annotStore.get(follow.hash)||[]).find(n=>n.id===stroke.id);if(!note)return;
-  const before={...note},status=(document.getElementById('annotPanelStatus') as HTMLSpanElement);
-  note.status=done?'done':'sent';if(done)note.doneAt=Date.now();else delete note.doneAt;
-  // La séance de cette version, si elle est en mémoire, repartira du serveur.
-  annotSessions.delete(lbHistory.rel+'::version:'+follow.hash);
-  annotRedraw();lbVersionsPaint();annotSaving++;
-  try{
-    const r=await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:follow.hash,id:note.id,status:note.status})});
-    if(!r.ok)throw new Error('status '+r.status);
-    if(status.textContent==='Statut non enregistré — réessayer'){status.classList.remove('is-err');status.textContent='';}
-  }catch{
-    note.status=before.status;if(before.doneAt)note.doneAt=before.doneAt;else delete note.doneAt;
-    status.classList.add('is-err');status.textContent='Statut non enregistré — réessayer';
-    annotRedraw();lbVersionsPaint();
-  }finally{annotSaving--;annotSavedAt=performance.now();}
+  annotRedraw();
+}
+/** La marque d'une note envoyée, montrée sur la figure le temps du choix. */
+function annotPeekStroke(): FigureStroke | null{
+  if(!annotPeek)return null;
+  const note=annotKept(annotPeek.hash).find(n=>n.id===annotPeek.id);
+  if(!note){annotPeek=null;return null;}
+  return{...annotStrokeOf(note,annotSizes.get(annotHash())||annotImage()),status:'sent',ghost:true};
 }
 /** Montre l'onglet « Notes » de la bande, ou revient aux versions. Hors du
  *  mode annotation, l'onglet montre les marques de la version affichée sans
@@ -3346,13 +3332,13 @@ function annotSendMenu(open: boolean){
   more.setAttribute('aria-expanded',String(open));
 }
 function annotPillUpdate(){
-  annotRemember();annotFollowSync();annotPersist();
-  const follow=annotFollow,own=annotStrokes.length,n=own||(follow?follow.notes.length:0);
+  annotRemember();annotPersist();
+  const own=annotStrokes.length,n=own;
   // « Envoyer au chat » part avec les notes à envoyer ; une note déjà envoyée reste.
   const ready=annotStrokes.some(s=>s.note?.trim()&&annotIsDraft(s)),annotating=lb().classList.contains('annot');
   // Le compteur de l'onglet « Notes » grandit avec les marques ; il tressaute
   // quand une note s'ajoute à la version affichée.
-  const notes=(document.getElementById('lbTabNotes') as HTMLButtonElement),label=!n?'Notes de la figure':own?(own>1?own+' notes sur cette figure':'1 note sur cette figure'):(n>1?n+' notes':'1 note')+' de v'+follow.version+' à vérifier';
+  const notes=(document.getElementById('lbTabNotes') as HTMLButtonElement),label=!n?'Notes de la figure':own>1?own+' notes à envoyer':'1 note à envoyer';
   const counter=(document.getElementById('lbNotesN') as HTMLSpanElement),count=n?String(n):'',key=lbAnnotationKey();
   if(counter.textContent!==count){
     const grew=counter.dataset.key===key&&own>Number(counter.dataset.own||0);
@@ -3361,12 +3347,11 @@ function annotPillUpdate(){
   }
   counter.dataset.key=key;counter.dataset.own=String(own);
   notes.title=label;notes.setAttribute('aria-label',label);
-  const row=lbHistory.rel===lbList[lbIdx]?.rel?lbVersionRow(lbHistory.selected):null;
-  annotFollowPaint(row?row.version:null,own,annotating);
-  (document.getElementById('annotEmpty') as HTMLParagraphElement).hidden=own>0||!!follow;
+  annotSentPaint();
+  (document.getElementById('annotEmpty') as HTMLParagraphElement).hidden=own>0||annotSentOpen;
   (document.getElementById('annotEmpty') as HTMLParagraphElement).textContent=annotating
-    ?'Aucune note sur cette version. Tracer un cadre ou cliquer un point sur la figure, puis écrire la note ici.'
-    :'Aucune note sur cette version. Annoter (A) pour en poser une.';
+    ?'Rien à envoyer sur cette version. Tracer un cadre ou cliquer un point sur la figure, puis écrire la note ici.'
+    :'Rien à envoyer sur cette version. Annoter (A) pour poser une note.';
   for(const id of ['annotSendAll','annotSendMore'])(document.getElementById(id) as HTMLButtonElement).disabled=annotBusy||!ready;
   if(annotBusy||!ready)annotSendMenu(false);
   (document.getElementById('lbAdd') as HTMLButtonElement).disabled=annotBusy||(!EMB&&!(annotating&&ready));
@@ -3379,43 +3364,37 @@ function annotPillUpdate(){
 // Une rangée par note, gardée d'un rendu à l'autre : un clic en cours ne perd
 // pas sa cible, et la note ouverte ne perd ni sa place ni le curseur.
 const annotRows=new Map<string, HTMLDivElement>();
-const annotRowKey=(s: FigureStroke)=>(s.ghost?'ghost:':'')+s.id;
+const annotRowKey=(s: FigureStroke)=>s.id;
 function annotRow(s: FigureStroke){
-  const key=annotRowKey(s),ghost=!!s.ghost;
+  const key=annotRowKey(s);
   let item=annotRows.get(key);
   if(!item){
-    const id=s.id,find=()=>(ghost?annotGhosts:annotStrokes).find(o=>o.id===id)||null;
-    item=document.createElement('div');item.className='annot-item'+(ghost?' ghost':'');
-    item.innerHTML='<button type="button" class="annot-row"><span class="annot-number"></span><span class="annot-text"></span></button>'
-      +'<button type="button" class="annot-check" role="checkbox" aria-checked="false" hidden>'+CHECK_ICON+'</button>';
-    const row=item.firstElementChild as HTMLButtonElement,check=item.lastElementChild as HTMLButtonElement;
+    const id=s.id,find=()=>annotStrokes.find(o=>o.id===id)||null;
+    item=document.createElement('div');item.className='annot-item';
+    item.innerHTML='<button type="button" class="annot-row"><span class="annot-number"></span><span class="annot-text"></span></button>';
+    const row=item.firstElementChild as HTMLButtonElement;
     row.onclick=async()=>{
-      // Une note de la version précédente ne s'édite pas d'ici : elle se coche ou se renvoie.
-      if(annotBusy||ghost)return;
+      if(annotBusy)return;
       if(!lb().classList.contains('annot')){await annotToggle();if(!lb().classList.contains('annot'))return;}
       const stroke=find();if(stroke)annotAskNote(stroke);
     };
-    check.onclick=e=>{e.stopPropagation();const stroke=find();if(stroke)void annotSetDone(stroke,stroke.status!=='done');};
     const hover=(on: boolean)=>{if(on||(annotHover&&annotRowKey(annotHover)===key))annotHoverSet(on?find():null);};
     item.onpointerenter=()=>hover(true);item.onpointerleave=()=>hover(false);row.onfocus=()=>hover(true);row.onblur=()=>hover(false);
     annotRows.set(key,item);
   }
-  const text=s.note||'Note à compléter',done=s.status==='done',checkable=!annotIsDraft(s);
-  const row=item.firstElementChild as HTMLButtonElement,check=item.lastElementChild as HTMLButtonElement;
+  const text=s.note||'Note à compléter';
+  const row=item.firstElementChild as HTMLButtonElement;
   const number=row.firstElementChild as HTMLSpanElement,body=row.lastElementChild as HTMLSpanElement;
   if(number.textContent!==String(s.n))number.textContent=String(s.n);
   if(body.textContent!==text){body.textContent=text;row.title=text;}
   row.classList.toggle('todo',!s.note);row.classList.toggle('sel',s===annotSelected);row.classList.toggle('hot',s===annotHover);
-  row.setAttribute('aria-label','Note '+s.n+' : '+text+(done?' (réglée)':checkable?' (envoyée)':''));
-  item.classList.toggle('done',done);item.classList.toggle('checkable',checkable);
-  const label=done?'Note '+s.n+' réglée — rouvrir':'Marquer la note '+s.n+' comme réglée';
-  check.hidden=!checkable;check.setAttribute('aria-checked',String(done));check.title=label;check.setAttribute('aria-label',label);
+  row.setAttribute('aria-label','Note '+s.n+' : '+text);
   return item;
 }
 function annotListRender(){
   const list=(document.getElementById('annotItems') as HTMLDivElement),box=(document.getElementById('annotNote') as HTMLDivElement);
   if(annotEditing&&!annotStrokes.includes(annotEditing))annotNoteHide();
-  if(annotHover&&!annotStrokes.includes(annotHover)&&!annotGhosts.includes(annotHover))annotHover=null;
+  if(annotHover&&!annotStrokes.includes(annotHover))annotHover=null;
   // Jusqu'à quatre notes : une colonne ; au-delà, deux, lues de haut en bas.
   list.dataset.cols=annotStrokes.length>4?'2':'1';
   const wanted: HTMLElement[]=annotStrokes.map(s=>s===annotEditing?box:annotRow(s));
@@ -3423,36 +3402,64 @@ function annotListRender(){
   const kept=new Set<Element>(wanted);
   for(const child of [...list.children])if(!kept.has(child)&&child.parentNode===list){if(child===box)list.after(box);else child.remove();}
   wanted.forEach((el,i)=>{if(list.children[i]!==el)list.insertBefore(el,list.children[i]||null);});
-  // Notes de la version précédente : mêmes rangées, pastille creuse, case à cocher.
-  const ghosts=(document.getElementById('annotFollowItems') as HTMLDivElement),shown: HTMLElement[]=annotGhosts.map(s=>annotRow(s));
-  ghosts.dataset.cols=annotGhosts.length>4?'2':'1';
-  const keptGhosts=new Set<Element>(shown);
-  for(const child of [...ghosts.children])if(!keptGhosts.has(child))child.remove();
-  shown.forEach((el,i)=>{if(ghosts.children[i]!==el)ghosts.insertBefore(el,ghosts.children[i]||null);});
-  const live=new Set(annotStrokes.map(annotRowKey).concat(annotGhosts.map(annotRowKey)));for(const id of [...annotRows.keys()])if(!live.has(id))annotRows.delete(id);
+  const live=new Set(annotStrokes.map(annotRowKey));for(const id of [...annotRows.keys()])if(!live.has(id))annotRows.delete(id);
 }
-/** Ce que la version affichée doit aux notes de la précédente : l'en-tête de
- *  leur section dans l'onglet « Notes », « Comparer » et « Renvoyer ». */
-function annotFollowPaint(version: number|null,own: number,annotating: boolean){
-  const follow=annotFollow,total=follow?follow.notes.length:0,done=follow?follow.notes.filter(n=>n.status==='done').length:0;
-  const open=follow?follow.notes.filter(n=>n.status==='sent'):[];
-  const count=!follow?'':!done?(total>1?'aucune réglée':'pas réglée'):done===total?(total>1?'toutes réglées':'réglée'):done+' sur '+total+(done>1?' réglées':' réglée');
-  (document.getElementById('annotFollow') as HTMLElement).hidden=!follow;
-  const compare=(document.getElementById('annotFollowCompare') as HTMLButtonElement);
-  // « Comparer » est fermé pendant l'annotation, comme dans l'onglet « Versions ».
-  compare.hidden=!follow||version==null||annotating;
-  if(follow&&version!=null){
-    const text='<b>v'+version+'</b> répond aux notes de v'+follow.version+' · '+count;
-    const label=(document.getElementById('annotFollowText') as HTMLSpanElement);if(label.innerHTML!==text)label.innerHTML=text;
-    compare.textContent='Comparer v'+follow.version+' → v'+version;compare.dataset.a=String(follow.version);compare.dataset.b=String(version);
+/** « Envoyées N » et sa liste : les notes déjà parties, toutes versions. Un
+ *  clic sur une rangée montre sa marque sur la figure, un autre la cache. */
+const annotSentRows=new Map<string, HTMLDivElement>();
+let annotClearArmed=0;
+function annotSentPaint(){
+  const sent=annotSentNotes(),n=sent.length;
+  if(!n&&annotSentOpen)annotSentOpen=false;
+  if(annotPeek&&!sent.some(it=>it.hash===annotPeek.hash&&it.note.id===annotPeek.id))annotPeek=null;
+  const btn=(document.getElementById('annotSentBtn') as HTMLButtonElement);
+  btn.hidden=!n;btn.setAttribute('aria-pressed',String(annotSentOpen));
+  const label=n>1?n+' notes déjà envoyées':'1 note déjà envoyée';btn.title=label;btn.setAttribute('aria-label',label);
+  const count=(document.getElementById('annotSentN') as HTMLSpanElement);if(count.textContent!==String(n))count.textContent=String(n);
+  (document.getElementById('annotSent') as HTMLElement).hidden=!annotSentOpen;
+  (document.getElementById('annotItems') as HTMLDivElement).hidden=annotSentOpen;
+  const clear=(document.getElementById('annotSentClear') as HTMLButtonElement);
+  const armed=annotClearArmed>performance.now();
+  clear.textContent=armed?(n>1?'Effacer les '+n+' notes':'Effacer la note'):'Tout effacer';clear.classList.toggle('armed',armed);
+  const list=(document.getElementById('annotSentItems') as HTMLDivElement);
+  list.dataset.cols=n>4?'2':'1';
+  const wanted=sent.map(it=>annotSentRow(it));
+  const kept=new Set<Element>(wanted);
+  for(const child of [...list.children])if(!kept.has(child))child.remove();
+  wanted.forEach((el,i)=>{if(list.children[i]!==el)list.insertBefore(el,list.children[i]||null);});
+  const live=new Set(sent.map(it=>it.hash+':'+it.note.id));for(const k of [...annotSentRows.keys()])if(!live.has(k))annotSentRows.delete(k);
+}
+function annotSentRow(it: {hash: string; version: number; note: FigureNote}){
+  const key=it.hash+':'+it.note.id;
+  let item=annotSentRows.get(key);
+  if(!item){
+    const {hash}=it,id=it.note.id;
+    item=document.createElement('div');item.className='annot-item sent';
+    item.innerHTML='<button type="button" class="annot-row" aria-pressed="false"><span class="annot-number"></span><span class="annot-text"><span class="annot-tag"></span><span class="annot-body"></span></span></button>'
+      +'<button type="button" class="annot-trash">'+TRASH_ICON+'</button>';
+    const row=item.firstElementChild as HTMLButtonElement,trash=item.lastElementChild as HTMLButtonElement;
+    row.onclick=()=>{
+      const on=annotPeek?.hash===hash&&annotPeek.id===id;annotPeek=on?null:{hash,id};
+      if(!lb().classList.contains('annot')&&!lb().classList.contains('notes'))return;
+      annotLayout();annotRedraw();
+    };
+    trash.onclick=e=>{e.stopPropagation();annotSentDelete([{hash,id}]);};
+    annotSentRows.set(key,item);
   }
-  const resend=(document.getElementById('annotResend') as HTMLButtonElement);
-  resend.hidden=!open.length;resend.disabled=annotBusy;
-  (resend.querySelector('.lbl') as HTMLSpanElement).textContent=open.length>1?'Renvoyer les '+open.length+' notes':open.length?'Renvoyer la note '+open[0].n:'';
-  // En vérification (aucune note propre, hors tracé), seul « Renvoyer » a un sens.
-  (document.getElementById('annotSendRow') as HTMLDivElement).hidden=!!follow&&!own&&!annotating;
+  const row=item.firstElementChild as HTMLButtonElement,trash=item.lastElementChild as HTMLButtonElement;
+  const number=row.querySelector<HTMLSpanElement>('.annot-number'),tag=row.querySelector<HTMLSpanElement>('.annot-tag'),body=row.querySelector<HTMLSpanElement>('.annot-body');
+  const text=it.note.text,peek=annotPeek?.hash===it.hash&&annotPeek.id===it.note.id;
+  if(number.textContent!==String(it.note.n))number.textContent=String(it.note.n);
+  if(tag.textContent!=='v'+it.version)tag.textContent='v'+it.version;
+  if(body.textContent!==text){body.textContent=text;row.title=text;}
+  row.classList.toggle('hot',peek);row.setAttribute('aria-pressed',String(peek));
+  row.setAttribute('aria-label','Note '+it.note.n+' de v'+it.version+' : '+text+(peek?' (marque montrée)':''));
+  const del='Effacer la note '+it.note.n+' de v'+it.version;trash.title=del;trash.setAttribute('aria-label',del);
+  return item;
 }
-function annotRenumber(){annotStrokes.forEach((s,i)=>s.n=i+1);annotRemember();}
+/** Les notes à envoyer se numérotent après celles déjà envoyées de la même
+ *  version : un numéro ne désigne qu'une note de cette version. */
+function annotRenumber(){const hash=annotSession?.hash,base=hash?annotKept(hash).reduce((m,n)=>Math.max(m,n.n||0),0):0;annotStrokes.forEach((s,i)=>s.n=base+i+1);annotRemember();}
 /** Ouvre la note d'une marque dans l'onglet « Notes », à sa place dans la liste.
  *  Tracer une marque ou cliquer sa pastille montre donc cet onglet. */
 async function annotAskNote(stroke: FigureStroke){
@@ -3461,6 +3468,8 @@ async function annotAskNote(stroke: FigureStroke){
   annotNoteCommit();
   if(!annotStrokes.includes(stroke))return;
   annotSelected=stroke;annotEditing=stroke;
+  // Une note à écrire ramène la liste des notes à envoyer.
+  if(annotSentOpen){annotSentOpen=false;annotPeek=null;annotSentPaint();}
   if(!annotPanelOpen)annotPanelSet(true);
   const status=box.querySelector<HTMLSpanElement>('.annot-status'),send=box.querySelector<HTMLButtonElement>('.annot-send');
   box.querySelector<HTMLSpanElement>('.annot-number').textContent=String(stroke.n);
@@ -3695,9 +3704,9 @@ function annotDraw(){
   const c=cv(),x=c.getContext('2d'),size=annotImage();
   x.clearRect(0,0,c.width,c.height);
   const editable=lb().classList.contains('annot');
-  annotFollowSync();
-  // Les fantômes de la version précédente passent sous les marques de celle-ci.
-  annotPaint(x,annotGhosts.concat(annotStrokes,annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),editable&&annotStrokes.includes(annotSelected)?annotSelected:null,annotStrokes.includes(annotHover)||annotGhosts.includes(annotHover)?annotHover:null);
+  // Une note envoyée montrée depuis « Envoyées » passe sous les marques à envoyer.
+  const peek=annotPeekStroke();
+  annotPaint(x,(peek?[peek]:[]).concat(annotStrokes,annotCur?[annotCur]:[]),c.width/size.w,c.width/(c.getBoundingClientRect().width||c.width),editable&&annotStrokes.includes(annotSelected)?annotSelected:null,annotStrokes.includes(annotHover)?annotHover:null);
 }
 function annotEdgeHit(g,s,p,tol: number){
   if(!g.hit(s,p,tol))return false;
@@ -3877,16 +3886,21 @@ function annotInit(){
     }
     return j;
   }
-  /** Les notes parties restent sur leur version, « envoyées » : c'est sur la
-   *  version suivante qu'on vérifiera qu'elles sont réglées. */
+  /** Les notes parties quittent la figure (variante A, Thierry 2026-11-16) :
+   *  le serveur les garde « envoyées » avec leur version, et la liste
+   *  « Envoyées » les montre. La séance ne garde que ce qui reste à envoyer. */
   function annotMarkSent(session: AnnotationSession | null,ids: string[]){
     if(!session)return;
     const now=Date.now(),sent=new Set(ids);
-    for(const s of session.strokes)if(sent.has(s.id)){s.status='sent';s.sentAt=now;delete s.doneAt;(session.base||={})[s.id]=annotBaseSig(s);}
+    for(const s of session.strokes)if(sent.has(s.id)){s.status='sent';s.sentAt=now;delete s.doneAt;}
+    annotPersist(session);
+    session.strokes=session.strokes.filter(s=>!sent.has(s.id));
+    if(session===annotSession){annotStrokes=session.strokes;if(annotSelected&&sent.has(annotSelected.id))annotSelected=null;if(annotHover&&sent.has(annotHover.id))annotHover=null;}
+    if(session.hash)annotJustSent=session.hash;
     // L'envoi ne s'annule pas : l'historique d'édition repart d'ici.
     session.undo=[];session.redo=[];
   }
-  annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,[stroke]);annotMarkSent(session,[stroke.id]);if(session===annotSession)annotRedraw();};
+  annotSendOne=async (stroke,direct=true)=>{const session=annotSession;await annotPost(direct,[stroke]);annotMarkSent(session,[stroke.id]);if(session===annotSession){annotNoteHide();annotRedraw();}};
   function claudeTarget(){
     try{ return JSON.parse(localStorage.getItem('claudeTargetV1')||'null'); }catch(e){ return null; }
   }
@@ -3966,41 +3980,18 @@ function annotInit(){
     }
     annotBusy=false;annotRedraw();
   };
-  // « Renvoyer la note 3 » : les notes de la version précédente qui ne sont
-  // pas réglées repartent, sur l'image de la version affichée, avec leur cadre.
-  annotResend=async()=>{
-    const follow=annotFollow,open=annotGhosts.filter(g=>g.status==='sent'&&g.note);
-    const button=(document.getElementById('annotResend') as HTMLButtonElement),status=(document.getElementById('annotPanelStatus') as HTMLSpanElement);
-    if(annotBusy||!follow||!open.length)return;
-    annotBusy=true;annotPillUpdate();
-    button.classList.remove('is-ok');button.classList.add('is-busy');status.classList.remove('is-err');status.textContent='';
-    try{
-      const shown=lbVersionRow(lbHistory.selected);
-      const j=await annotPost(true,open,'Notes posées sur v'+follow.version+' et renvoyées'+(shown?' : elles ne sont pas réglées sur v'+shown.version+'.':'.'));
-      // La date d'envoi avance, chez le serveur comme ici.
-      const kept=new Map((annotStore.get(follow.hash)||[]).map(n=>[n.id,n])),now=Date.now();
-      annotSaving++;
-      try{
-        for(const ghost of open){
-          const note=kept.get(ghost.id);if(note)note.sentAt=now;
-          await fetch('/figure-note-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hash:follow.hash,id:ghost.id,status:'resent'})});
-        }
-      }catch{/* la note est partie ; sa date d'envoi se rattrapera au prochain envoi */}
-      finally{annotSaving--;annotSavedAt=performance.now();}
-      annotSessions.delete(lbHistory.rel+'::version:'+follow.hash);
-      button.classList.remove('is-busy');button.classList.add('is-ok');
-      annotStatusSay(ANNOT_EMBEDDED?'Renvoyé au chat':(j.submitted?'Renvoyé à la session':'Collé dans Claude'));
-      setTimeout(()=>button.classList.remove('is-busy','is-ok'),2400);
-    }catch(e){
-      button.classList.remove('is-busy');status.classList.add('is-err');
-      status.textContent=/ack/.test(String(e&&e.message))?'Chat injoignable — réessayer':e&&e.status?'Erreur serveur '+e.status:'Serveur off — démarrer le serveur';
-    }
-    annotBusy=false;annotRedraw();
+  // « Envoyées N » : la liste des notes parties, à la place de celles à envoyer.
+  (document.getElementById('annotSentBtn') as HTMLButtonElement).onclick=e=>{
+    e.stopPropagation();annotNoteCommit();annotSentOpen=!annotSentOpen;annotPeek=null;annotClearArmed=0;
+    if(!annotPanelOpen)annotPanelSet(true);
+    annotRedraw();
   };
-  (document.getElementById('annotResend') as HTMLButtonElement).onclick=e=>{e.stopPropagation();void annotResend();};
-  (document.getElementById('annotFollowCompare') as HTMLButtonElement).onclick=e=>{
-    e.stopPropagation();const button=e.currentTarget as HTMLButtonElement;
-    lbCompareEnter({a:Number(button.dataset.a),b:Number(button.dataset.b)});
+  // « Tout effacer » demande un second clic, qui dit combien de notes partent.
+  (document.getElementById('annotSentClear') as HTMLButtonElement).onclick=e=>{
+    e.stopPropagation();
+    if(annotClearArmed>performance.now()){annotClearArmed=0;annotSentDelete(annotSentNotes().map(it=>({hash:it.hash,id:it.note.id})));return;}
+    annotClearArmed=performance.now()+3000;annotSentPaint();
+    setTimeout(()=>{if(annotClearArmed&&annotClearArmed<=performance.now()){annotClearArmed=0;annotSentPaint();}},3050);
   };
 }
 annotInit();
@@ -4055,8 +4046,9 @@ document.body.append(viewerToolbarScript);
 /** Types shared by classic scripts and browser integration tests; erased at build. */
 export type PageGlobals = {
   annotStore: typeof annotStore;
-  annotFollow: typeof annotFollow;
-  annotGhosts: typeof annotGhosts;
+  annotPeek: typeof annotPeek;
+  annotSentOpen: typeof annotSentOpen;
+  annotPeekStroke: typeof annotPeekStroke;
   annotSaveQueue: typeof annotSaveQueue;
   lbSetZoom: typeof lbSetZoom;
   lbZoomLevel: typeof lbZoomLevel;

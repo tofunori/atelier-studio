@@ -45,8 +45,9 @@ declare global {
   var annotHover: import('./pages/gallery_template_1').PageGlobals['annotHover'];
   var annotPanelOpen: boolean;
   var annotStore: import('./pages/gallery_template_1').PageGlobals['annotStore'];
-  var annotFollow: import('./pages/gallery_template_1').PageGlobals['annotFollow'];
-  var annotGhosts: import('./pages/gallery_template_1').PageGlobals['annotGhosts'];
+  var annotPeek: import('./pages/gallery_template_1').PageGlobals['annotPeek'];
+  var annotSentOpen: import('./pages/gallery_template_1').PageGlobals['annotSentOpen'];
+  var annotPeekStroke: import('./pages/gallery_template_1').PageGlobals['annotPeekStroke'];
   var annotSaveQueue: import('./pages/gallery_template_1').PageGlobals['annotSaveQueue'];
   var annotSaving: number;
   var annotSendAll: import('./pages/gallery_template_1').PageGlobals['annotSendAll'];

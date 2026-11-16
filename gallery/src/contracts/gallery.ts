@@ -69,7 +69,7 @@ export interface FigureNote {
 export type FigureStroke = FigureShape & {
   id?: string; color?: string; n?: number; note?: string;
   status?: FigureNoteStatus; t?: number; sentAt?: number; doneAt?: number;
-  /** Note d'une version précédente, montrée sur la version affichée. */
+  /** Note déjà envoyée, montrée un instant depuis la liste « Envoyées ». */
   ghost?: boolean;
 };
 export interface AnnotationSession {
@@ -78,11 +78,7 @@ export interface AnnotationSession {
   hash?: string; size?: {w: number; h: number};
   /** Empreinte des notes déjà confiées au serveur. */
   saved?: string;
-  /** Texte et tracé de chaque note à son envoi : un écart la rend « à envoyer ». */
-  base?: Record<string, string>;
 }
-/** Notes d'une version précédente auxquelles la version affichée répond. */
-export interface FigureFollow {version: number; hash: string; notes: FigureNote[]}
 export interface FigureVersion {version: number; hash: string; created: number; rel: string; bytes: number; notes?: FigureNote[]}
 /** A copy of the figure in another folder, with the history version it holds. */
 export interface FigureCopy {rel: string; version: number}
