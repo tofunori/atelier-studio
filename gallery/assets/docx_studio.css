@@ -217,6 +217,8 @@ body.stretching #paper,body.stretching #sheets,body.stretching #lnums{will-chang
 .d-p.mark-ins::after{content:'¶';color:var(--rev-color)}
 .d-p.changed::before{content:'';position:absolute;left:-28px;top:4px;bottom:4px;width:2px;border-radius:999px;background:var(--rev-color,var(--text-muted))}
 .d-p.list.changed::before{left:-28px;top:4px;width:2px;height:auto;border-radius:999px;background:var(--rev-color)}
+/* Paragraphe coupé sur deux feuilles : un trait par feuille (calculé à la mise en page). */
+.d-p.changed[style*='--bar']::before{background:var(--bar)}
 /* Page de Word : le liseré passe au bord de la feuille, à gauche des numéros de ligne. */
 #paper.pg>.d-p.changed::before,#paper.pg>.d-p.list.changed::before{left:calc(12px - var(--ml,0px))}
 table.d-t{width:100%;border-collapse:collapse;margin:0 0 16px;font-size:13px}

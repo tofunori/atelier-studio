@@ -1575,6 +1575,45 @@ test("docx: accepter une modification loin d'un tableau coupé en deux feuilles 
   expect(await layout()).toBe(live);
 });
 
+test("docx: la barre de marge d'un paragraphe retouché coupé sur deux feuilles s'arrête à chaque feuille", async ({page, project}) => {
+  // Thierry (2026-11-16) : la barre mauve d'un paragraphe en suivi traversait
+  // le saut de page, par-dessus l'intervalle entre deux feuilles.
+  await open(page, project);
+  const m = await disk(page, project);
+  const long = 'Les glaciers tropicaux perdent leur masse plus vite que la moyenne mondiale, et leur albédo baisse à chaque saison sèche. ';
+  const ops = Array.from({length: 10}, (_, k) => ({op: 'insert_paragraph', after: 'p2', text: `${k + 1}. ${long.repeat(6)}`}));
+  const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: 'Thierry', tracked: false, op: {op: 'batch', ops}}});
+  expect(r.ok()).toBe(true);
+  await expect(page.locator('#paper .d-p span.d-gap').first()).toBeAttached({timeout: 6000});
+  const idx = await page.evaluate(() => Number((document.querySelector('#paper .d-p span.d-gap')!.closest('.d-p') as HTMLElement).dataset.idx));
+  // Christophe retouche ce paragraphe en suivi : il porte la barre.
+  const m2 = await disk(page, project);
+  const r2 = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m2.revision, author: 'Christophe', tracked: true, op: {op: 'insert', paragraph: `p${idx}`, at: 3, with: 'très '}}});
+  expect(r2.ok(), await r2.text()).toBe(true);
+  const para = page.locator(`.d-p[data-idx="${idx}"]`);
+  await expect(para).toHaveClass(/changed/, {timeout: 6000});
+  await expect(para.locator('span.d-gap')).toHaveCount(1);
+  // Trait mauve hors de l'intervalle entre les feuilles, de chaque côté.
+  const bar = await para.evaluate(el => {
+    const g = getComputedStyle(el, '::before');
+    const box = el.getBoundingClientRect();
+    const top = box.top + 4;
+    const sheets = Array.from(document.querySelectorAll('#sheets .sheet')).map(s => s.getBoundingClientRect());
+    const k = sheets.findIndex(s => s.top <= box.top && s.bottom > box.top);
+    // Forme calculée : « couleur position » deux fois par segment.
+    const pts = Array.from(g.backgroundImage.matchAll(/(rgba?\([^)]*\)) ([\d.]+)px/g)).map(x => ({c: x[1], y: top + Number(x[2])}));
+    const stops: {c: string; a: number; b: number}[] = [];
+    for (let i = 0; i + 1 < pts.length; i += 2) stops.push({c: pts[i].c, a: pts[i].y, b: pts[i + 1].y});
+    return {img: g.backgroundImage, stops, gapTop: sheets[k].bottom, gapBottom: sheets[k + 1].top};
+  });
+  expect(bar.img).toContain('linear-gradient');
+  const painted = bar.stops.filter(x => !/rgba\(0, 0, 0, 0\)/.test(x.c));
+  expect(painted.length).toBe(2);
+  for (const seg of painted) expect(seg.b <= bar.gapTop + 0.5 || seg.a >= bar.gapBottom - 0.5).toBe(true);
+  expect(painted[0].b).toBeLessThanOrEqual(bar.gapTop + 0.5);
+  expect(painted[1].a).toBeGreaterThanOrEqual(bar.gapBottom - 0.5);
+});
+
 test('docx: feuilles et numéros de ligne suivent la page quand le panneau change de taille ou revient', async ({page, project}) => {
   await page.setViewportSize({width: 1400, height: 900});
   await open(page, project);
