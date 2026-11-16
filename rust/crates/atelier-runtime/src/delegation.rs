@@ -49,8 +49,34 @@ pub fn est_delegue(thread: &Thread) -> bool {
     thread.extra.get("delegue").is_some_and(Value::is_object)
 }
 
+/// Ligne de contexte qu'un coordinateur met en tête de tâche (« Projet :
+/// /Users/… », un chemin seul) : elle ne dit pas ce que fait le fil, et un
+/// chemin de dossier dans la rangée du fil principal fait désordre.
+fn ligne_de_contexte(ligne: &str) -> bool {
+    let bas = ligne.to_lowercase();
+    let prefixe = bas.split(':').next().unwrap_or("").trim();
+    let etiquette = bas.contains(':')
+        && matches!(
+            prefixe,
+            "projet" | "project" | "dossier" | "folder" | "répertoire" | "repertoire" | "directory"
+                | "working directory" | "cwd" | "racine" | "root" | "chemin" | "path" | "fichier" | "file"
+        );
+    etiquette || ligne.starts_with('/') || ligne.starts_with("~/")
+}
+
+/// Première ligne parlante de la tâche, sans balisage markdown de tête.
+fn nettoyer_ligne(l: &str) -> &str {
+    l.trim().trim_start_matches(['#', '>', '-', '*', ' ']).trim().trim_matches('*').trim()
+}
+
+fn ligne_de_titre(tache: &str) -> &str {
+    let mut lignes = tache.lines().map(nettoyer_ligne).filter(|l| !l.is_empty());
+    let premiere = lignes.clone().next().unwrap_or("");
+    lignes.find(|l| !ligne_de_contexte(l)).unwrap_or(premiere)
+}
+
 fn titre(nom_court: &str, tache: &str) -> String {
-    let ligne = tache.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let ligne = ligne_de_titre(tache);
     let court: String = ligne.chars().take(TITRE_TACHE_MAX).collect();
     let court = if court.chars().count() < ligne.chars().count() {
         format!("{}…", court.trim_end())
@@ -950,6 +976,17 @@ mod tests {
         let long = "x".repeat(80);
         assert!(titre("Bayes", &long).ends_with('…'));
         assert_eq!(titre("Bayes", "   "), "Bayes");
+    }
+
+    #[test]
+    fn le_titre_saute_le_chemin_du_projet() {
+        let tache = "Projet : /Users/t/Documents/Doctorat/Chapitre1\n\n**Relis le chapitre 1 au style de Nature**\nensuite…";
+        assert_eq!(titre("Nature", tache), "Nature · Relis le chapitre 1 au style de Nature");
+        assert_eq!(titre("Code", "/Users/t/proj\n## Version B′ : Phelps seule"), "Code · Version B′ : Phelps seule");
+        // Rien d'autre que du contexte : on garde la première ligne.
+        assert_eq!(titre("Code", "Projet : /a/b"), "Code · Projet : /a/b");
+        // Un deux-points ordinaire n'est pas du contexte.
+        assert_eq!(titre("Code", "Version B′ : Phelps seule"), "Code · Version B′ : Phelps seule");
     }
 
     #[test]

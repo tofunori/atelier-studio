@@ -283,6 +283,9 @@ export type ComputeJobEventBody = {
   message?: string | null;
   job?: ComputeJobSpec;
   ts?: number;
+  /** Carte recopiée d'un fil délégué (spécialiste) chez son parent. */
+  forThreadId?: string;
+  forTitle?: string;
 };
 
 export type AgentEvent = AgentEventBody & { meta?: HarnessEventMeta | ProvisionalEventMeta };
