@@ -50,6 +50,9 @@ import {
   type AgentToolAction,
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
+import { DelegateRow } from "./DelegateRow";
+import { planDelegateRows } from "../../lib/delegateRows";
+import type { LinkedAgentSummary } from "../../lib/threadLinks";
 import { wsSend } from "../../lib/wsBus";
 import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
@@ -123,6 +126,9 @@ export type TimelineList = {
   fmtWorkDur: (ms: number) => string;
   plugins: PluginCatalogEntry[];
   onOpenAgent: (agent: AgentDisplay) => void;
+  /** Conversations liées au fil : ses fils délégués deviennent des rangées. */
+  delegates?: LinkedAgentSummary[];
+  onOpenDelegate?: (threadId: string) => void;
 };
 export type TimelineMsg = {
   editing: { index: number; text: string } | null;
@@ -307,7 +313,25 @@ export function ChatTimeline(p: {
   const {
     renderedEvents, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
     renderToolLine, fmtWorkDur, plugins, onOpenAgent, eventsByThreadId,
+    delegates, onOpenDelegate,
   } = p.list;
+  // Spécialistes et fils de travail confiés par ce fil : une rangée chacun, à
+  // l'envoi comme au retour, sans leur texte (variante B « une seule voix »,
+  // 2026-11-16). Clés stables : la liste des liés est recalculée à chaque
+  // rendu de l'App, le plan ne bouge qu'avec les événements ou les ids.
+  const delegateKey = (delegates ?? []).filter((d) => d.delegated)
+    .map((d) => `${d.id}:${d.state ?? ""}:${d.since ?? ""}:${d.specialiste?.nomCourt ?? ""}:${d.title}`).join("|");
+  const delegateById = useMemo(
+    () => new Map((delegates ?? []).filter((d) => d.delegated).map((d) => [d.id, d])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [delegateKey],
+  );
+  const delegateIdsKey = [...delegateById.keys()].join("|");
+  const delegatePlan = useMemo(
+    () => planDelegateRows(events, new Set(delegateById.keys())),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events, delegateIdsKey],
+  );
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   // Vue de la transcription (sélecteur du header, façon Claude Code desktop) :
   // elle remplace l'ancien booléen thinkingCollapsed. « normal » replie la
@@ -431,6 +455,8 @@ export function ChatTimeline(p: {
       if (item.type === "active-turn-header") continue;
       // Une étape vivante porte déjà le statut : pas de seconde ligne vivante.
       if (item.type === "active-turn-tail" && activeStepKey != null) continue;
+      // Rapport ou remise d'un fil délégué : déjà porté par sa rangée.
+      if (item.type === "event" && delegatePlan.get(item.index) === null) continue;
       rows.push({ type: "rendered", key: timelineRowKey(item), item });
     }
     if (workingSince != null && !latestTurnSettled && !activeTail && activeStepKey == null) {
@@ -462,7 +488,7 @@ export function ChatTimeline(p: {
       stable.filter((r) => r.type === "rendered").map((r) => [r.key, r]),
     );
     return stable;
-  }, [events.length, renderedEvents, threadId, workingSince, liveThought, p.empty.home, activeStepKey, activeTail, latestTurnSettled]);
+  }, [events.length, renderedEvents, threadId, workingSince, liveThought, p.empty.home, activeStepKey, activeTail, latestTurnSettled, delegatePlan]);
   // Index de la dernière ligne de travail rendue : c'est elle qui tique tant
   // que le tour n'est pas fini.
   const derniereLigneTravail = React.useMemo(() => {
@@ -504,7 +530,9 @@ export function ChatTimeline(p: {
     activeMessageEnd,
     activeStepKey,
     activeStatusLabel: activeStatus?.label ?? null,
-  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviews, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label]);
+    delegateKey,
+    delegatePlan,
+  }), [editing, openFolds, toolDetails, thinkingCollapsed, openToolGroups, pins, reviews, workingSince, activeMessageStart, activeMessageEnd, derniereLigneTravail, lastThinkingIndex, activeStepKey, activeStatus?.label, delegateKey, delegatePlan]);
   // Marge annotée : dérivée des événements déjà projetés. L'ancienne référence
   // est conservée quand la marge ne change pas (les deltas de stream ne créent
   // jamais d'entrée) — même discipline d'identité que listExtraData.
@@ -1020,6 +1048,26 @@ export function ChatTimeline(p: {
           }
           const e = item.event;
           const i = item.index;
+          const spot = e.kind === "agent_message" ? delegatePlan.get(i) : undefined;
+          if (spot === null) return null;
+          const delegate = spot ? delegateById.get(spot.peerId) : undefined;
+          if (spot && delegate) {
+            const name = delegate.specialiste ? `@${delegate.specialiste.nomCourt}` : delegate.title;
+            // Un fil délégué s'appelle « NomCourt · tâche » : la rangée garde la tâche.
+            const task = delegate.specialiste ? delegate.title.split(" · ").slice(1).join(" · ") : "";
+            const state = spot.latest ? (delegate.state ?? "done") : "done";
+            return (
+              <DelegateRow
+                key={i}
+                name={name}
+                task={task}
+                state={state}
+                since={delegate.since ?? spot.startedAt ?? null}
+                durationMs={spot.startedAt != null && spot.endedAt != null ? spot.endedAt - spot.startedAt : null}
+                onOpen={onOpenDelegate ? () => onOpenDelegate(delegate.id) : undefined}
+              />
+            );
+          }
           if (e.kind === "agent_message")
             return (
               <AgentMessageCard

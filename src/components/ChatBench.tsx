@@ -3,6 +3,7 @@
 // parcours normal (chunk lazy). Rend le VRAI composant Chat avec des fixtures
 // figées : aucun sidecar requis.
 // États : rich (défaut) · running · stream · activityparity · slottransition · thinking · agents · error · contexts · word · proposer · markdown · typeset · cli · annotes · actionsclaude · actionscodex · claudeagents · finagents · questions · reponses · approbation · approuvees · outilsrecus · calmes · arretnet · revision · epure · regarde · relecteur (-encours, -rien).
+import type { LinkedAgentSummary } from "../lib/threadLinks";
 import { setReviewSession } from "../lib/reviewSession";
 import { useEffect, useRef, useState } from "react";
 import "../styles/tokens.css";
@@ -945,6 +946,44 @@ const BENCH_LINKED_SPECIALISTS = [
   { id: "spec-nat", provider: "Claude", title: "Figure supplémentaire (Nature Geoscience)", paused: false, direction: "child" as const,
     specialiste: { nom: "Nature Figures", nomCourt: "Nature" }, running: false, updatedAt: new Date(ts(1080)).toISOString() },
 ];
+// #chatbench-specencours / #chatbench-specfini / #chatbench-specavant : le
+// coordinateur envoie @Code, puis @Code rend son rapport (variante B « une
+// seule voix », 2026-11-16). « specavant » rejoue l'ancien journal, où le
+// texte du spécialiste était recopié dans le fil principal.
+const SPEC_CODE = { id: "spec-code", provider: "Claude", title: "Code · Pondérations du panel", paused: false,
+  direction: "child" as const, specialiste: { nom: "Code", nomCourt: "Code" }, delegated: true };
+const SPEC_START: AgentEvent[] = [
+  { kind: "user", text: "Vérifie la phrase sur la fin de saison et les pondérations du panel.", ts: ts(200) } as AgentEvent,
+  { kind: "text", text: "Je demande à @Code, en lecture seule, de vérifier quelles pondérations le panel du modèle utilise vraiment (albédo, dépôt, climat, manteau).", ts: ts(196) } as AgentEvent,
+  { kind: "agent_message", messageId: "spec-m1", direction: "sent", peerThreadId: "spec-code", peerProvider: "claude",
+    peerTitle: SPEC_CODE.title, messageKind: "message", text: "Task delegated to you as the specialist Code", status: "delivered", ts: ts(195) } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 30000, output: 200, cost: null, turns: 1 }, ts: ts(194) } as AgentEvent,
+];
+const SPEC_REPORT = "VERDICT : la phrase est vraie pour l'essentiel, avec une nuance sur « closed the melt season ». Le pic de fumée (23–26 août) tombe exactement au début d'une période froide et neigeuse. Celle-ci n'a toutefois pas été continue : un court redoux suit, du 5 au 7 septembre.\n\nCHIFFRES (02-03, moyenne simple des 9 373 pixels retenus en 2018) :\n1. Neige et température.\n- 15–23 août : neige 0,5 mm au total, température moyenne 9,2 °C.\n- À partir du 24 août : 4,6 mm de neige ce jour-là, température 2,9 °C.\n\nCONTRÔLES :\n(a) Passage de contrôle avant changement : 47 fichiers identiques à l'octet.\n\nNON REFAIT :\n- La fenêtre du 15 septembre est relancée.";
+const SPEC_END: AgentEvent[] = [
+  { kind: "agent_message", messageId: "spec-m2", direction: "received", peerThreadId: "spec-code", peerProvider: "claude",
+    peerTitle: SPEC_CODE.title, messageKind: "report", text: SPEC_REPORT, status: "delivered", ts: ts(11) } as AgentEvent,
+  { kind: "agent_message", direction: "received", peerThreadId: "spec-code", peerProvider: "claude",
+    text: `[Message d'un agent Atelier lié]\nSource : Claude — ${SPEC_CODE.title}\nRelation : enfant\nMessage :\n${SPEC_REPORT}\n[Fin du message lié]`, status: "delivering", ts: ts(10) } as unknown as AgentEvent,
+  { kind: "text", text: "@Code confirme la phrase pour l'essentiel : le pic de fumée (23–26 août) tombe au début d'une période froide et neigeuse, mais un court redoux suit du 5 au 7 septembre. Je propose de remplacer « closed the melt season » par « largely ended the melt season ». Le panel pondère bien par l'aire de glace, comme le texte l'annonce.", ts: ts(4) } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 31000, output: 400, cost: null, turns: 1 }, ts: ts(3) } as AgentEvent,
+];
+// Ancien journal : la tâche envoyée était écrasée par la recopie du texte du
+// spécialiste (même messageId), puis venaient le rapport et la remise.
+const SPEC_AVANT: AgentEvent[] = [
+  ...SPEC_START.slice(0, 2),
+  { ...SPEC_START[2], direction: "received", messageKind: "report",
+    text: "Je lis d'abord le contexte du parent pour cerner ce qui m'est demandé, en particulier le point [3] sur les pondérations du panel.\nCe script n'est pas dans le dépôt : il n'existe que sur le NAS. Je lance un job en lecture seule pour l'afficher." } as AgentEvent,
+  SPEC_START[3],
+  SPEC_END[0],
+  { ...(SPEC_END[1] as object), peerThreadId: undefined, peerProvider: undefined } as unknown as AgentEvent,
+  ...SPEC_END.slice(2),
+];
+const SPEC_LINKED: Record<string, LinkedAgentSummary[]> = {
+  specencours: [{ ...SPEC_CODE, running: true, since: ts(72), state: "running" }],
+  specfini: [{ ...SPEC_CODE, running: false, state: "done" }],
+  specavant: [{ ...SPEC_CODE, running: false, state: "done" }],
+};
 const AGENTS_CLAUDE: AgentEvent[] = [
   ...AGENTS_CLAUDE_START,
   claudeAgent("fig", "Explore", "Repère les figures du chapitre 2", "completed", 46, "Six figures dans figures/ch2/."),
@@ -1148,6 +1187,9 @@ const STATES: Record<string, BenchState> = {
   proposal: { events: PROPOSAL, workingSince: null, attachments: [], usage: null },
   revision: { events: REVISION, workingSince: null, attachments: [], usage: null },
   epure: { events: EPURE, workingSince: null, attachments: [], usage: null },
+  specencours: { events: SPEC_START, workingSince: null, attachments: [], usage: null },
+  specfini: { events: [...SPEC_START, ...SPEC_END], workingSince: null, attachments: [], usage: null },
+  specavant: { events: SPEC_AVANT, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },
@@ -1305,7 +1347,7 @@ export function ChatBench() {
         } : noop}
         onGoal={noop}
         eventsByThreadId={key === "claudeagents" || key === "finagents" ? AGENT_TRANSCRIPTS : undefined}
-        linkedAgents={key === "claudeagents" || key === "finagents" ? BENCH_LINKED_SPECIALISTS : undefined}
+        linkedAgents={SPEC_LINKED[key] ?? (key === "claudeagents" || key === "finagents" ? BENCH_LINKED_SPECIALISTS : undefined)}
         onOpenLinkedAgent={noop}
       />
     </div>

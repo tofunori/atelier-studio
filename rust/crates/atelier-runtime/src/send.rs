@@ -1783,7 +1783,17 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let origin_agent = msg.get("origin").and_then(|v| v.as_str()) == Some("agent_link");
     // Linked-agent deliveries must not create a second user bubble.
     let mut user_event = if origin_agent {
-        json!({"kind":"agent_message","text": prompt, "status":"delivering", "direction":"received"})
+        // L'expéditeur voyage avec la remise : le fil qui la reçoit sait de
+        // qui elle vient (un parent range ainsi le rapport de son spécialiste
+        // dans la rangée de celui-ci au lieu d'une bulle « Agent »).
+        let from = msg.get("agentFromThreadId").and_then(Value::as_str).unwrap_or("");
+        let from_provider = state.threads().lock().await.get(from).map(|t| t.provider.clone()).unwrap_or_default();
+        let mut ev = json!({"kind":"agent_message","text": prompt, "status":"delivering", "direction":"received"});
+        if !from.is_empty() {
+            ev["peerThreadId"] = json!(from);
+            ev["peerProvider"] = json!(from_provider);
+        }
+        ev
     } else {
         normalize_display_event(msg)
     };
@@ -2133,7 +2143,19 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
             .get("agentToThreadId")
             .and_then(Value::as_str)
             .unwrap_or("");
-        (to == thread_id && !from.is_empty()).then(|| {
+        // Un fil délégué (spécialiste, fil de travail) ne recopie plus son
+        // texte chez son parent au fil de l'eau : il rend compte par
+        // report_to_parent, qui réveille le coordinateur, et c'est lui qui
+        // parle dans le fil principal (variante B « une seule voix »,
+        // 2026-11-16). Son travail se lit dans son propre fil.
+        let delegue_du_parent = {
+            let store = state.threads().lock().await;
+            store.get(&thread_id).is_some_and(|t| {
+                crate::delegation::est_delegue(t)
+                    && t.agent_link.as_ref().is_some_and(|l| l.parent_thread_id == from)
+            })
+        };
+        (to == thread_id && !from.is_empty() && !delegue_du_parent).then(|| {
             (
                 from.to_string(),
                 thread_id.clone(),
@@ -3228,6 +3250,52 @@ mod tests {
         let msg: Value = serde_json::from_str(&out[0]).unwrap();
         assert_eq!(msg["type"], "threadIdle");
         assert_eq!(msg["threadId"], "t-fini");
+    }
+
+    /// Variante B « une seule voix » (2026-11-16) : le texte d'un fil
+    /// délégué n'est plus recopié dans son parent ; un fil lié ordinaire
+    /// (consultation @Codex) garde sa réponse recopiée. La remise porte
+    /// l'expéditeur dans les deux cas.
+    #[tokio::test]
+    async fn fil_delegue_ne_recopie_plus_son_texte_chez_le_parent() {
+        let dir = tempdir().unwrap();
+        let state = AppState::new(
+            AppPaths::from_app_dir(dir.path().to_path_buf()),
+            None,
+            "t".into(),
+            "0.1.0".into(),
+            "h".into(),
+            "/tmp".into(),
+        );
+        let root = dir.path().to_string_lossy().to_string();
+        let lien = |parent: &str| json!({"parentThreadId": parent, "role": "specialist", "createdAt": "2026-11-16T00:00:00Z", "autoDeliveryLimit": 8});
+        {
+            let mut store = state.threads().lock().await;
+            store.upsert(json!({"id": "p", "projectRoot": root, "provider": "fake", "title": "P", "status": "idle"}), false).unwrap();
+            store.upsert(json!({"id": "c", "projectRoot": root, "provider": "fake", "title": "Code · Pondérations", "status": "idle",
+                "agentLink": lien("p"), "delegue": {"specialisteId": "s1", "par": "agent"}}), false).unwrap();
+            store.upsert(json!({"id": "l", "projectRoot": root, "provider": "fake", "title": "Consultation", "status": "idle",
+                "agentLink": lien("p")}), false).unwrap();
+        }
+        for (enfant, mid) in [("c", "m1"), ("l", "m2")] {
+            handle_send(&state, &json!({
+                "type": "send", "threadId": enfant, "provider": "fake", "prompt": "Vérifie",
+                "projectRoot": root, "origin": "agent_link", "clientMessageId": format!("agent:{mid}"),
+                "agentFromThreadId": "p", "agentToThreadId": enfant,
+            })).await;
+            for _ in 0..100 {
+                if !state.harness().is_running(enfant).await { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            let remise = state.journal().materialize(enfant).into_iter()
+                .find(|e| e["kind"] == "agent_message").expect("remise journalisée");
+            assert_eq!(remise["peerThreadId"], "p");
+            assert_eq!(remise["peerProvider"], "fake");
+        }
+        let parent = state.journal().materialize("p");
+        let recopies: Vec<&Value> = parent.iter().filter(|e| e["kind"] == "agent_message").collect();
+        assert!(recopies.iter().all(|e| e["peerThreadId"] != "c"), "texte du spécialiste recopié : {recopies:?}");
+        assert!(recopies.iter().any(|e| e["peerThreadId"] == "l"), "la consultation doit rester recopiée : {parent:?}");
     }
 
     #[tokio::test]

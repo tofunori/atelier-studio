@@ -1202,6 +1202,7 @@ export default function Chat(p: {
         list={{
           renderedEvents, eventsByThreadId: p.eventsByThreadId, toolDetails, openFolds, setOpenFolds, openToolGroups, setOpenToolGroups,
           renderToolLine, fmtWorkDur, plugins: p.plugins ?? [], onOpenAgent: openAgent,
+          delegates: p.linkedAgents, onOpenDelegate: p.onOpenLinkedAgent,
         }}
         msg={{
           editing, setEditing, pins: p.pins, onTogglePin: p.onTogglePin, onRevert: p.onRevert,
