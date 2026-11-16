@@ -437,7 +437,8 @@
   #annPane.tex-notes .tp-filter{margin:4px 8px 8px}
   /* Copies de TP : marge de commentaires du panneau Word (cartes .cc) */
   #annPane{--pc-card:color-mix(in srgb,var(--txt) 5%,var(--card));--pc-lift:0 1px 2px rgba(0,0,0,.16),0 2px 8px rgba(0,0,0,.10);
-    --pc-lift-on:0 2px 6px rgba(0,0,0,.20),0 8px 20px rgba(0,0,0,.16);--pc-press:color-mix(in srgb,var(--txt) 10%,transparent)}
+    --pc-lift-on:0 2px 6px rgba(0,0,0,.20),0 8px 20px rgba(0,0,0,.16);--pc-press:color-mix(in srgb,var(--txt) 10%,transparent);
+    --pc-pin-paper:255,255,255}
   #annPane:not(.pdf-comments-on) .pc-foot{display:none}
   #annPane .pc-list{display:flex;flex-direction:column;gap:8px;padding:8px 12px 12px}
   #annPane .pc-list .tp-empty{font-size:12px;line-height:1.5;color:var(--text-muted,var(--muted));padding:4px}
@@ -495,7 +496,16 @@
   #annPane .pc-note svg{flex:none;margin-top:2px}
   #annPane .pc-open{height:20px;padding:0 6px;border:0;border-radius:6px;background:transparent;color:var(--text-secondary,var(--txt));font:500 11px/20px var(--ui-font);cursor:pointer}
   #annPane .pc-open:hover{background:var(--surface-hover,var(--card2));color:var(--txt)}
-  @media (prefers-reduced-motion: reduce){.pc-list .cc,.pc-list .btn,.pc-list .mini,.pc-list .vf,.pc-list .tx.mine{transition:none}}
+  /* Projecteur (2026-11-16) : le commentaire ouvert reste plein, les autres
+     cartes reculent (le survol en ramène une) ; sa pastille se remplit, ici
+     et sur la copie (règle par id posée par le script, #pcSpot). */
+  .pc-list .cc{transition:box-shadow 140ms ease-out,opacity 140ms ease-out}
+  .pc-list.spot .cc:not(.on){opacity:.5}
+  .pc-list.spot .cc:not(.on):hover,.pc-list.spot .cc:not(.on):focus-visible{opacity:.85}
+  .pc-list .cc.on .pc-n{background:rgb(var(--note-ink,144,150,157));box-shadow:none;color:rgb(var(--pc-pin-paper))}
+  .pg :is(.pdfhl,.pdfcomment-line,.pdfarea,.pdfnote){transition:opacity 140ms ease-out}
+  .pg .atelier-note-pin{transition:transform 120ms ease-out,box-shadow 120ms ease-out,opacity 140ms ease-out,background-color 140ms ease-out,color 140ms ease-out}
+  @media (prefers-reduced-motion: reduce){.pc-list .cc,.pc-list .btn,.pc-list .mini,.pc-list .vf,.pc-list .tx.mine,.pg :is(.pdfhl,.pdfcomment-line,.pdfarea,.pdfnote,.atelier-note-pin){transition:none}}
   /* Onglets Annotations | Plan : le titre du panneau devient le sélecteur */
   #annPane .hd .tabs{display:flex;gap:12px;min-width:0}
   #annPane .hd .tab{width:auto;height:auto;margin:0;padding:0;background:none;color:var(--muted);
@@ -6025,6 +6035,33 @@ if (window.self !== window.top) {
     return '<div class="cc' + (on ? " on" : "") + '" data-id="' + esc(id) + '"' + (on ? "" : ' role="button" tabindex="0"') + ">" + h + "</div>";
   }
   const find = (id               ) => PDF_ANNOTS.find(a => String(a.id) === id);
+  // Projecteur (2026-11-16) : un commentaire ouvert reste plein, dans la
+  // colonne comme sur la copie ; les autres cartes, passages et pastilles
+  // reculent. Une règle par id : elle survit aux pages redessinées.
+  const spotCss = document.createElement("style");
+  spotCss.id = "pcSpot";
+  document.head.appendChild(spotCss);
+  let spotRule = "";
+  function spot(){
+    const pane = document.getElementById("annPane");
+    const shown = pane?.style.display === "flex" && pane.classList.contains("pdf-comments-on")
+      && !pane.classList.contains("toc-on") && !pane.classList.contains("codes-on");
+    const id = shown && active && find(active) ? active : "";
+    pane?.querySelector(".pc-list")?.classList.toggle("spot", Boolean(id));
+    const q = '"' + id.replace(/["\\]/g, "\\$&") + '"';
+    const rule = id ? ".pg :is(.pdfhl,.pdfcomment-line,.atelier-note-pin,.pdfarea,.pdfnote):not([data-aid=" + q + "]){opacity:.4}"
+      + ".pg .atelier-note-pin:not([data-aid=" + q + "]):hover{opacity:1}"
+      + ".pg .atelier-note-pin[data-aid=" + q + "]{background:rgb(var(--note-ink,var(--pin-text)));color:rgb(var(--pin-paper));"
+      + "box-shadow:0 0 0 3px rgba(var(--note-veil,var(--pin-text)),.45),0 1px 4px rgba(0,0,0,.24)}" : "";
+    if (rule !== spotRule) spotCss.textContent = spotRule = rule;
+  }
+  /** Échap, ou un clic dans le vide de la copie ou de la colonne : plus de commentaire ouvert. */
+  function release(){
+    if (!active || editing) return;
+    active = null;
+    annPane.refresh();
+    spot();
+  }
   function redraw(){
     document.querySelectorAll             (".pg").forEach(pg => drawAnnots(pg, +pg.dataset.page));
     if (window.__readingMode?.isOn()) drawReadingAnnots();
@@ -6176,6 +6213,7 @@ if (window.self !== window.top) {
         if (active && !find(active)) active = null;
         list.innerHTML = all.map(a => card(a, numbers.get(String(a.id)))).join("")
           || '<div class="tp-empty">Sélectionne un passage, puis Commentaire. Tes commentaires et ceux de Claude, signés de ton nom, s’ajoutent ici.</div>';
+        spot();
         if (!wired) {
           wired = true;
           list.addEventListener("click", onClick);
@@ -6185,6 +6223,23 @@ if (window.self !== window.top) {
           foot.addEventListener("click", onClick);
           pane.appendChild(foot);
           paintFoot();
+          // colonne fermée, ou onglet Codes / Plan : la copie revient entière
+          new MutationObserver(spot).observe(pane, {attributes: true, attributeFilter: ["style", "class"]});
+          list.addEventListener("click", e => { if (e.target === list) release(); });
+          document.addEventListener("keydown", e => {
+            if (e.key !== "Escape" || e.defaultPrevented || !active) return;
+            if ((e.target           ).closest?.("textarea,input,[contenteditable],.menu,#annotPop,#selPill")) return;
+            // un appui ferme une chose : la fenêtre d'annotation ou la pilule d'abord
+            const open = (sel        ) => { const el = document.getElementById(sel); return Boolean(el && el.style.display && el.style.display !== "none"); };
+            if (open("annotPop") || open("selPill")) return;
+            release();
+          });
+          document.addEventListener("click", e => {
+            const t = e.target           ;
+            if (!active || !t.closest?.(".pg") || t.closest("[data-aid], button, a, input, textarea, .pdftext")) return;
+            if (String(window.getSelection() || "").trim()) return;
+            release();
+          });
         }
       },
       open(a){

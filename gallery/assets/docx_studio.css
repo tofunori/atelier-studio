@@ -233,6 +233,8 @@ table.d-t .d-p.changed::before{display:none}
 .cmt{background:var(--doc-note);box-shadow:0 1px 0 color-mix(in srgb,var(--doc-note-line) 60%,transparent);cursor:pointer;transition:background-color 140ms ease-out,box-shadow 140ms ease-out}
 .cmt.on{background:var(--doc-note-on)}
 .cmt.done{background:none;box-shadow:none;cursor:text}
+/* Projecteur (2026-11-16) : une fiche ouverte, les autres passages pâlissent */
+body.c-spot:not(.no-margin) .cmt:not(.on):not(.done){background:color-mix(in srgb,var(--doc-note) 45%,transparent);box-shadow:none}
 ::highlight(docx-find){background-color:var(--doc-find)}
 ::highlight(docx-findcur){background-color:var(--doc-find-cur)}
 ::highlight(docx-draft){background-color:var(--doc-note-on)}
@@ -338,6 +340,9 @@ body.lane-over #cards .cc{box-shadow:var(--elev-soft)}
 body.lane-over #cards .it.on .cc{box-shadow:var(--elev)}
 body.lane-over #leader{display:none}
 .it{position:absolute;left:0;right:0;top:0;will-change:transform;transition:transform 140ms ease-out,opacity 140ms ease-out}
+/* Projecteur : les autres fiches reculent, le survol en ramène une */
+body.c-spot #cards .it:not(.on){opacity:.5}
+body.c-spot #cards .it:not(.on):hover,body.c-spot #cards .it:not(.on):focus-within{opacity:.85}
 .cc{position:relative;padding:12px;border-radius:10px;background:var(--card-up);box-shadow:var(--lift-up);font-size:12px;line-height:1.5;cursor:pointer;transition:box-shadow 140ms ease-out}
 .cc:hover,.it.on .cc{box-shadow:var(--lift-on)}
 /* Rappel du passage commenté, pastille à la couleur de l'auteur. */

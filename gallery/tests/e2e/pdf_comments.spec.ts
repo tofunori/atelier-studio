@@ -104,3 +104,56 @@ test('copie de TP : commentaire du fichier repris en carte, modifié, copie corr
     expect((await store()).length).toBe(0);
   } finally { await stop(server); await removeTempRoot(root); }
 });
+
+// Projecteur (Thierry 2026-11-16) : le commentaire ouvert reste plein, dans la
+// colonne et sur la copie ; les autres cartes, passages et pastilles reculent ;
+// Échap rend tout.
+test('copie de TP : le commentaire ouvert ressort, les autres reculent, Échap rend tout', async ({page}) => {
+  test.setTimeout(60_000);
+  const root = mkdtempSync(path.join(tmpdir(), 'atelier-pdf-spot-'));
+  let server;
+  try {
+    writeFileSync(path.join(root, 'tp.pdf'), pdfWithHiddenComment());
+    mkdirSync(path.join(root, '.fig_thumbs'));
+    writeFileSync(path.join(root, '.fig_thumbs', 'docx_prefs.json'), JSON.stringify({author: 'Thierry Laurent'}));
+    const port = await freePort();
+    server = spawnGalleryServer({root, port, watch: false});
+    await expect.poll(async () => fetch(`http://127.0.0.1:${port}/ping`).then(r => r.ok).catch(() => false)).toBe(true);
+    await page.goto(`http://127.0.0.1:${port}/.fig_thumbs/pdf_viewer.html?file=tp.pdf`);
+    const cards = page.locator('#annPane .pc-list .cc');
+    await expect(cards).toHaveCount(1, {timeout: 15_000});
+    // un second commentaire, plus bas sur la page
+    await page.evaluate(() => {
+      PDF_ANNOTS.push({id: '9-spot', page: 1, kind: 'comment', rects: [[0.12, 0.5, 0.3, 0.03]], note: 'Deuxième remarque',
+        color: 'rgba(120,170,255,.40)', at: Date.now()});
+    });
+    await page.evaluate('redrawAllAnnots(); annPane.refresh();');
+    await expect(cards).toHaveCount(2);
+    const list = page.locator('#annPane .pc-list');
+    await expect(list).not.toHaveClass(/\bspot\b/);
+    const opacity = (sel: string) => page.locator(sel).first().evaluate(el => getComputedStyle(el).opacity);
+
+    await cards.nth(1).click();
+    await expect(page.locator('#annPane .cc.on .tx')).toContainText('Deuxième');
+    await expect(list).toHaveClass(/\bspot\b/);
+    await expect.poll(() => opacity('#annPane .pc-list .cc:not(.on)')).toBe('0.5');
+    await expect.poll(() => opacity('.pg .atelier-note-pin[data-aid="9-spot"]')).toBe('1');
+    await expect.poll(() => opacity('.pg .atelier-note-pin:not([data-aid="9-spot"])')).toBe('0.4');
+    await expect.poll(() => opacity('.pg .pdfhl')).toBe('0.4');
+    // pastille pleine : plus de papier blanc derrière le numéro
+    expect(await page.locator('.pg .atelier-note-pin[data-aid="9-spot"]').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe('rgb(255, 255, 255)');
+
+    // Échap : plus rien d'ouvert, tout revient
+    await page.locator('body').press('Escape');
+    await expect(page.locator('#annPane .cc.on')).toHaveCount(0);
+    await expect(list).not.toHaveClass(/\bspot\b/);
+    await expect.poll(() => opacity('.pg .pdfhl')).toBe('1');
+    await expect.poll(() => opacity('#annPane .pc-list .cc')).toBe('1');
+
+    // colonne fermée : la copie revient entière même avec un commentaire ouvert
+    await cards.nth(0).click();
+    await expect.poll(() => opacity('.pg .pdfcomment-line')).toBe('0.4');
+    await page.locator('#annPane .pclose').click();
+    await expect.poll(() => opacity('.pg .pdfcomment-line')).toBe('1');
+  } finally { await stop(server); await removeTempRoot(root); }
+});
