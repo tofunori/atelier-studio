@@ -1507,6 +1507,74 @@ test('docx: le texte se coupe en pages comme dans Word, numéros de ligne repris
   expect(await layout()).toBe(typed);
 });
 
+// Numéros de ligne et figures hors de toute feuille (texte qui déborde dans
+// le pied de page, figure à cheval sur deux feuilles).
+const overflowing = (page: Page) => page.evaluate(() => {
+  const sheets = Array.from(document.querySelectorAll('#sheets .sheet')).map(e => e.getBoundingClientRect());
+  const inside = (r: DOMRect) => sheets.some(s => r.top >= s.top - 1 && r.bottom <= s.bottom + 1);
+  const bad: string[] = [];
+  for (const e of Array.from(document.querySelectorAll('#lnums span'))) if (!inside(e.getBoundingClientRect())) bad.push(`ligne ${e.textContent}`);
+  for (const e of Array.from(document.querySelectorAll('#paper .chip.fig img'))) if (!inside(e.getBoundingClientRect())) bad.push('figure');
+  return bad;
+});
+
+test("docx: accepter une modification loin d'un tableau coupé en deux feuilles ne fait déborder ni le texte ni les figures", async ({page, project}) => {
+  // Manuscrit de Thierry (2026-11-16) : après « accepter », au fil des
+  // pages 30-31, le texte passait sous le pied de page et une figure
+  // chevauchait l'intervalle entre deux feuilles. La rangée d'intervalle du
+  // tableau, retirée par la mise en page complète, était mesurée hors de la
+  // page : sa « position » valait le défilement, et la coupe sautait d'un
+  // coup à la feuille affichée.
+  await page.setViewportSize({width: 1400, height: 900});
+  const m0 = await settled(page, project);
+  const table = m0.paragraphs.findIndex(p => (p as {cell?: unknown}).cell);
+  const fig = figAt(m0);
+  expect(table).toBeGreaterThan(0);
+  expect(fig).toBeGreaterThan(table);
+  const long = 'Les glaciers tropicaux perdent leur masse plus vite que la moyenne mondiale, et leur albédo baisse à chaque saison sèche. ';
+  const post = async (op: object, who = 'Thierry', tracked = false) => {
+    const m = await disk(page, project);
+    const r = await page.request.post(`${project.url}/docx/op`, {data: {path: project.doc, revision: m.revision, author: who, tracked, op}});
+    expect(r.ok(), await r.text()).toBe(true);
+  };
+  // Beaucoup de texte après le tableau, et la figure (avec sa légende) déplacée loin, page 8 environ.
+  await post({op: 'batch', ops: Array.from({length: 24}, (_, k) => ({op: 'insert_paragraph', after: `p${fig + 1}`, text: `${24 - k}. ${long.repeat(4)}`}))});
+  await post({op: 'move_figure', paragraph: `p${fig}`, to: `p${fig + 22}`, after: true});
+  expect(figAt(await disk(page, project))).toBeGreaterThan(fig + 18);
+  // Des lignes avant le tableau jusqu'à ce qu'une de ses rangées passe à la feuille suivante.
+  await open(page, project);
+  for (let k = 0; k < 40 && !(await page.locator('#paper tr.d-gap').count()); k++) {
+    await post({op: 'insert_paragraph', after: 'p2', text: `Ligne ${k + 1}.`});
+    await page.waitForTimeout(150);
+  }
+  await expect(page.locator('#paper tr.d-gap')).toHaveCount(1);
+  // Christophe propose un ajout juste avant la figure.
+  const m1 = await disk(page, project);
+  const before = figAt(m1) - 1;
+  await post({op: 'insert', paragraph: `p${before}`, at: 0, with: long.repeat(2)}, 'Christophe', true);
+  await open(page, project);
+  await expect(page.locator('#paper tr.d-gap')).toHaveCount(1);
+  expect(await overflowing(page)).toEqual([]);
+  // Thierry va à la modification (loin du tableau) et l'accepte.
+  await page.locator('#btnAccept').click();
+  await expect.poll(() => page.evaluate(() => document.getElementById('scroll')!.scrollTop)).toBeGreaterThan(3000);
+  if ((await disk(page, project)).changes.length) await page.locator('#btnAccept').click();
+  await expect.poll(async () => (await disk(page, project)).changes.length).toBe(0);
+  await page.waitForTimeout(400);
+  expect(await overflowing(page)).toEqual([]);
+  // Changer de vue refait toute la mise en page, défilée au même endroit.
+  await page.locator('#ddView').click();
+  await page.locator('.menu.show .mi', {hasText: 'Lecture'}).click();
+  await page.waitForTimeout(400);
+  expect(await overflowing(page)).toEqual([]);
+  const layout = () => page.evaluate(() => Array.from(document.querySelectorAll('#lnums span')).map(e => `${e.textContent}@${Math.round((e as HTMLElement).offsetTop)}`).join(' '));
+  const live = await layout();
+  await page.reload();
+  await expect(page.locator('#sheets .sheet').nth(4)).toBeAttached();
+  await page.waitForTimeout(400);
+  expect(await layout()).toBe(live);
+});
+
 test('docx: feuilles et numéros de ligne suivent la page quand le panneau change de taille ou revient', async ({page, project}) => {
   await page.setViewportSize({width: 1400, height: 900});
   await open(page, project);

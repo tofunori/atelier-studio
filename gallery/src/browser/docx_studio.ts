@@ -1092,7 +1092,8 @@
     const blocks: HTMLElement[] = [];
     for (const c of Array.from(paper.children) as HTMLElement[]) {
       if (c.classList.contains("d-p")) blocks.push(c);
-      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c as HTMLTableElement).rows) as HTMLElement[]));
+      // Les rangées d'intervalle d'une coupe précédente ne sont pas des blocs.
+      else if (c.tagName === "TABLE") blocks.push(...(Array.from((c as HTMLTableElement).rows) as HTMLElement[]).filter((r) => !r.classList.contains("d-gap")));
       else if ((c.classList.contains("d-notes") || c.classList.contains("d-zone")) && !c.classList.contains("pinned")) blocks.push(...(Array.from(c.querySelectorAll(".d-p")) as HTMLElement[]));
     }
     return blocks;
@@ -1251,11 +1252,19 @@
     let page = page0;
     let forceNext = false;
     let done = blocks.length;
+    // Dernier bloc déjà visité avant un retour en arrière (chaîne « garder
+    // avec le suivant ») : ses coupures sont retirées, la coupe ne peut pas
+    // s'arrêter avant de l'avoir recoupé.
+    let replay = -1;
     for (let b = start; b < blocks.length; b++) {
       const el = blocks[b];
+      // Un bloc sorti de la page en cours de route n'a plus de position :
+      // mesuré, il vaudrait le défilement, et la coupe sauterait d'un coup
+      // à la feuille affichée (texte qui déborde des feuilles, 2026-11-16).
+      if (!el.isConnected) continue;
       if (partial) {
         // Passé la retouche, un bloc qui n'a pas bougé clôt la coupe.
-        if (b > until && !forceNext) {
+        if (b > until && b > replay && !forceNext) {
           const was = blockTops.get(el);
           if (was !== undefined && Math.abs(topOfEl(el) - was) < 0.5) { done = b; break; }
         }
@@ -1324,7 +1333,7 @@
             const before = first.classList.contains("d-p") ? parseFloat(getComputedStyle(first).paddingTop) || 0 : 0;
             gapBefore(first, topOf(page + 1) - before);
             page++;
-            if (k !== b) { b = k - 1; restart = true; break; }
+            if (k !== b) { replay = Math.max(replay, b); b = k - 1; restart = true; break; }
             lines = linesOf(el, O());
             i = 0;
             continue;
