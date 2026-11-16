@@ -512,23 +512,29 @@ body.c-spot #cards .it:not(.on):hover,body.c-spot #cards .it:not(.on):focus-with
 .pop label{display:block;font-size:12px;color:var(--text-muted)}
 .pop input{width:100%;height:28px;margin-top:4px;padding:0 8px;border:0;border-radius:6px;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px var(--ui-font)}
 /* Équation en LaTeX : titre, source, aperçu, deux boutons. */
-.pop.eqpop{display:flex;flex-direction:column;gap:12px;width:460px;padding:16px;font:400 12px/1.5 var(--ui-font);color:var(--text-primary)}
-.eq-hd{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text-muted)}
-.eq-hd .tag{margin-left:auto;padding:0 8px;line-height:20px;border-radius:999px;background:var(--bg-ctl,var(--surface-inset));font-size:10px;font-weight:500;color:var(--text-muted);white-space:nowrap}
-.eq-hd .tag[hidden]{display:none}
-.eq-src{display:block;width:100%;min-height:40px;padding:8px 12px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.6 var(--code-font,ui-monospace,'SF Mono',Menlo,monospace);overflow-wrap:anywhere}
-.pop.eqpop textarea.eq-src:focus-visible{outline:0;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary) 24%,transparent)}
-.eq-prev{min-height:24px;overflow-x:auto;overflow-y:hidden;text-align:center;font:400 15px/1.5 'Times New Roman','Tinos',Georgia,serif;color:var(--text-primary);transition:opacity 120ms ease-out}
+/* Équation (variante B « Ligne », 2026-11-16) : aperçu, champ d'une ligne et coche */
+.pop.eqpop{display:flex;flex-direction:column;width:380px;padding:8px;font:400 12px/1.5 var(--ui-font);color:var(--text-primary)}
+.eq-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.eq-top{display:flex;align-items:center;gap:8px;padding:4px 4px 8px 8px}
+.eq-prev{flex:1;min-width:0;min-height:24px;overflow-x:auto;overflow-y:hidden;text-align:center;font:400 15px/1.5 'Times New Roman','Tinos',Georgia,serif;color:var(--text-primary);transition:opacity 120ms ease-out}
 .eq-prev.bad{opacity:.4}
 .eq-prev .katex{font-family:inherit;font-size:1.05em}
 .eq-prev .katex .mathnormal{font-family:inherit;font-style:italic}
 .eq-prev .katex .mathrm{font-family:inherit}
 .eq-prev .katex-display{margin:0}
-.eq-err{font-size:12px;color:var(--status-error)}
+.eq-tag{flex:none;font-size:11px;color:var(--text-muted);white-space:nowrap}
+.eq-tag[hidden]{display:none}
+.eq-row{display:flex;align-items:flex-start;gap:4px}
+.eq-src{display:block;flex:1;min-width:0;min-height:28px;padding:4px 8px;border:0;border-radius:6px;outline:0;resize:none;background:var(--bg-ctl,var(--surface-inset));color:var(--text-primary);font:400 12px/1.6 var(--code-font,ui-monospace,'SF Mono',Menlo,monospace);overflow-wrap:anywhere}
+.pop.eqpop textarea.eq-src:focus-visible{outline:0;box-shadow:none}
+.eq-ok{display:inline-grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;transition:background-color 120ms ease-out,color 120ms ease-out}
+.eq-ok:hover:not(:disabled){background:var(--surface-hover);color:var(--text-primary)}
+.eq-ok:focus-visible{outline:0;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--text-primary) 24%,transparent)}
+.eq-ok:disabled{opacity:.45;cursor:default}
+.eq-err{padding:8px 8px 0;font-size:12px;color:var(--status-error)}
 .eq-err:empty{display:none}
-.eq-ft{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.eq-ft .kbd{margin-left:4px;padding:0 4px;border-radius:6px;background:color-mix(in srgb,var(--text-primary) 8%,transparent);font:500 10px/1.2 var(--ui-font);color:var(--text-muted);font-variant-numeric:tabular-nums}
-/* Palette de citation Zotero : recherche et pilules, résultats ou précisions, pied. */
+.eq-hint{padding:8px 8px 0;font-size:11px;color:var(--text-disabled,var(--text-muted));font-variant-numeric:tabular-nums}
+
 .pop.citepal{display:flex;flex-direction:column;width:420px;padding:0;overflow:hidden;font:400 12px/1.5 var(--ui-font);color:var(--text-secondary)}
 .citepal .cq{display:flex;align-items:center;flex-wrap:wrap;gap:4px;min-height:40px;padding:6px 12px;border-bottom:1px solid var(--border-subtle,var(--border))}
 .citepal .cq>svg{flex-shrink:0;margin-right:4px;color:var(--text-muted)}

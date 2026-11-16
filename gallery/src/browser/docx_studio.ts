@@ -5242,11 +5242,14 @@
   eqPop.id = "eqpop";
   eqPop.setAttribute("role", "dialog");
   eqPop.setAttribute("aria-labelledby", "eqH");
-  eqPop.innerHTML = `<div class="eq-hd"><span id="eqH"></span><span class="tag" id="eqTag">en suivi</span></div>
-    <textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea>
-    <div class="eq-prev" id="eqPrev" aria-hidden="true"></div>
+  // Variante B « Ligne » (Thierry, 2026-11-16) : l'aperçu en haut, « en
+  // suivi » en gris à sa droite, un champ d'une ligne et une coche. Pas de
+  // bouton Annuler : Échap ou un clic à côté ; les touches en gris dessous.
+  eqPop.innerHTML = `<span class="eq-vh" id="eqH"></span>
+    <div class="eq-top"><div class="eq-prev" id="eqPrev" aria-hidden="true"></div><span class="eq-tag" id="eqTag">en suivi</span></div>
+    <div class="eq-row"><textarea class="eq-src" id="eqSrc" rows="1" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Source LaTeX" aria-describedby="eqErr"></textarea><button type="button" class="eq-ok" id="eqOk" title="Remplacer (⌘↵)" aria-label="Remplacer">${ic("check", 14)}</button></div>
     <div class="eq-err" id="eqErr" role="alert"></div>
-    <div class="eq-ft"><button type="button" class="btn q" id="eqCancel">Annuler<span class="kbd">Échap</span></button><button type="button" class="btn" id="eqOk">Remplacer<span class="kbd">⌘↵</span></button></div>`;
+    <div class="eq-hint" aria-hidden="true">⌘↵ remplace · Échap annule</div>`;
   document.body.appendChild(eqPop);
   const eqSrc = eqPop.querySelector("#eqSrc") as HTMLTextAreaElement;
   const eqPrev = eqPop.querySelector("#eqPrev") as HTMLElement;
@@ -5263,7 +5266,9 @@
     eqPrev.classList.remove("bad");
     if (!katexLib) { eqPrev.textContent = ""; return; }
     try {
-      katexLib.render(decimalComma(tex) || "\\;", eqPrev, { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
+      // renderToString puis échange : katex.render vide la cible AVANT de
+      // lever, l'aperçu disparaissait à la première accolade ouverte.
+      eqPrev.innerHTML = katexLib.renderToString(decimalComma(tex) || "\\;", { displayMode: true, throwOnError: true, output: "html", strict: "ignore" });
     } catch {
       // Frappe en cours : le dernier aperçu valide reste, estompé.
       eqPrev.classList.add("bad");
@@ -5274,7 +5279,7 @@
     const el = eqEl(eqAt);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const w = Math.min(460, innerWidth - 32);
+    const w = Math.min(380, innerWidth - 32);
     eqPop.style.width = `${w}px`;
     eqPop.style.left = `${Math.round(Math.max(16, Math.min(innerWidth - w - 16, r.left + r.width / 2 - w / 2)))}px`;
     const h = eqPop.offsetHeight;
@@ -5296,7 +5301,7 @@
     el.classList.add("on");
     hideBubble();
     eqAt = { idx, index, latex: el.dataset.latex || "", display: el.classList.contains("disp"), off: Number(el.dataset.off), len: Number(el.dataset.len) };
-    ($("eqH") as HTMLElement).textContent = `Équation ${nf(n)} · LaTeX`;
+    ($("eqH") as HTMLElement).textContent = `Équation ${nf(n)}`;
     ($("eqTag") as HTMLElement).hidden = !tracked;
     eqSrc.value = eqAt.latex;
     eqErr.textContent = "";
@@ -5375,14 +5380,13 @@
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeEq(true); return; }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submitEq(); return; }
     if (e.key === "Tab") {
-      // Le focus reste dans la fenêtre : champ, Annuler, Remplacer.
-      const f = [eqSrc, $("eqCancel"), eqOk].filter((x) => !(x as HTMLButtonElement).disabled) as HTMLElement[];
+      // Le focus reste dans la fenêtre : champ et coche.
+      const f = [eqSrc, eqOk].filter((x) => !(x as HTMLButtonElement).disabled) as HTMLElement[];
       const k = f.indexOf(document.activeElement as HTMLElement);
       e.preventDefault();
       f[(k + (e.shiftKey ? f.length - 1 : 1)) % f.length].focus();
     }
   });
-  $("eqCancel").addEventListener("click", () => closeEq(true));
   eqOk.addEventListener("click", submitEq);
   paper.addEventListener("click", (e) => {
     const el = eqChip(e.target);

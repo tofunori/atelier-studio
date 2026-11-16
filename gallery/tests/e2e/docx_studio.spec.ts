@@ -2343,13 +2343,14 @@ test('docx: une équation se lit en KaTeX et se corrige en LaTeX, en suivi sign�
   await chip.click();
   const pop = page.locator('#eqpop');
   await expect(pop).toHaveClass(/\bshow\b/);
-  await expect(page.locator('#eqH')).toHaveText('Équation 1 · LaTeX');
+  await expect(page.locator('#eqH')).toHaveText('Équation 1');
   await expect(page.locator('#eqTag')).toBeVisible();
   await expect(page.locator('#eqSrc')).toHaveValue(latex0!);
   await expect(page.locator('#eqSrc')).toBeFocused();
   await expect(page.locator('#eqPrev .katex')).toBeVisible();
-  // Rien d'autre que champ, aperçu et deux boutons.
-  await expect(pop.locator('button')).toHaveCount(2);
+  // Rien d'autre que l'aperçu, le champ et la coche (variante « Ligne »).
+  await expect(pop.locator('button')).toHaveCount(1);
+  await expect(page.locator('#eqOk')).toHaveAttribute('aria-label', 'Remplacer');
 
   // Un LaTeX sans équivalent Word est refusé, message dans la fenêtre.
   await page.locator('#eqSrc').fill('\\mathcal{L}');
@@ -2364,6 +2365,12 @@ test('docx: une équation se lit en KaTeX et se corrige en LaTeX, en suivi sign�
   await expect(pop).not.toHaveClass(/\bshow\b/);
   await chip.click();
   await expect(pop).toHaveClass(/\bshow\b/);
+
+  // Frappe inachevée : le dernier aperçu valide reste, estompé (katex.render
+  // vidait la cible avant de lever).
+  await page.locator('#eqSrc').fill('\\frac{1}{');
+  await expect(page.locator('#eqPrev')).toHaveClass(/\bbad\b/);
+  await expect(page.locator('#eqPrev .katex')).toBeVisible();
 
   // L'aperçu suit la frappe, Ctrl+Entrée remplace.
   await page.locator('#eqSrc').fill('\\alpha = 0,36\\,\\rho_{1}');
