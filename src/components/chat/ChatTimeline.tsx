@@ -50,9 +50,9 @@ import {
   type AgentToolAction,
 } from "./AgentActivity";
 import { AgentMessageCard } from "./AgentMessageCard";
-import { DelegateRow } from "./DelegateRow";
-import { planDelegateRows } from "../../lib/delegateRows";
-import type { LinkedAgentSummary } from "../../lib/threadLinks";
+import { DelegateRow, type DelegateRowState } from "./DelegateRow";
+import { isContextLine, planDelegateRows, type DelegateRowSpot } from "../../lib/delegateRows";
+import type { DelegatedState, LinkedAgentSummary } from "../../lib/threadLinks";
 import { wsSend } from "../../lib/wsBus";
 import { Deferred, RenderBoundary } from "../RenderBoundary";
 import { TimelineStamp } from "./TimelineStamp";
@@ -328,10 +328,34 @@ export function ChatTimeline(p: {
   );
   const delegateIdsKey = [...delegateById.keys()].join("|");
   const delegatePlan = useMemo(
-    () => planDelegateRows(events, new Set(delegateById.keys())),
+    // Deux envois au même spécialiste dans la même demande : une rangée.
+    () => planDelegateRows(events, new Set(delegateById.keys()),
+      (id) => { const n = delegateById.get(id)?.specialiste?.nomCourt; return n ? `@${n}` : id; }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [events, delegateIdsKey],
   );
+  const delegateRowView = (spot: DelegateRowSpot) => {
+    const all = spot.peerIds.map((id) => delegateById.get(id)).filter((d): d is LinkedAgentSummary => Boolean(d));
+    const delegate = all[all.length - 1];
+    if (!delegate) return null;
+    // Un fil délégué s'appelle « NomCourt · tâche » : le nom signe la
+    // rangée, la tâche passe dessous — jamais un chemin de dossier.
+    const [head, ...rest] = delegate.title.split(" · ");
+    const name = delegate.specialiste?.nomCourt ?? head;
+    const task = rest.join(" · ");
+    const live = all.find((d) => d.state === "running") ?? all.find((d) => d.state === "queued") ?? delegate;
+    const liveState: DelegatedState = live.state ?? "done";
+    const state: DelegateRowState = spot.needsYou ? "needs-you" : spot.latest ? liveState : "done";
+    return {
+      name,
+      task: task && !isContextLine(task) ? task : undefined,
+      state,
+      reports: spot.reports,
+      since: live.since ?? spot.startedAt ?? null,
+      durationMs: spot.startedAt != null && spot.endedAt != null ? spot.endedAt - spot.startedAt : null,
+      onOpen: onOpenDelegate ? () => onOpenDelegate(delegate.id) : undefined,
+    };
+  };
   const { editing, setEditing, pins, onTogglePin, onRevert, onEditSend, onFork, setPasteView, commands, defaults, onQuote } = p.msg;
   // Vue de la transcription (sélecteur du header, façon Claude Code desktop) :
   // elle remplace l'ancien booléen thinkingCollapsed. « normal » replie la
@@ -449,6 +473,18 @@ export function ChatTimeline(p: {
   );
   const virtualItems = React.useMemo<TimelineVirtualItem[]>(() => {
     const rows: TimelineVirtualItem[] = [];
+    // Une carte de calcul d'un spécialiste vient juste sous sa rangée quand
+    // celle-ci est affichée ; sinon elle reste à sa place.
+    const shownEvents = new Set(renderedEvents.flatMap((item) => (item.type === "event" ? [item.index] : [])));
+    const attachedCards = new Set<number>();
+    const cardsUnderRow = new Map<number, typeof renderedEvents>();
+    for (const item of renderedEvents) {
+      if (item.type !== "event") continue;
+      const rowIndex = delegatePlan.cards.get(item.index);
+      if (rowIndex == null || !shownEvents.has(rowIndex)) continue;
+      attachedCards.add(item.index);
+      cardsUnderRow.set(rowIndex, [...(cardsUnderRow.get(rowIndex) ?? []), item]);
+    }
     if (!threadId || events.length === 0) rows.push({ type: "empty", key: "timeline-empty" });
     for (const item of renderedEvents) {
       // Le chrono du header ferait doublon avec celui de la ligne de statut.
@@ -456,8 +492,13 @@ export function ChatTimeline(p: {
       // Une étape vivante porte déjà le statut : pas de seconde ligne vivante.
       if (item.type === "active-turn-tail" && activeStepKey != null) continue;
       // Rapport ou remise d'un fil délégué : déjà porté par sa rangée.
-      if (item.type === "event" && delegatePlan.get(item.index) === null) continue;
+      if (item.type === "event" && delegatePlan.rows.get(item.index) === null) continue;
+      // Carte d'un spécialiste : posée sous sa rangée (plus bas).
+      if (item.type === "event" && attachedCards.has(item.index)) continue;
       rows.push({ type: "rendered", key: timelineRowKey(item), item });
+      if (item.type === "event") {
+        for (const card of cardsUnderRow.get(item.index) ?? []) rows.push({ type: "rendered", key: timelineRowKey(card), item: card });
+      }
     }
     if (workingSince != null && !latestTurnSettled && !activeTail && activeStepKey == null) {
       rows.push({ type: "live-status", key: "message-live-status" });
@@ -1048,24 +1089,17 @@ export function ChatTimeline(p: {
           }
           const e = item.event;
           const i = item.index;
-          const spot = e.kind === "agent_message" ? delegatePlan.get(i) : undefined;
+          const spot = e.kind === "agent_message" || e.kind === "compute_job" ? delegatePlan.rows.get(i) : undefined;
           if (spot === null) return null;
-          const delegate = spot ? delegateById.get(spot.peerId) : undefined;
-          if (spot && delegate) {
-            const name = delegate.specialiste ? `@${delegate.specialiste.nomCourt}` : delegate.title;
-            // Un fil délégué s'appelle « NomCourt · tâche » : la rangée garde la tâche.
-            const task = delegate.specialiste ? delegate.title.split(" · ").slice(1).join(" · ") : "";
-            const state = spot.latest ? (delegate.state ?? "done") : "done";
+          const signed = spot ? delegateRowView(spot) : null;
+          if (signed) {
+            const head = <DelegateRow key={e.kind === "compute_job" ? undefined : i} {...signed} />;
+            if (e.kind !== "compute_job") return head;
             return (
-              <DelegateRow
-                key={i}
-                name={name}
-                task={task}
-                state={state}
-                since={delegate.since ?? spot.startedAt ?? null}
-                durationMs={spot.startedAt != null && spot.endedAt != null ? spot.endedAt - spot.startedAt : null}
-                onOpen={onOpenDelegate ? () => onOpenDelegate(delegate.id) : undefined}
-              />
+              <React.Fragment key={e.jobId}>
+                {head}
+                <div className="delegate-card"><Suspense fallback={null}><ComputeJobCard event={e} /></Suspense></div>
+              </React.Fragment>
             );
           }
           if (e.kind === "agent_message")
@@ -1188,7 +1222,10 @@ export function ChatTimeline(p: {
           if (e.kind === "widget") return <Suspense key={e.id} fallback={null}><WidgetFrame event={e} threadId={threadId} /></Suspense>;
           if (e.kind === "specialist_proposal") return <SpecialistProposalCard key={e.id} event={e} />;
           if (e.kind === "memory_proposal") return <MemoryProposalCard key={e.id} event={e} threadId={threadId ?? undefined} />;
-          if (e.kind === "compute_job") return <Suspense key={e.jobId} fallback={null}><ComputeJobCard event={e} /></Suspense>;
+          if (e.kind === "compute_job") {
+            const card = <Suspense key={e.jobId} fallback={null}><ComputeJobCard event={e} /></Suspense>;
+            return delegatePlan.cards.has(i) ? <div key={e.jobId} className="delegate-card">{card}</div> : card;
+          }
           if (e.kind === "edit") {
             // La carte « fichiers modifiés » du dernier tour terminé liste
             // déjà ces fichiers avec leurs +/− et leur diff par fichier : la

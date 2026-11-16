@@ -224,7 +224,7 @@ pub fn job_event(job: &JobRecord, full: bool, sequence: u64) -> Value {
     event
 }
 
-fn emit(state: &AppState, job: &JobRecord, full: bool) {
+async fn emit(state: &AppState, job: &JobRecord, full: bool) {
     let sequence = state.journal().next_sequence(&job.thread_id);
     let event = job_event(job, full, sequence);
     let _ = state.journal().append(&event);
@@ -233,6 +233,13 @@ fn emit(state: &AppState, job: &JobRecord, full: bool) {
         "threadId": job.thread_id,
         "event": event,
     })));
+    // Calcul proposé par un spécialiste délégué : l'utilisateur regarde le
+    // fil du coordinateur, pas celui du spécialiste. La carte y est recopiée
+    // (même `jobId`, donc chaque nouvel état la met à jour en place) ; le
+    // clic n'envoie que `jobId`, il vaut d'un fil comme de l'autre.
+    if let Some(cible) = crate::delegation::parent_a_prevenir(state, &job.thread_id).await {
+        crate::delegation::relayer_carte_au_parent(state, &cible, &event);
+    }
 }
 
 /// Applique `change` à la tâche `id` sous verrou, enregistre, émet la mise
@@ -258,7 +265,7 @@ async fn update_job(
     let job = job.clone();
     save(state.app_dir(), &mut registry).ok()?;
     drop(_guard);
-    emit(state, &job, false);
+    emit(state, &job, false).await;
     Some(job)
 }
 
@@ -365,7 +372,7 @@ pub async fn action_propose_job(
         save(state.app_dir(), &mut registry)
             .map_err(|error| format!("compute_registry_unwritable: {error}; tell the user"))?;
     }
-    emit(state, &job, true);
+    emit(state, &job, true).await;
     if auto {
         // En arrière-plan comme après un clic : l'agent n'attend pas le ssh.
         let (state, backend, id) = (state.clone(), backend.clone(), job.id.clone());
@@ -859,6 +866,40 @@ mod tests {
         assert!(last.get("job").is_none(), "une mise à jour ne recopie pas le script");
         assert!(evs.iter().all(|e| e["jobId"] == id.as_str()));
         assert!(!HostBook::load(state.app_dir()).auto_launch(Target::Narval));
+    }
+
+    #[tokio::test]
+    async fn la_carte_d_un_specialiste_delegue_remonte_chez_son_parent() {
+        let (state, dir) = test_state().await;
+        {
+            let mut store = state.threads().lock().await;
+            store.upsert(json!({"id": "p", "provider": "claude", "title": "Coordination"}), false).unwrap();
+            store
+                .upsert(
+                    json!({"id": "t1", "provider": "claude", "title": "Code · Version B′", "agentLink": {
+                        "parentThreadId": "p", "createdAt": "2026-11-16T00:00:00Z", "autoDeliveryLimit": 8},
+                        "delegue": {"specialisteId": "s1", "par": "agent"}}),
+                    false,
+                )
+                .unwrap();
+        }
+        let fake = Arc::new(Fake::default());
+        let b = backend(dir.path(), fake.clone());
+        let id = action_propose_job(&state, &b, "t1", &narval_job()).await.unwrap()["jobId"].as_str().unwrap().to_string();
+        let chez_parent = || -> Vec<Value> {
+            state.journal().materialize("p").into_iter().filter(|e| e["kind"] == "compute_job").collect()
+        };
+        let carte = chez_parent();
+        assert_eq!(carte.len(), 1, "la carte est recopiée chez le parent");
+        assert_eq!(carte[0]["jobId"], id.as_str());
+        assert_eq!(carte[0]["status"], "proposed");
+        assert_eq!(carte[0]["job"]["script"], "python fit.py");
+        assert_eq!(carte[0]["forThreadId"], "t1");
+        assert_eq!(carte[0]["meta"]["threadId"], "p");
+        // Le clic depuis le parent vaut : la mise à jour arrive des deux côtés.
+        assert_eq!(decide(&state, &b, &id, "refuse", false).await.unwrap(), JobStatus::Refused);
+        assert_eq!(chez_parent().last().unwrap()["status"], "refused");
+        assert_eq!(events(&state).last().unwrap()["status"], "refused");
     }
 
     #[tokio::test]

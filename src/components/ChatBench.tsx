@@ -1010,10 +1010,40 @@ const SPEC_AVANT: AgentEvent[] = [
   { ...(SPEC_END[1] as object), peerThreadId: undefined, peerProvider: undefined } as unknown as AgentEvent,
   ...SPEC_END.slice(2),
 ];
+// #chatbench-speclancer : @Code propose un calcul sur Narval (sa carte
+// remonte sous sa rangée, variante A « Signature », 2026-11-16), et deux
+// fils @Nature de la même demande rendent leur rapport (une seule rangée ;
+// leur titre d'avant porte encore le chemin du projet, jamais affiché).
+const SPEC_CODE_B = { ...SPEC_CODE, id: "spec-code-b", title: "Code · Version B′ : précipitation de Phelps seule" };
+const SPEC_NAT = (id: string) => ({ id, provider: "Claude", title: "Nature · Projet : /Users/tofunori/Documents/Doctorat/Chapitre1",
+  paused: false, direction: "child" as const, specialiste: { nom: "Nature Figures", nomCourt: "Nature" }, delegated: true });
+const SPEC_LANCER: AgentEvent[] = [
+  { kind: "user", text: "go pour le reste aussi", ts: ts(400) } as AgentEvent,
+  { kind: "agent_message", messageId: "lancer-m1", direction: "sent", peerThreadId: "spec-code-b", peerProvider: "claude",
+    messageKind: "message", text: "Task delegated to you as the specialist Code", status: "delivered", ts: ts(398) } as AgentEvent,
+  { kind: "agent_message", messageId: "nat-m1", direction: "sent", peerThreadId: "spec-nat-a", peerProvider: "claude",
+    messageKind: "message", text: "Task delegated to you as the specialist Nature", status: "delivered", ts: ts(397) } as AgentEvent,
+  { kind: "agent_message", messageId: "nat-m2", direction: "sent", peerThreadId: "spec-nat-b", peerProvider: "claude",
+    messageKind: "message", text: "Task delegated to you as the specialist Nature", status: "delivered", ts: ts(396) } as AgentEvent,
+  { kind: "text", text: "J'envoie @Code préparer la version B′ et @Nature relire les deux sections.", ts: ts(395) } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 30000, output: 200, cost: null, turns: 1 }, ts: ts(394) } as AgentEvent,
+  { kind: "compute_job", jobId: "6da58171073a", status: "proposed", forThreadId: "spec-code-b", forTitle: SPEC_CODE_B.title,
+    job: { host: "narval", hostLabel: "Narval", label: "Durée des calculs d'octobre", workDir: "/scratch/tofunori/firework/oct",
+      script: "#!/bin/bash\nsacct -S 2026-10-01 -E 2026-10-31 --format=JobID,Elapsed,NCPUS -P > durees.tsv\npython resume_durees.py durees.tsv",
+      resources: { cpus: 1, mem: "2G", time: "0:15:00" }, estimate: { cpuHours: 0.25, wallHours: 0.25 },
+      purpose: "Lire la durée des calculs d'octobre pour estimer le nouveau calcul." }, ts: ts(240) } as unknown as AgentEvent,
+  { kind: "agent_message", messageId: "nat-r1", direction: "received", peerThreadId: "spec-nat-a", peerProvider: "claude",
+    messageKind: "report", text: "Discussion : trois phrases trop longues.", status: "delivered", ts: ts(120) } as AgentEvent,
+  { kind: "agent_message", messageId: "nat-r2", direction: "received", peerThreadId: "spec-nat-b", peerProvider: "claude",
+    messageKind: "report", text: "Figure 4 : unités manquantes.", status: "delivered", ts: ts(36) } as AgentEvent,
+  { kind: "text", text: "@Code a préparé la version B′ : un petit job en lecture seule sur Narval, juste sous sa rangée, attend ton clic. @Nature a relu les deux sections : trois phrases trop longues dans la discussion, une figure sans unités.", ts: ts(30) } as AgentEvent,
+  { kind: "done", ok: true, result: "ok", projectRoot: "/tmp/bench", filesChanged: [], usage: { context: 31000, output: 400, cost: null, turns: 1 }, ts: ts(29) } as AgentEvent,
+];
 const SPEC_LINKED: Record<string, LinkedAgentSummary[]> = {
   specencours: [{ ...SPEC_CODE, running: true, since: ts(72), state: "running" }],
   specfini: [{ ...SPEC_CODE, running: false, state: "done" }],
   specavant: [{ ...SPEC_CODE, running: false, state: "done" }],
+  speclancer: [{ ...SPEC_CODE_B, running: false, state: "waiting" }, { ...SPEC_NAT("spec-nat-a"), state: "done" }, { ...SPEC_NAT("spec-nat-b"), state: "done" }],
 };
 const AGENTS_CLAUDE: AgentEvent[] = [
   ...AGENTS_CLAUDE_START,
@@ -1221,6 +1251,7 @@ const STATES: Record<string, BenchState> = {
   specencours: { events: SPEC_START, workingSince: null, attachments: [], usage: null },
   specfini: { events: [...SPEC_START, ...SPEC_END], workingSince: null, attachments: [], usage: null },
   specavant: { events: SPEC_AVANT, workingSince: null, attachments: [], usage: null },
+  speclancer: { events: SPEC_LANCER, workingSince: null, attachments: [], usage: null },
   actionsclaude: { events: ACTIONS_CLAUDE, workingSince: ts(58), attachments: [], usage: { context: 31000, output: 640, cost: null, turns: 1 } },
   actionscodex: { events: ACTIONS_CODEX, workingSince: ts(40), attachments: [], usage: { context: 19000, output: 220, cost: null, turns: 1 } },
   claudeagents: { events: AGENTS_CLAUDE, workingSince: ts(70), attachments: [], usage: { context: 26000, output: 300, cost: null, turns: 1 } },

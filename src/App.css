@@ -6959,13 +6959,36 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .tool-output.is-compact.is-soft .tool-output-icon { color: var(--text-disabled); }
 .tool-output-why { color: var(--text-muted); }
 .tool-output-why::before { content: "·"; margin: 0 4px; }
-/* Spécialiste ou fil de travail dans le fil principal : une rangée calme,
-   à l'envoi comme au retour (variante B « une seule voix », 2026-11-16).
+/* Spécialiste ou fil de travail dans le fil principal : une rangée signée,
+   à l'envoi comme au retour (une seule voix ; variante A « Signature »,
+   2026-11-16). Initiale, nom, ce qu'il fait ; la tâche en mots dessous.
    Elle mène à son fil ; c'est le coordinateur qui résume. */
-.delegate-row { margin: 4px 0; }
-.delegate-row .tool-output-head { min-height: 28px; }
-.delegate-row-task { color: var(--text-muted); }
-.delegate-row-task::before { content: "·"; margin: 0 4px; }
+.delegate-row { margin: 8px 0; }
+.delegate-row-head { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto;
+  column-gap: 12px; row-gap: 0; align-items: center; padding: 0; border: none; background: transparent;
+  color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.delegate-row-head:disabled { cursor: default; }
+.delegate-row-avatar { width: 24px; height: 24px; border-radius: var(--radius-pill); background: var(--bg-ctl);
+  color: var(--text-secondary); display: grid; place-items: center; font-size: var(--fs-s); font-weight: 600;
+  line-height: 1; letter-spacing: 0; }
+.delegate-row-line { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.delegate-row-name { color: var(--text-primary); font-weight: 500; letter-spacing: -0.01em; }
+.delegate-row-state { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; transition: color 120ms ease; }
+.delegate-row-head:hover .delegate-row-state { color: var(--text-secondary); }
+.delegate-row[data-state="needs-you"] .delegate-row-state { color: var(--text-secondary); }
+.delegate-row-dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--status-warning); flex: none; }
+.delegate-row-state .tool-run-ring { flex: none; color: var(--text-muted); animation: ui-spin var(--motion-spin) linear infinite; }
+.delegate-row-side { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted);
+  font-size: var(--fs-m); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.delegate-row-time { font-variant-numeric: tabular-nums; }
+.delegate-row-task { grid-column: 2 / 4; min-width: 0; color: var(--text-muted); font-size: var(--fs-m);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Carte d'un spécialiste (calcul à lancer) : sous sa rangée, alignée sur le nom. */
+.delegate-card { margin: 0 0 8px 36px; }
+@media (prefers-reduced-motion: reduce) {
+  .delegate-row-state .tool-run-ring { animation: none; }
+}
 .tool-output.is-compact.failed .tool-duration { color: var(--status-error); }
 .tool-output.is-compact .tool-status { color: var(--text-muted); }
 /* Ce qui a arrêté le travail, écrit sous la rangée : dernière ligne de la sortie. */
