@@ -27,22 +27,24 @@ assert.equal(await page.locator('#lbAnnot').isVisible(),true);
 await page.locator('#lbAnnot').click();assert.equal(await page.locator('#annotBar').isVisible(),true);
 await page.evaluate(()=>lb().classList.remove('fs-ui'));assert.equal(await page.locator('#annotBar').isVisible(),true);
 {const fsBox=await page.locator('#annotCv').boundingBox();await page.mouse.move(fsBox.x+80,fsBox.y+80);await page.mouse.down();await page.mouse.move(fsBox.x+180,fsBox.y+150,{steps:4});await page.mouse.up();}
-assert.equal(await page.locator('#annotNote').isVisible(),true);await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes.length),0);
+assert.equal(await page.locator('#annotNote').isVisible(),true);await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes.length),0);
 await page.evaluate(()=>{lb().classList.remove('fs');lbSetZoom(1);});
 await page.locator('#lbZoomMenu summary').click();
 const box=await page.locator('#annotCv').boundingBox();const drag=async(x1: number,y1: number,x2: number,y2: number)=>{await page.mouse.move(box.x+x1,box.y+y1);await page.mouse.down();await page.mouse.move(box.x+x2,box.y+y2,{steps:4});await page.mouse.up();};
-await drag(120,120,250,210);await page.locator('#annotNote textarea').fill('Premier commentaire');await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes.length),1);assert.equal(await page.locator('#annotNote').isVisible(),false);
-await page.locator('[data-tool="arrow"]').click();await drag(420,320,320,320);await page.locator('#annotNote textarea').fill('Flèche gauche');await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes[1].tool),'arrow');
-await page.locator('#lbMore summary').click();await page.locator('#annotPillN').click();assert.equal(await page.locator('#annotItems button').count(),2);await page.locator('#annotItems button').first().click();assert.equal(await page.locator('#annotNote textarea').inputValue(),'Premier commentaire');await page.locator('.annot-close').click();
+await drag(120,120,250,210);await page.locator('#annotNote textarea').fill('Premier commentaire');await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes.length),1);assert.equal(await page.locator('#annotNote').isVisible(),false);
+await page.locator('[data-tool="arrow"]').click();await drag(420,320,320,320);await page.locator('#annotNote textarea').fill('Flèche gauche');await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes[1].tool),'arrow');
+// The Notes panel lists both marks; a row opens its note in place.
+assert.equal(await page.locator('#lbNotesN').textContent(),'2');assert.equal(await page.locator('#annotItems .annot-row').count(),2);await page.locator('#annotItems .annot-row').first().click();assert.equal(await page.locator('#annotNote textarea').inputValue(),'Premier commentaire');await page.locator('#annotNote textarea').press('Enter');
 await page.locator('#annotUndo').click();await page.locator('#annotRedo').click();assert.equal(await page.evaluate(()=>annotStrokes.length),2);
 await page.evaluate(async()=>{await annotGuard();lb().classList.remove('annot');lbIdx=1;await annotToggle();});assert.equal(await page.evaluate(()=>annotStrokes.length),0);await page.evaluate(async()=>{await annotGuard();lb().classList.remove('annot');lbIdx=0;await annotToggle();});assert.equal(await page.evaluate(()=>annotStrokes.length),2);
 
-await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('#annotNote textarea').fill('Premier commentaire');await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes[0].note),'Premier commentaire');
-await page.locator('[data-tool="rect"]').click();await drag(450,430,540,510);await page.locator('#annotNote textarea').fill('');await page.locator('.annot-close').click();assert.equal(await page.evaluate(()=>annotStrokes.length),2);
+await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('#annotNote textarea').fill('Premier commentaire');await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes[0].note),'Premier commentaire');
+await page.locator('[data-tool="rect"]').click();await drag(450,430,540,510);await page.locator('#annotNote textarea').fill('');await page.locator('#annotNote textarea').press('Enter');assert.equal(await page.evaluate(()=>annotStrokes.length),2);
 await page.mouse.move(box.x+450,box.y+430);await page.mouse.down();await page.mouse.move(box.x+510,box.y+490);await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await page.evaluate(()=>annotCur===null&&annotDrag===null),true);
 await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.screenshot({path:testInfo.outputPath('annotations.png')});
-await page.locator('.annot-send').click();await page.waitForFunction(()=>annotBusy);assert.equal(await page.locator('#annotPillSend').isDisabled(),true);assert.equal(await page.evaluate(()=>annotGuard()),false);assert.equal(saves.length,1);assert.equal(saves[0].notes.length,1);assert.equal(saves[0].direct,true);releaseSave();await page.waitForFunction(()=>!annotBusy);assert.equal(await page.evaluate(()=>annotStrokes.length),1);
-await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('.annot-draft').click();await page.waitForFunction(()=>annotBusy);assert.equal(saves.length,2);assert.equal(saves[1].direct,false);releaseSave();await page.waitForFunction(()=>!annotBusy);
+await page.locator('.annot-send').click();await page.waitForFunction(()=>annotBusy);assert.equal(await page.locator('#annotSendAll').isDisabled(),true);assert.equal(await page.evaluate(()=>annotGuard()),false);assert.equal(saves.length,1);assert.equal(saves[0].notes.length,1);assert.equal(saves[0].direct,true);releaseSave();await page.waitForFunction(()=>!annotBusy);assert.equal(await page.evaluate(()=>annotStrokes.length),1);
+// The draft action lives in the send menu and carries every note.
+await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();await page.waitForFunction(()=>annotBusy);assert.equal(saves.length,2);assert.equal(saves[1].direct,false);releaseSave();await page.waitForFunction(()=>!annotBusy);
 await page.locator('[data-tool="pan"]').click();await page.evaluate(()=>lbSetZoom(.25));
 const smallBefore=await page.locator('#lbWrap').boundingBox(),stageBox=await page.locator('#lbViewport').boundingBox();
 await page.mouse.move(stageBox.x+12,stageBox.y+12);await page.mouse.down();await page.mouse.move(stageBox.x+92,stageBox.y+72,{steps:4});await page.mouse.up();
@@ -88,8 +90,8 @@ await page.keyboard.press('p');
 assert.equal(await page.locator('[data-tool="point"]').getAttribute('aria-pressed'),'true');
 {const at=await place(.5,.5);await page.mouse.click(at.x,at.y);}
 await page.locator('#annotNote textarea').fill('Point à vérifier');
-// The note sits beside the mark, never over it.
-assert.equal(await page.evaluate(()=>{const note=document.getElementById('annotNote').getBoundingClientRect(),at=annotClient({x:annotStrokes[0].x1,y:annotStrokes[0].y1});return at.x>=note.left&&at.x<=note.right&&at.y>=note.top&&at.y<=note.bottom;}),false);
+// The note is written in the Notes panel, beside the figure, never over it.
+assert.equal(await page.evaluate(()=>{const note=document.getElementById('annotNote').getBoundingClientRect(),panel=document.getElementById('annotPanel').getBoundingClientRect(),stage=document.getElementById('lbViewport').getBoundingClientRect();return note.width>0&&note.left>=panel.left&&note.right<=panel.right&&panel.left>=stage.right-.5;}),true);
 await page.keyboard.press('Enter');
 assert.equal(await page.locator('#annotNote').isVisible(),false);
 // WebKit rounds pointer coordinates to whole CSS pixels: allow one image pixel.
@@ -144,13 +146,135 @@ await page.evaluate(()=>{annotSelected=annotStrokes[0];annotRedraw();});
 await page.keyboard.press('Escape');assert.equal(await page.evaluate(()=>annotSelected===null&&lb().classList.contains('annot')),true);
 
 // The image sent to the agent carries the same ink marks.
-await page.evaluate(()=>annotAskNote(annotStrokes[0]));await page.locator('.annot-draft').click();await page.waitForFunction(()=>!annotBusy);
+await page.locator('#annotSendAll').click();await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
 assert.equal(saves.length,1);
 assert.ok(await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<d.length;i+=4)if(Math.abs(d[i]-194)<=6&&Math.abs(d[i+1]-86)<=6&&Math.abs(d[i+2]-12)<=6)ink++;return ink;},saves[0].dataURL)>100);
 
-// A leaves the mode and releases the button.
-await page.keyboard.press('Escape');await page.keyboard.press('a');
-assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),false);
+// Sending keeps the mode; A leaves it, releases the button and closes the panel.
+assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
+await page.keyboard.press('a');await page.waitForFunction(()=>!lb().classList.contains('annot'));
+assert.equal(await page.locator('#annotPanel').isVisible(),false);
 assert.equal(await page.locator('#lbAnnot').getAttribute('aria-pressed'),'false');
+assert.deepEqual(errors,[]);
+});
+
+// Lot 2 (2026-11-16) : panneau Notes à droite de la figure, note écrite dans le
+// panneau, compteur dans la barre, « Envoyer à l'agent ⌘↵ » toujours visible,
+// position et recadrage de chaque note dans l'envoi.
+test('the notes panel lists marks beside the figure, edits in place and sends positions with crops',async({page})=>{
+await page.setViewportSize({width:1100,height:850});
+const errors: any[]=[];page.on('pageerror',e=>errors.push(e.message));
+const saves: any[]=[];
+const svg='<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="white"/></svg>';
+const html=fs.readFileSync(new URL('../../assets/gallery_template.html',import.meta.url),'utf8').replaceAll('__DATA__','[]').replaceAll('__FOLDERS__','[]').replaceAll('__FAVS__','[]');
+await page.route('http://localhost/**',async route=>{const url=new URL(route.request().url());if(url.pathname==='/save'){saves.push(JSON.parse(route.request().postData()));return route.fulfill({contentType:'application/json',body:'{"ok":true}'});}if(url.pathname.endsWith('.png'))return route.fulfill({contentType:'image/svg+xml',body:svg});if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:html});if(url.pathname.includes('figure_annotation_geometry'))return route.fulfill({contentType:'text/javascript',body:fs.readFileSync(new URL('../../assets/figure_annotation_geometry.js',import.meta.url),'utf8')});return route.fulfill({contentType:'application/json',body:'{}'});});
+await page.route('**/gallery_viewer_toolbar.*',route=>{const name=new URL(route.request().url()).pathname.split('/').pop();return route.fulfill({contentType:name.endsWith('.css')?'text/css':'text/javascript',body:fs.readFileSync(new URL('../../assets/'+name,import.meta.url),'utf8')});});
+await page.goto('http://localhost/');
+await page.evaluate(async source=>{lbList=([{rel:'one.png',name:'one.png',ext:'png'}] as unknown as typeof lbList);await lbShow(0);const img=document.getElementById('lbImg') as HTMLImageElement;img.src='data:image/svg+xml,'+encodeURIComponent(source);await img.decode();},svg);
+await page.waitForFunction(()=>document.getElementById('lb').classList.contains('responsive-viewer'));
+const place=async(x: number,y: number)=>{const r=await page.locator('#annotCv').boundingBox();return{x:r.x+x*r.width,y:r.y+y*r.height};};
+const drag=async(x1: number,y1: number,x2: number,y2: number)=>{const a=await place(x1,y1),b=await place(x2,y2);await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:4});await page.mouse.up();};
+const note=page.locator('#annotNote textarea'),rows=page.locator('#annotItems .annot-row');
+
+// Closed at first: the bar shows a « Notes » button without a count.
+assert.equal(await page.locator('#annotPanel').isVisible(),false);
+assert.equal(await page.locator('#lbNotes').getAttribute('aria-pressed'),'false');
+assert.equal(await page.locator('#lbNotesN').textContent(),'');
+
+// Annotating opens the panel beside the figure; the send button is there, neutral, waiting for a note.
+await page.keyboard.press('a');await page.waitForFunction(()=>lb().classList.contains('annot'));
+assert.equal(await page.locator('#annotPanel').isVisible(),true);
+assert.equal(await page.locator('#lbNotes').getAttribute('aria-pressed'),'true');
+assert.equal(await page.locator('#annotEmpty').isVisible(),true);
+assert.equal(await page.locator('#annotSendAll').isVisible(),true);assert.equal(await page.locator('#annotSendAll').isDisabled(),true);
+const beside=()=>page.evaluate(()=>{const panel=document.getElementById('annotPanel').getBoundingClientRect(),stage=document.getElementById('lbViewport').getBoundingClientRect(),image=document.getElementById('lbWrap').getBoundingClientRect();return panel.width>=280&&panel.left>=stage.right-.5&&image.right<=panel.left;});
+assert.equal(await beside(),true);
+// Neutral: the send button and the pressed « Notes » carry the text colour, never the accent.
+await page.waitForFunction(()=>{const text=getComputedStyle(lb()).color;return getComputedStyle(document.getElementById('lbNotes')).color===text&&getComputedStyle(document.getElementById('annotSendAll')).color===text;},null,{timeout:2000});
+
+// A box: its note opens in the panel, at its place in the list.
+await drag(.2,.2,.5,.6);
+assert.equal(await note.isVisible(),true);
+assert.equal(await page.evaluate(()=>document.getElementById('annotNote').parentElement.id),'annotItems');
+await note.fill('Axe y en log');await note.press('Enter');
+assert.equal(await page.locator('#annotNote').isVisible(),false);
+assert.deepEqual(await rows.allTextContents(),['1Axe y en log']);
+assert.equal(await page.locator('#lbNotesN').textContent(),'1');
+assert.equal(await page.locator('#annotEmpty').isVisible(),false);
+assert.equal(await page.locator('#annotSendAll').isDisabled(),false);
+
+// A point, then a click elsewhere saves the open note.
+await page.keyboard.press('p');{const at=await place(.75,.25);await page.mouse.click(at.x,at.y);}
+await note.fill('Point aberrant');await page.locator('#annotPanel .annot-panel-head').click();
+assert.equal(await page.locator('#annotNote').isVisible(),false);
+assert.deepEqual(await rows.allTextContents(),['1Axe y en log','2Point aberrant']);
+assert.equal(await page.locator('#lbNotesN').textContent(),'2');
+
+// A row opens its note where the row was; the mark is selected on the figure.
+await rows.first().click();
+assert.equal(await page.evaluate(()=>[...document.getElementById('annotItems').children].indexOf(document.getElementById('annotNote'))),0);
+assert.equal(await note.inputValue(),'Axe y en log');
+assert.equal(await page.evaluate(()=>annotSelected===annotStrokes[0]&&annotEditing===annotStrokes[0]),true);
+await note.fill('Axe y en log, base 10');await note.press('Escape');
+assert.equal(await page.evaluate(()=>annotStrokes[0].note),'Axe y en log, base 10');
+assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
+
+// Row and mark answer each other: hovering one points at the other.
+await rows.nth(1).hover();
+assert.equal(await page.evaluate(()=>annotHover===annotStrokes[1]),true);
+await page.keyboard.press('r');{const edge=await place(.2,.4);await page.mouse.move(edge.x,edge.y);}
+await page.waitForFunction(()=>document.querySelectorAll('#annotItems .annot-row')[0].classList.contains('hot'));
+
+// ⌘↵ sends every note with its position (fractions of the image) and a crop of its zone.
+await page.keyboard.press('Control+Enter');
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
+assert.equal(saves.length,1);assert.equal(saves[0].direct,true);
+assert.deepEqual(saves[0].notes.map((n: any)=>[n.n,n.text,n.kind]),[[1,'Axe y en log, base 10','box'],[2,'Point aberrant','point']]);
+{const near=(a: number,b: number)=>Math.abs(a-b)<=.01,[box,point]=saves[0].notes;
+assert.ok(near(box.x,.2)&&near(box.y,.2)&&near(box.w,.3)&&near(box.h,.4),JSON.stringify(box,['x','y','w','h']));
+assert.ok(near(point.x,.75)&&near(point.y,.25)&&point.w===0&&point.h===0,JSON.stringify(point,['x','y','w','h']));}
+for(const sent of saves[0].notes){
+  const crop=await page.evaluate(async url=>{const image=new Image();image.src=url;await image.decode();const c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);const d=x.getImageData(0,0,c.width,c.height).data;let ink=0;for(let i=0;i<d.length;i+=4)if(Math.abs(d[i]-194)<=6&&Math.abs(d[i+1]-86)<=6&&Math.abs(d[i+2]-12)<=6)ink++;return{w:image.width,h:image.height,ink};},sent.crop);
+  assert.ok(crop.ink>20&&Math.max(crop.w,crop.h)<=800&&Math.min(crop.w,crop.h)>=40,JSON.stringify(crop));
+}
+// The outcome is said in the panel, never by rewriting the button.
+assert.equal(await page.locator('#annotPanelStatus').textContent(),'Collé dans Claude');
+assert.equal(await page.locator('#annotSendAll .lbl').textContent(),'Envoyer à l’agent');
+assert.equal(await page.locator('#lbNotesN').textContent(),'');
+assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
+
+// The menu holds the secondary sends; Escape closes it without leaving the mode.
+await drag(.1,.1,.3,.3);await note.fill('Légende à déplacer');await note.press('Enter');
+await page.locator('#annotSendMore').click();
+assert.equal(await page.locator('#annotSendMenu').isVisible(),true);
+await page.keyboard.press('Escape');
+assert.equal(await page.locator('#annotSendMenu').isVisible(),false);assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),true);
+// Outside the app the menu also picks the target session; the choice opens above the button.
+await page.locator('#annotSendMore').click();await page.locator('#annotTarget').click();
+assert.equal(await page.locator('#annotSendMenu').isVisible(),false);
+await page.locator('#tgMenu .it').first().waitFor();
+assert.equal((await page.locator('#tgMenu .it .t').first().textContent()).trim(),'Session du projet (auto)');
+assert.equal(await page.evaluate(()=>{const menu=document.getElementById('tgMenu').getBoundingClientRect(),more=document.getElementById('annotSendMore').getBoundingClientRect();return menu.width>0&&menu.bottom<=more.top&&menu.right<=innerWidth;}),true);
+await page.locator('#tgMenu .it').first().click();assert.equal(await page.locator('#tgMenu').isVisible(),false);
+await page.locator('#annotSendMore').click();await page.locator('#annotSendMenu [data-send="draft"]').click();
+await page.waitForFunction(()=>!annotBusy&&annotStrokes.length===0);
+assert.equal(saves.length,2);assert.equal(saves[1].direct,false);
+
+// Outside the mode the panel shows the marks read-only; a row re-enters the mode on its note.
+await drag(.6,.6,.8,.8);await note.fill('Reste à faire');await note.press('Enter');
+await page.keyboard.press('Escape');await page.keyboard.press('a');await page.waitForFunction(()=>!lb().classList.contains('annot'));
+assert.equal(await page.locator('#annotPanel').isVisible(),false);
+assert.equal(await page.locator('#lbNotesN').textContent(),'1');
+await page.locator('#lbNotes').click();await page.waitForFunction(()=>annotPanelOpen);
+assert.equal(await page.evaluate(()=>lb().classList.contains('annot')),false);
+assert.deepEqual(await page.locator('#annotCv').evaluate(el=>[getComputedStyle(el).display,getComputedStyle(el).pointerEvents]),['block','none']);
+assert.deepEqual(await rows.allTextContents(),['1Reste à faire']);
+await rows.first().click();await page.waitForFunction(()=>lb().classList.contains('annot')&&annotEditing===annotStrokes[0]);
+assert.equal(await note.inputValue(),'Reste à faire');await note.press('Enter');
+
+// Narrow viewer: the panel moves under the figure, which keeps the full width.
+await page.setViewportSize({width:700,height:850});await page.waitForTimeout(150);
+assert.equal(await page.evaluate(()=>{const panel=document.getElementById('annotPanel').getBoundingClientRect(),stage=document.getElementById('lbViewport').getBoundingClientRect();return panel.top>=stage.bottom-.5&&panel.height>0&&stage.height>200;}),true);
+assert.ok(await page.locator('#lbHead').evaluate(el=>el.scrollWidth<=el.clientWidth));
 assert.deepEqual(errors,[]);
 });

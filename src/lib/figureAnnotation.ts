@@ -7,6 +7,8 @@
 //   .fig_thumbs/annotation-previews/<figure>_annot_<horodatage>.png
 //   Annotations (badges numerotes sur l'image) :
 //   1. est-ce que 2012 est une année neigeuse ?
+//   Positions des notes : en % de la largeur (x) et de la hauteur (y) …
+//   Note 1 : cadre x 62–78 %, y 40–55 % ; détail <recadrage>.png
 //   Figure source : /Users/…/figures/supp/<figure>.png
 //   Version affichée : v1 (SHA-256 …). La pièce jointe correspond à cette version ; …
 //   Recette de la figure : … / Script qui l'a produite : … / Commande : …
@@ -25,7 +27,7 @@ const NOTE_MAX = 240;
 const HEADER = /^annotations?\b.*:\s*$/i;
 const NOTE = /^(\d{1,3})\.\s+(.+)$/;
 // Lignes de contexte connues : elles ferment la liste des notes.
-const CONTEXT = /^(?:Figure source|Version affichée|Recette de la figure|Script qui l'a produite|Commande|Env conda|Applique directement ces annotations) :/;
+const CONTEXT = /^(?:Positions des notes|Figure source|Version affichée|Recette de la figure|Script qui l'a produite|Commande|Env conda|Applique directement ces annotations) :/;
 
 /** Badges numérotés d'une enveloppe repérée par `splitFigureEnvelopes`. */
 export function parseFigureNotes(block: string): AnnotationNote[] {

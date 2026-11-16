@@ -48,3 +48,16 @@ it("rattache la suite d'une note sur plusieurs lignes", () => {
   const multi = "annotations/x_annot_1.png\nAnnotations (badges numerotes sur l'image) :\n1. première ligne\nsuite\nFigure source : /a/x.png";
   expect(parseFigureNotes(multi)).toEqual([{ n: 1, text: "première ligne suite" }]);
 });
+
+it("s'arrête aux positions des notes : la carte ne montre que les notes", () => {
+  const avecPositions = `${PREVIEW}
+Annotations (badges numerotes sur l'image) :
+1. axe y en log
+2. ce point
+Positions des notes : en % de la largeur (x) et de la hauteur (y) de l'image, origine en haut à gauche.
+Note 1 : cadre x 62–78 %, y 40–55 % ; détail .fig_thumbs/annotation-previews/figS_annot_1_note1.png
+Note 2 : point x 50 %, y 25 %
+Figure source : /a/figS.png`;
+  expect(parseFigureNotes(avecPositions)).toEqual([{ n: 1, text: "axe y en log" }, { n: 2, text: "ce point" }]);
+  expect(splitFigureEnvelopes(avecPositions).figures).toHaveLength(1);
+});

@@ -120,28 +120,38 @@ test("#tgMenu : fond --card, sans bordure, ombre --elev, rangées à rayon 6, ac
     "l'état actif de #tgMenu doit être l'accent var(--primary), jamais un bleu à part");
 });
 
-test("#annotPill : aucun glyphe emoji/texte pour l'icône, la cible ou l'envoi — SVG monochromes à la place", () => {
+test("envoi des notes de figure : aucun glyphe emoji/texte, libellé textuel et icônes d'état en SVG monochromes", () => {
   assert.doesNotMatch(galleryTemplate, /&#128172;/, "l'emoji bulle de commentaire (&#128172;) ne doit plus apparaître");
   assert.doesNotMatch(galleryTemplate, /&#9678;/, "le glyphe cible (&#9678;) ne doit plus apparaître");
   assert.doesNotMatch(galleryTemplate, /&#8593;/, "le glyphe flèche d'envoi (&#8593;) ne doit plus apparaître");
+  assert.doesNotMatch(galleryTemplate, /id="annotPill/, "la pilule flottante a cédé la place au panneau Notes");
 
-  const pillMarkup = galleryTemplate.match(/<div id="annotPill">[\s\S]*?<\/div>/);
-  assert.ok(pillMarkup, "balisage #annotPill introuvable");
-  // 1.8.0 : compteur et libellé d'envoi TEXTUELS (Button = action textuelle),
-  // icônes cible / annulation / état d'envoi = <svg> inline monochromes.
-  assert.match(pillMarkup[0], /id="annotPillN"[^>]*>\d+ annotation</, "le compteur est un bouton textuel");
-  assert.match(pillMarkup[0], /id="annotPillTarget"[^>]*><svg/, "le bouton cible doit contenir un <svg> inline");
-  assert.match(pillMarkup[0], /id="annotPillCancel"[^>]*><svg/, "le bouton d'annulation doit contenir un <svg> inline");
-  assert.match(pillMarkup[0], /id="annotPillSend"><span class="lbl">Ajouter au chat<\/span><svg class="ic-arrow"/, "envoi = libellé + flèche SVG");
-  assert.match(pillMarkup[0], /<svg class="ic-ok"/); assert.match(pillMarkup[0], /<svg class="ic-err"/);
-  for (const glyph of ["◎", "↑", "×", "\\23F3", "\\2713"]) assert.ok(!pillMarkup[0].includes(glyph) && !galleryTemplate.includes(`#annotPillSend.is-ok::after{content:'${glyph}'}`), `glyphe interdit : ${glyph}`);
-  assert.doesNotMatch(galleryTemplate, /annotPillSend\.is-(busy|ok|err)::after\{content:'\\/, "les états d'envoi passent par des SVG, pas par des glyphes ::after");
+  // Lot 2 (2026-11-16) : « Envoyer à l'agent ⌘↵ » au pied du panneau Notes.
+  // Libellé textuel (Button = action textuelle), états d'envoi = <svg> inline.
+  const send = galleryTemplate.match(/<button type="button" id="annotSendAll"[\s\S]*?<\/button>/);
+  assert.ok(send, "balisage #annotSendAll introuvable");
+  assert.match(send[0], /<span class="lbl">Envoyer à l’agent<\/span><kbd>⌘↵<\/kbd><svg class="ic-ok"/, "envoi = libellé + raccourci + coche SVG");
+  assert.match(send[0], /<svg class="ic-err"/);
+  const more = galleryTemplate.match(/<button type="button" id="annotSendMore"[\s\S]*?<\/button>/);
+  assert.ok(more && /<svg /.test(more[0]), "le chevron des autres envois doit être un <svg> inline");
+  const single = galleryTemplate.match(/<button type="button" class="annot-send"[\s\S]*?<\/button>/);
+  assert.ok(single && /<svg [\s\S]*<span>Envoyer au chat<\/span>/.test(single[0]), "« Envoyer au chat » = bulle SVG + libellé");
+  for (const glyph of ["◎", "↑", "×", "\\23F3", "\\2713"]) assert.ok(![send[0], more[0], single[0]].some((markup) => markup.includes(glyph)), `glyphe interdit : ${glyph}`);
+  const toolbarCss = fs.readFileSync(new URL("../../assets/gallery_viewer_toolbar.css", import.meta.url), "utf8");
+  assert.doesNotMatch(toolbarCss, /annotSendAll\.is-(ok|err)[^{]*::after/, "les états d'envoi passent par des SVG, pas par des glyphes ::after");
+  assert.match(toolbarCss, /#annotSendAll\.is-ok \.ic-ok\{display:block\}/);
+  assert.match(toolbarCss, /#annotSendAll\.is-err \.ic-err\{display:block;color:var\(--hot\)\}/);
+  // Bouton neutre : ni fond d'accent, ni blanc.
+  const rule = toolbarCss.match(/#lb\.responsive-viewer #annotSendAll,#lb\.responsive-viewer #annotSendMore\{[^}]*\}/);
+  assert.ok(rule, "règle du bouton d'envoi introuvable");
+  assert.match(rule[0], /background:color-mix\(in srgb,var\(--txt\) 9%,transparent\);color:var\(--txt\)/);
+  assert.doesNotMatch(rule[0], /--primary|--accent|#fff/);
 });
 
-test("#annotPillSend : l'état d'envoi passe par des classes is-busy/is-ok/is-err, jamais par un remplacement de textContent du bouton", () => {
-  const handler = galleryTemplate.match(/annotPillSend'\)[\s)]*\.onclick=async function\(\s*\)\{[\s\S]*?\n  \};/);
-  assert.ok(handler, "handler annotPillSend.onclick introuvable");
-  assert.doesNotMatch(handler[0], /this\.textContent\s*=/, "le handler ne doit plus écrire this.textContent");
+test("annotSendAll : l'état d'envoi passe par des classes is-busy/is-ok/is-err, jamais par un remplacement de textContent du bouton", () => {
+  const handler = galleryTemplate.match(/annotSendAll=async\(direct\s*\)=>\{[\s\S]*?\n  \};/);
+  assert.ok(handler, "fonction annotSendAll introuvable");
+  assert.doesNotMatch(handler[0], /button\.textContent\s*=/, "l'envoi ne doit pas réécrire le libellé du bouton");
   assert.match(handler[0], /classList\.add\('is-busy'\)/);
   assert.match(handler[0], /classList\.add\('is-ok'\)/);
   assert.match(handler[0], /classList\.add\('is-err'\)/);

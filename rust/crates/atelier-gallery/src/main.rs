@@ -9,6 +9,7 @@ mod drafts;
 mod files;
 mod gallery;
 mod git;
+mod figure_notes;
 mod figure_versions;
 mod host;
 mod manuscript;
@@ -1685,6 +1686,28 @@ async fn save_annotation(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let notes = request.get("notes").cloned().unwrap_or_else(|| json!([]));
+    // Lot 2 (2026-11-16) : chaque note part avec sa position en pourcentages
+    // et, quand le client le donne, un recadrage de sa zone écrit à côté de
+    // l'image annotée. Un recadrage qui ne s'écrit pas ne bloque pas l'envoi.
+    let sent_notes = figure_notes::parse(request.get("notes"));
+    let mut crops: Vec<Option<String>> = Vec::with_capacity(sent_notes.len());
+    for note in &sent_notes {
+        let mut written = None;
+        if let (Some(bytes), Some(number)) = (note.crop.as_ref(), note.number()) {
+            let crop_rel = format!(
+                ".fig_thumbs/annotation-previews/{}_annot_{}_note{}.png",
+                safe_annotation_stem(name),
+                stamp,
+                number
+            );
+            if let Ok(crop_path) = atelier_core::safe_project_path(&state.root, &crop_rel)
+                && tokio::fs::write(&crop_path, bytes).await.is_ok()
+            {
+                written = Some(crop_rel);
+            }
+        }
+        crops.push(written);
+    }
     let mut message = rel.clone();
     if let Some(items) = notes.as_array() {
         let lines: Vec<String> = items
@@ -1699,6 +1722,15 @@ async fn save_annotation(
             message.push_str("\nAnnotations (badges numerotes sur l'image) :\n");
             message.push_str(&lines.join("\n"));
         }
+    }
+    // Après la liste : la carte du fil s'arrête à cette ligne (voir
+    // `src/lib/figureAnnotation.ts`), l'agent lit la suite.
+    let positions = figure_notes::position_lines(&sent_notes, &crops);
+    if !positions.is_empty() {
+        message.push_str(
+            "\nPositions des notes : en % de la largeur (x) et de la hauteur (y) de l'image, origine en haut à gauche.\n",
+        );
+        message.push_str(&positions.join("\n"));
     }
     if let Some(context) = request.get("sourceContext").and_then(Value::as_str).filter(|s| s.len() <= 4096 && !s.is_empty()) {
         message.push('\n');
@@ -1746,7 +1778,7 @@ async fn save_annotation(
     );
     payload.insert(
         "notes".to_string(),
-        agent::normalize_notes(request.get("notes")),
+        figure_notes::agent_notes(&sent_notes, &crops),
     );
     payload.insert(
         "anchor".to_string(),
