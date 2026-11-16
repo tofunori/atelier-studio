@@ -39,6 +39,11 @@ declare global {
   var annotBusy: boolean;
   var annotCur: import('./pages/gallery_template_1').PageGlobals['annotCur'];
   var annotDrag: import('./pages/gallery_template_1').PageGlobals['annotDrag'];
+  var annotSelected: import('./pages/gallery_template_1').PageGlobals['annotSelected'];
+  var annotClient: import('./pages/gallery_template_1').PageGlobals['annotClient'];
+  var annotBadge: import('./pages/gallery_template_1').PageGlobals['annotBadge'];
+  var annotUnit: import('./pages/gallery_template_1').PageGlobals['annotUnit'];
+  var cv: import('./pages/gallery_template_1').PageGlobals['cv'];
   var saveAnnots: import('./pages/pdf_viewer_6').PageGlobals['saveAnnots'];
   var removeAnnot: import('./pages/pdf_viewer_6').PageGlobals['removeAnnot'];
   var sendAnnot: import('./pages/pdf_viewer_6').PageGlobals['sendAnnot'];

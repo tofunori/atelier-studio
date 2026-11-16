@@ -67,3 +67,39 @@ test('creation clamps both endpoints and rejects tiny boxes and arrows', () => {
   assert.ok(create('arrow', { x: 10, y: 10 }, { x: 13, y: 10 }, 100, 100));
   assert.equal(create('rect', { x: -20, y: -20 }, { x: -10, y: -10 }, 100, 100), null);
 });
+
+test('a point is created by one click, clamped, hit by distance and moved whole', () => {
+  const { normalize, handles } = geometry;
+  const dot = create('point', { x: 140, y: -5 }, { x: 0, y: 0 }, 100, 80);
+  assert.deepEqual(dot, { tool: 'point', x1: 100, y1: 0, x2: 100, y2: 0 });
+  assert.equal(hit(dot, { x: 96, y: 3 }, 5), true);
+  assert.equal(hit(dot, { x: 90, y: 3 }, 5), false);
+  assert.deepEqual(move(dot, -30, 500, 100, 80), { tool: 'point', x1: 70, y1: 80, x2: 70, y2: 80 });
+  assert.deepEqual(handles(dot), []);
+  assert.equal(normalize(dot), dot);
+});
+
+test('boxes normalize to top-left and bottom-right, arrows keep their direction', () => {
+  const { normalize } = geometry;
+  const box = normalize(create('rect', { x: 80, y: 70 }, { x: 20, y: 10 }, 100, 100));
+  assert.deepEqual(box, { tool: 'rect', x1: 20, y1: 10, x2: 80, y2: 70 });
+  const arrow = create('arrow', { x: 80, y: 70 }, { x: 20, y: 10 }, 100, 100);
+  assert.equal(normalize(arrow), arrow);
+});
+
+test('handles sit on the mark and each one moves only its own edges', () => {
+  const { handles, resizeHandle } = geometry;
+  const box = { tool: 'rect', x1: 20, y1: 10, x2: 80, y2: 70 } as import("../../src/contracts/gallery").FigureShape;
+  assert.deepEqual(handles(box).map(h => h.id), ['n', 'ne', 'e', 'se', 's', 'sw', 'w']);
+  assert.deepEqual(handles({ ...box, tool: 'ellipse' }).map(h => h.id), ['e', 's', 'w']);
+  assert.deepEqual(handles(box).find(h => h.id === 'se'), { id: 'se', x: 80, y: 70 });
+  assert.deepEqual(resizeHandle(box, 'e', { x: 95, y: 0 }, 100, 100), { ...box, x2: 95 });
+  assert.deepEqual(resizeHandle(box, 'n', { x: 0, y: 30 }, 100, 100), { ...box, y1: 30 });
+  assert.deepEqual(resizeHandle(box, 'sw', { x: 5, y: 120 }, 100, 100), { ...box, x1: 5, y2: 100 });
+  // Crossing the opposite edge flips the box instead of inverting it.
+  assert.deepEqual(resizeHandle(box, 'e', { x: 5, y: 0 }, 100, 100), { ...box, x1: 5, x2: 20 });
+  const arrow = { tool: 'arrow', x1: 10, y1: 10, x2: 60, y2: 40 } as import("../../src/contracts/gallery").FigureShape;
+  assert.deepEqual(handles(arrow), [{ id: 'start', x: 10, y: 10 }, { id: 'end', x: 60, y: 40 }]);
+  assert.deepEqual(resizeHandle(arrow, 'start', { x: -5, y: 20 }, 100, 100), { ...arrow, x1: 0, y1: 20 });
+  assert.deepEqual(resizeHandle(arrow, 'end', { x: 70, y: 20 }, 100, 100), { ...arrow, x2: 70, y2: 20 });
+});
