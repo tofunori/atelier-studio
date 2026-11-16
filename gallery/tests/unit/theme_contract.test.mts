@@ -124,18 +124,20 @@ test("envoi des notes de figure : aucun glyphe emoji/texte, libellé textuel et 
   assert.doesNotMatch(galleryTemplate, /&#128172;/, "l'emoji bulle de commentaire (&#128172;) ne doit plus apparaître");
   assert.doesNotMatch(galleryTemplate, /&#9678;/, "le glyphe cible (&#9678;) ne doit plus apparaître");
   assert.doesNotMatch(galleryTemplate, /&#8593;/, "le glyphe flèche d'envoi (&#8593;) ne doit plus apparaître");
-  assert.doesNotMatch(galleryTemplate, /id="annotPill/, "la pilule flottante a cédé la place au panneau Notes");
+  assert.doesNotMatch(galleryTemplate, /id="annotPill/, "la pilule flottante a cédé la place à l'onglet Notes");
+  assert.doesNotMatch(galleryTemplate, /id="lbNotes"/, "plus de bouton « Notes » dans la barre : les notes vivent dans l'onglet de la bande du bas");
+  assert.doesNotMatch(galleryTemplate, /<aside id="annotPanel"/, "plus de panneau latéral : il rapetissait la figure (Thierry 2026-11-16)");
 
-  // Lot 2 (2026-11-16) : « Envoyer à l'agent ⌘↵ » au pied du panneau Notes.
+  // Bande à deux onglets (2026-11-16) : « Envoyer au chat ⌘↵ » à droite des onglets.
   // Libellé textuel (Button = action textuelle), états d'envoi = <svg> inline.
   const send = galleryTemplate.match(/<button type="button" id="annotSendAll"[\s\S]*?<\/button>/);
   assert.ok(send, "balisage #annotSendAll introuvable");
-  assert.match(send[0], /<span class="lbl">Envoyer à l’agent<\/span><kbd>⌘↵<\/kbd><svg class="ic-ok"/, "envoi = libellé + raccourci + coche SVG");
+  assert.match(send[0], /<svg class="ic-send"[\s\S]*<span class="lbl">Envoyer au chat<\/span><kbd>⌘↵<\/kbd><svg class="ic-ok"/, "envoi = bulle SVG (seule en fenêtre étroite) + libellé + raccourci + coche SVG");
   assert.match(send[0], /<svg class="ic-err"/);
   const more = galleryTemplate.match(/<button type="button" id="annotSendMore"[\s\S]*?<\/button>/);
   assert.ok(more && /<svg /.test(more[0]), "le chevron des autres envois doit être un <svg> inline");
   const single = galleryTemplate.match(/<button type="button" class="annot-send"[\s\S]*?<\/button>/);
-  assert.ok(single && /<svg [\s\S]*<span>Envoyer au chat<\/span>/.test(single[0]), "« Envoyer au chat » = bulle SVG + libellé");
+  assert.ok(single && /aria-label="Envoyer cette note seule au chat"[\s\S]*<svg /.test(single[0]) && !/<span/.test(single[0]), "envoi d'une note seule = bulle SVG nommée, sans libellé");
   for (const glyph of ["◎", "↑", "×", "\\23F3", "\\2713"]) assert.ok(![send[0], more[0], single[0]].some((markup) => markup.includes(glyph)), `glyphe interdit : ${glyph}`);
   const toolbarCss = fs.readFileSync(new URL("../../assets/gallery_viewer_toolbar.css", import.meta.url), "utf8");
   assert.doesNotMatch(toolbarCss, /annotSendAll\.is-(ok|err)[^{]*::after/, "les états d'envoi passent par des SVG, pas par des glyphes ::after");

@@ -27,13 +27,13 @@
   const caption=document.createElement('div');caption.id='lbFigureCaption';get('lbViewport').after(caption);
   const syncCaption=()=>caption.textContent=get('lbCap').querySelector<HTMLElement>('b')?.textContent||'';
   new MutationObserver(syncCaption).observe(get('lbCap'),{childList:true,subtree:true,characterData:true});syncCaption();
-  // Notes panel: the figure column and the panel share one row, so the panel
-  // sits beside the figure and never over it. The version strip stays below.
+  // The figure column fills its row; the bottom band (versions and notes,
+  // two tabs) stays below it, so nothing ever sits beside or over the figure.
   const body=document.createElement('div');body.id='lbBody';
   const main=document.createElement('div');main.id='lbMain';
   get('lbViewport').before(body);
-  main.append(band,get('annotFollowLine'),get('lbViewport'),caption,get('lbCompare'));
-  body.append(main,get('annotPanel'));
+  main.append(band,get('lbViewport'),caption,get('lbCompare'));
+  body.append(main);
   // Documents and videos have their own surface: the figure row steps aside.
   body.style.display=get('lbViewport').style.display==='none'?'none':'';
   const zoom = document.createElement('details'); zoom.id = 'lbZoomMenu';
