@@ -154,6 +154,23 @@ fn capture_path(db: &mut Connection, path: &Path) -> Result<bool> {
     Ok(added)
 }
 
+/// The file's size and mtime are those recorded at its last capture.
+fn seen_unchanged(db: &Connection, path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let stamp = (meta.len() as i64, meta.modified().map_or(0, millis));
+    db.query_row(
+        "SELECT size, mtime FROM figure_seen WHERE path=?1",
+        [path.to_string_lossy()],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+    )
+    .optional()
+    .ok()
+    .flatten()
+        == Some(stamp)
+}
+
 /// Thins the oldest versions out once the store exceeds `cap` bytes.
 fn prune(db: &Connection, cap: i64) -> Result<usize> {
     let mut total: i64 = db.query_row(
@@ -259,12 +276,90 @@ pub(crate) fn capture_catalog_in_background(root: PathBuf) {
     });
 }
 
+/// Dossier où le chat range ses figures (`atelier_workspace::gallery_rel_for_image`).
+const CHAT_DIR: &str = "images-generees/";
+
+fn is_chat_snapshot(rel: &str) -> bool {
+    rel.starts_with(CHAT_DIR)
+}
+
+/// Nom d'une figure, tel que la galerie la range en pile : le nom du fichier
+/// sans extension, et pour une copie du chat sans son court hachage
+/// (`<nom>-<8 hex>`).
+fn figure_key(rel: &str) -> Option<(String, String)> {
+    let name = rel.rsplit('/').next()?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    if !RASTER.contains(&ext.as_str()) {
+        return None;
+    }
+    let mut stem = stem.to_lowercase();
+    if is_chat_snapshot(rel) {
+        match stem.rsplit_once('-') {
+            Some((base, hash))
+                if hash.len() == 8 && hash.bytes().all(|b| b.is_ascii_hexdigit()) =>
+            {
+                stem = base.to_string()
+            }
+            _ => return None,
+        }
+    }
+    (!stem.is_empty()).then_some((stem, ext))
+}
+
+/// Chaque figure enregistrée depuis le chat est une copie neuve
+/// (`images-generees/<nom>-<hachage>.png`) : la version suivante d'une figure
+/// du chat arrivait donc sous un autre nom, avec un historique d'une seule
+/// version, et les notes de la précédente semblaient perdues. Ces copies sont
+/// des instantanés de la même figure : on les joint à son historique, même
+/// quand la page ne les connaît pas encore (enregistrées pendant que la
+/// visionneuse est ouverte).
+fn with_chat_snapshots(root: &Path, rels: &[String]) -> Vec<String> {
+    let mut all: Vec<String> = Vec::with_capacity(rels.len());
+    for rel in rels {
+        if !all.contains(rel) {
+            all.push(rel.clone());
+        }
+    }
+    let keys: Vec<(String, String)> = all.iter().filter_map(|r| figure_key(r)).collect();
+    if keys.is_empty() {
+        return all;
+    }
+    let Ok(dir) = safe_project_path(root, CHAT_DIR.trim_end_matches('/')) else {
+        return all;
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return all;
+    };
+    let mut found: Vec<(SystemTime, String)> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter_map(|e| {
+            let rel = format!("{CHAT_DIR}{}", e.file_name().to_str()?);
+            let key = figure_key(&rel)?;
+            if all.contains(&rel) || !keys.contains(&key) {
+                return None;
+            }
+            Some((e.metadata().ok()?.modified().ok()?, rel))
+        })
+        .collect();
+    // Les plus récentes d'abord, dans la limite d'une requête.
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let room = 64usize.saturating_sub(all.len());
+    all.extend(found.into_iter().take(room).map(|(_, rel)| rel));
+    all
+}
+
 /// One history for a figure and all its copies (`rels`, lead first): versions
 /// ordered by date, a version that repeats the previous bytes counts once.
+/// The chat's saved copies of the figure join it ([`with_chat_snapshots`]); a
+/// chat copy whose bytes already are a version adds nothing.
 fn history(root: &Path, rels: &[String]) -> Result<Value> {
     if rels.is_empty() || rels.len() > 64 {
         return Err("Liste de fichiers invalide".into());
     }
+    let joined = with_chat_snapshots(root, rels);
+    let rels = joined.as_slice();
     let mut db = database(root)?;
     struct Stored {
         file: usize,
@@ -277,8 +372,11 @@ fn history(root: &Path, rels: &[String]) -> Result<Value> {
     let mut latest: Vec<Option<String>> = vec![None; rels.len()];
     for (file, rel) in rels.iter().enumerate() {
         let path = safe_project_path(root, rel)?;
-        // A copy being rewritten keeps its previous versions.
-        let _ = capture_path(&mut db, &path);
+        // A copy being rewritten keeps its previous versions. A chat copy is
+        // written once: after its first capture, a `stat` is enough.
+        if !(is_chat_snapshot(rel) && seen_unchanged(&db, &path)) {
+            let _ = capture_path(&mut db, &path);
+        }
         let mut query = db.prepare_cached(
             "SELECT version, hash, created, length(image) FROM figure_versions WHERE path=?1 ORDER BY version",
         )?;
@@ -302,8 +400,17 @@ fn history(root: &Path, rels: &[String]) -> Result<Value> {
     let mut versions: Vec<Value> = Vec::new();
     let mut previous = "";
     let mut bytes = 0i64;
+    let mut known: std::collections::HashSet<&str> = stored
+        .iter()
+        .filter(|s| !is_chat_snapshot(&rels[s.file]))
+        .map(|s| s.hash.as_str())
+        .collect();
     for item in &stored {
         if item.hash == previous {
+            continue;
+        }
+        // Instantané du chat : une version de plus seulement s'il apporte du neuf.
+        if is_chat_snapshot(&rels[item.file]) && !known.insert(item.hash.as_str()) {
             continue;
         }
         previous = &item.hash;
@@ -319,10 +426,14 @@ fn history(root: &Path, rels: &[String]) -> Result<Value> {
     if versions.is_empty() {
         return Err("Aucune version lisible".into());
     }
+    // Une copie du chat est un instantané figé, jamais « en retard » : seule
+    // celle qu'on a ouverte (la première) dit quelle version elle montre.
     let copies: Vec<Value> = rels
         .iter()
         .zip(&latest)
-        .filter_map(|(rel, hash)| {
+        .enumerate()
+        .filter(|(i, (rel, _))| *i == 0 || !is_chat_snapshot(rel))
+        .filter_map(|(_, (rel, hash))| {
             let hash = hash.as_deref()?;
             let version = versions.iter().rev().find(|v| v["hash"] == hash)?["version"].clone();
             Some(json!({"rel": rel, "version": version}))
@@ -542,6 +653,58 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM figure_versions WHERE hash=?1", [&hash], |r| r.get(0))
             .unwrap();
         assert_eq!(kept, 1);
+    }
+    #[test]
+    fn chat_copies_of_a_figure_stack_as_versions_and_keep_their_notes() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().canonicalize().unwrap();
+        fs::create_dir_all(dir.join("images-generees")).unwrap();
+        let first = "images-generees/fig_tests_droite_courbe-f5616df8.png";
+        let second = "images-generees/fig_tests_droite_courbe-b5b5ca0d.png";
+        write(&dir.join(first), &png(1));
+        // Une autre figure du chat et l'ancien nommage par hachage seul restent à part.
+        write(&dir.join("images-generees/fig_autre-0123abcd.png"), &png(7));
+        write(&dir.join("images-generees/image-0123456789abcdef0123456789abcdef.png"), &png(8));
+        let one = hist(&dir, &[first]);
+        assert_eq!(one["versions"].as_array().unwrap().len(), 1, "{one}");
+        let hash = one["versions"][0]["hash"].as_str().unwrap().to_string();
+        let db = database(&dir).unwrap();
+        db.execute(
+            "INSERT INTO figure_notes VALUES (?1, 'n1', 1, 'box', 0.1, 0.2, 0.3, 0.4, 'Surligner 2023', 'sent', 5, 6, NULL)",
+            [&hash],
+        )
+        .unwrap();
+        // Le chat refait la figure ; elle est enregistrée sous un autre nom.
+        write(&dir.join(second), &png(2));
+        for (opened, held) in [(second, 2), (first, 1)] {
+            let value = hist(&dir, &[opened]);
+            let versions = value["versions"].as_array().unwrap();
+            assert_eq!(versions.len(), 2, "{value}");
+            assert_eq!(versions[0]["rel"], first);
+            assert_eq!(versions[0]["notes"][0]["text"], "Surligner 2023");
+            assert_eq!(versions[1]["rel"], second);
+            assert!(versions[1].get("notes").is_none());
+            // Seule la copie ouverte est rapportée : un instantané n'est jamais « en retard ».
+            assert_eq!(value["copies"], json!([{"rel": opened, "version": held}]));
+        }
+        // Enregistrer de nouveau une figure déjà connue n'ajoute pas de version.
+        write(&dir.join("images-generees/fig_tests_droite_courbe-0000aaaa.png"), &png(1));
+        assert_eq!(hist(&dir, &[second])["versions"].as_array().unwrap().len(), 2);
+    }
+    #[test]
+    fn a_project_figure_gains_the_chat_versions_saved_beside_it() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().canonicalize().unwrap();
+        fs::create_dir_all(dir.join("images-generees")).unwrap();
+        write(&dir.join("Fig4.png"), &png(1));
+        hist(&dir, &["Fig4.png"]);
+        write(&dir.join("images-generees/fig4-1111aaaa.png"), &png(1));
+        write(&dir.join("images-generees/fig4-2222bbbb.png"), &png(2));
+        let value = hist(&dir, &["Fig4.png"]);
+        let versions = value["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), 2, "{value}");
+        assert_eq!(versions[1]["rel"], "images-generees/fig4-2222bbbb.png");
+        assert_eq!(value["copies"], json!([{"rel": "Fig4.png", "version": 1}]));
     }
     #[test]
     fn rejects_partial_files_and_paths_outside_project() {
