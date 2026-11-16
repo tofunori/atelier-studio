@@ -16,5 +16,7 @@ describe("fileRefFromLink", () => {
     expect(fileRefFromLink("carte.html", "https://example.com")).toBe("carte.html");
     expect(fileRefFromLink("Voir la carte", "out/carte.html")).toBe("out/carte.html");
     expect(fileRefFromLink("Voir la carte", "https://example.com")).toBeNull();
+    // Bilan des commentaires Word : `:13` = paragraphe p13.
+    expect(fileRefFromLink("c14 · ¶ 13", "manuscrit/Chap_revCK.docx:13")).toBe("manuscrit/Chap_revCK.docx:13");
   });
 });

@@ -7130,6 +7130,19 @@
   }
 
   // ------------------------------------------------------------- départ
+  /** Amène le paragraphe `idx` en haut de la vue, une fois la page posée ;
+   * une seconde fois si la mise en page l'a déplacé et que rien n'a bougé. */
+  function revealPara(idx: number) {
+    let at = -1;
+    const go = () => {
+      const el = paper.querySelector(`.d-p[data-idx="${idx}"]`);
+      if (!el || (at >= 0 && scroller.scrollTop !== at)) return;
+      scroller.scrollBy({ top: el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 32 });
+      at = scroller.scrollTop;
+    };
+    requestAnimationFrame(() => requestAnimationFrame(go));
+    setTimeout(go, 500);
+  }
   async function boot() {
     if (!PATH) { paper.innerHTML = '<div class="loading">Aucun document indiqué.</div>'; return; }
     document.title = NAME;
@@ -7148,6 +7161,10 @@
       // Équations : KaTeX et ses polices avant la première coupe en pages.
       if (hasMath(m as Model)) await loadKatex();
       applyModel(m);
+      // `line=13` : arriver sur le paragraphe p13 (lien d'un commentaire
+      // dans le bilan que l'agent fait au chat).
+      const goto = Number.parseInt(Q.get("line") || "", 10);
+      if (Number.isInteger(goto) && goto >= 0) revealPara(goto);
       live?.schedule();
       status("Enregistré dans le .docx");
       setInterval(poll, POLL_MS);

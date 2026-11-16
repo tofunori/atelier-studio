@@ -228,8 +228,8 @@ pub fn compute_tool_definition() -> Value {
 }
 
 pub const DOCX_TOOL_NAME: &str = "atelier_docx";
-const DOCX_ACTIONS: [&str; 25] = [
-    "read", "images", "edit", "equation", "insert_equation", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
+const DOCX_ACTIONS: [&str; 26] = [
+    "read", "images", "review_progress", "edit", "equation", "insert_equation", "insert_paragraph", "join", "split", "comment", "edit_comment", "withdraw_comment", "reply", "draft_reply", "checked", "format",
     "insert_note", "insert_figure", "replace_figure", "delete_figure", "move_figure", "insert_row", "delete_row", "cite_search", "cite", "bibliography",
 ];
 
@@ -241,13 +241,13 @@ pub fn docx_tool_definition() -> Value {
         "name": DOCX_TOOL_NAME,
         "description": "Read and edit a project Word .docx WITHOUT breaking it (never unzip or rewrite it \
     yourself). read: p0…, notes n1.p0…, header1.p0…, tracked [+ins+]#id [-del-]#id, comments c1…. \
-    images: figures, charts, text boxes as on the page. Writes are tracked changes or comments in the \
-    user's name; only the user accepts or rejects. find = exact current text (+paragraph or occurrence \
-    if ambiguous). insert_note / insert_figure / cite go after find. cite: live Zotero citation, keys \
-    from cite_search; bibliography: add or refresh it. insert_row / delete_row: by a cell. join: p8 into \
-    p7. split: after find. equation N / insert_equation: from latex. replace_figure / delete_figure / move_figure: \
-    image N. edit_comment / withdraw_comment: your or the user's comment. draft_reply: a \
-    draft the user sends.",
+    images: figures, charts, text boxes as shown. Writes are tracked changes or comments in the \
+    user's name; only the user decides. find = exact current text (+paragraph or \
+    occurrence). insert_note/insert_figure/cite go after find. cite: live Zotero citation, keys \
+    from cite_search; bibliography: add/refresh it. insert_row/delete_row: by a cell. join: p8 into \
+    p7. split: after find. equation N/insert_equation: from latex. replace_figure/delete_figure/move_figure: \
+    image N. edit_comment/withdraw_comment: yours or the user's. draft_reply: a \
+    draft the user sends. review_progress: reviewer comments then vs now.",
         "inputSchema": {
             "type": "object",
             "required": ["action", "path"],
@@ -256,7 +256,9 @@ pub fn docx_tool_definition() -> Value {
                 "path": { "type": "string", "description": "Path of the .docx, relative to the project or absolute" },
                 "from": { "type": "integer", "description": "read / images: first paragraph number" },
                 "to": { "type": "integer", "description": "read / images: last paragraph number" },
-                "start": { "type": "integer", "description": "images: resume at figure N (4 per call)" },
+                "start": { "type": "integer", "description": "images: resume at figure N (4 per call); review_progress: at comment N (40 per call)" },
+                "author": { "type": "string", "description": "review_progress: the reviewer (name or initials); default every author but the user" },
+                "since": { "type": "string", "description": "review_progress: a copy of the file as received, if Atelier kept none" },
                 "paragraph": { "type": "string", "description": "p12 (from read); images: only this paragraph's figures; optional for edit/comment/format/split when find is unique; join: the second paragraph (p8 joins p7); move_figure: the paragraph holding the figure alone, its caption follows, tracked as one change" },
                 "find": { "type": "string", "description": "Exact current text to replace, comment or format; split: text just before the cut" },
                 "occurrence": { "type": "integer", "description": "1-based, when find appears several times" },
