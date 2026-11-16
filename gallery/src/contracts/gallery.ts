@@ -27,12 +27,18 @@ export interface GalleryFileTypeState {
   presets: GalleryFileTypePreset[]; summary: string;
   /** Fichiers marqués archive (_archive*, menage_, tmp…) affichés ; masqués par défaut. */
   archives?: boolean; archiveCount?: number;
+  /** Dossier choisi (et ses sous-dossiers) ; '' = tout le projet. */
+  folder?: string; folderTree?: GalleryFolderTree;
 }
+/** Un dossier du bouton Dossier : chemin relatif, nom affiché, fichiers visibles. */
+export interface GalleryFolderNode {path: string; label: string; count: number; children: GalleryFolderNode[]}
+export interface GalleryFolderTree {total: number; folders: GalleryFolderNode[]}
 export interface GalleryFileTypeAdapter {
   getState(): GalleryFileTypeState;
   setActive(extensions: string[]): void; setPinned(extensions: string[]): void;
   applyPreset(id: string): void; savePreset(name: string): void; removePreset(id: string): void;
   setArchives?(on: boolean): void;
+  setFolder?(path: string): void;
   resetFilters(): void;
 }
 export type GallerySelectionState = {rels: string[]; imageCount: number};

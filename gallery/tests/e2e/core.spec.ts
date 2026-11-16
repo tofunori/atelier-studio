@@ -562,6 +562,76 @@ test('filters: archive copies stay hidden until the « Archives » switch is on'
   });
 });
 
+test('folder button: a folder shows all its files, formats included, and its subfolders', async ({ page }) => {
+  // Demande 2026-11-16 : « voir tous les scripts d'analyse, tous les résultats ».
+  // Un dossier choisi montre tout son contenu (le .py et le .csv sont hors des
+  // formats par défaut), ses sous-dossiers compris, et reste choisi au rechargement.
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await expect(page.locator('#grid .card')).toHaveCount(5);   // 3 + 2 figures (images)
+    const folder = page.locator('[data-gallery-command="folder"]');
+    await expect(folder).toHaveAttribute('aria-label', 'Dossiers');
+
+    await folder.click();
+    const menu = page.getByRole('menu');
+    await expect(menu.locator('[data-gallery-folder]')).toHaveText([/Tout le projet\s*8/, /Figures\s*2/, /Analyses\s*2/, /Résultats\s*1/]);
+    await menu.locator('[data-gallery-folder="analyses"]').click();
+    await expect(menu).toBeHidden();
+    await expect(page.locator('#grid .card')).toHaveCount(2);
+    await expect(page.locator('#grid .card[data-card="analyses/01_prep/extraire.py"]')).toHaveCount(1);
+    await expect(folder).toHaveAttribute('aria-label', 'Dossier Analyses, 2 fichiers');
+    await expect(folder).toContainText('Analyses');
+
+    // le dossier choisi déplie ses sous-dossiers, les autres non
+    await folder.click();
+    await expect(menu.locator('[data-gallery-folder="figures/supp"]')).toHaveCount(0);
+    await menu.locator('[data-gallery-folder="analyses/02_modeles"]').click();
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(page.locator('#grid .card')).toHaveAttribute('data-card', 'analyses/02_modeles/modele.py');
+
+    await page.reload();
+    await expect(page.locator('#grid .card')).toHaveCount(1);
+    await expect(folder).toContainText('02_modeles');
+
+    await folder.click();
+    await menu.locator('[data-gallery-folder=""]').click();
+    await expect(page.locator('#grid .card')).toHaveCount(5);
+    await expect(folder).toHaveAttribute('aria-label', 'Dossiers');
+  }, (root) => {
+    for (const dir of ['figures/supp', 'analyses/01_prep', 'analyses/02_modeles', 'resultats']) mkdirSync(path.join(root, dir), { recursive: true });
+    writeFileSync(path.join(root, 'figures', 'fig1.png'), pngFixture(32, 24));
+    writeFileSync(path.join(root, 'figures', 'supp', 'figS1.png'), pngFixture(32, 24));
+    writeFileSync(path.join(root, 'analyses', '01_prep', 'extraire.py'), 'print(1)\n');
+    writeFileSync(path.join(root, 'analyses', '02_modeles', 'modele.py'), 'print(2)\n');
+    writeFileSync(path.join(root, 'resultats', 'resume.csv'), 'a,b\n1,2\n');
+    rmSync(path.join(root, 'analysis.py'));
+  });
+});
+
+test('folder button: embedded, it fits in the command bar with a folder chosen', async ({ page }) => {
+  await withGallery(async ({ url }) => {
+    await page.goto(url);
+    await page.setContent(`<body style="margin:0"><iframe title="gallery" src="${url}${url.includes('?') ? '&' : '?'}embedded=atelier" style="border:0;width:100vw;height:100vh"></iframe></body>`);
+    const frame = page.frameLocator('iframe');
+    await expect(frame.locator('.gallery-command-bar')).toBeVisible();
+    await page.evaluate(() => document.querySelector('iframe').contentWindow.postMessage({ type:'atelier-folder-state', state:{ folders:[{path:'/chapter',name:'Chapitre1-Albedo'}], selected:'/chapter', label:'Dossiers', manageLabel:'Gérer les dossiers' } }, '*'));
+    await frame.locator('[data-gallery-command="folder"]').click();
+    await frame.locator('[data-gallery-folder="analyses_longues_du_chapitre"]').click();
+    await expect(frame.locator('[data-gallery-command="folder"]')).toContainText('Analyses_longues_du_chapitre');
+    for (const width of [375, 768, 1280]) {
+      await page.setViewportSize({ width, height: 800 });
+      const controls = frame.locator('.gallery-command-bar[data-gallery-toolbar-state="normal"] button');
+      await expect(controls).toHaveCount(11);
+      const boxes = await controls.evaluateAll(elements => elements.map(el => { const r=el.getBoundingClientRect();return {x:r.x,right:r.right}; }));
+      for(let i=1;i<boxes.length;i++) expect(boxes[i].x).toBeGreaterThanOrEqual(boxes[i-1].right);
+      for(const b of boxes){expect(b.x).toBeGreaterThanOrEqual(0);expect(b.right).toBeLessThanOrEqual(width);}
+    }
+  }, (root) => {
+    mkdirSync(path.join(root, 'analyses_longues_du_chapitre'), { recursive: true });
+    writeFileSync(path.join(root, 'analyses_longues_du_chapitre', 'modele.py'), 'print(2)\n');
+  });
+});
+
 test('figure versions: one card per figure, the viewer shows its history with late copies', async ({ page }) => {
   // Vécu 2026-10-21 : figS_…pdf/.png dans figures/supp (ici .svg/.png, le PDF
   // étant masqué par défaut), leur copie pour LaTeX
