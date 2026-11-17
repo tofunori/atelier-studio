@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProviderId {
+    Antigravity,
     Claude,
     Codex,
     Grok,
@@ -21,6 +22,7 @@ pub enum ProviderId {
 impl ProviderId {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Antigravity => "antigravity",
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Grok => "grok",
@@ -32,6 +34,7 @@ impl ProviderId {
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
+            "antigravity" => Some(Self::Antigravity),
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "grok" => Some(Self::Grok),
@@ -185,13 +188,18 @@ pub fn build_registry_except(
             m.insert("kimi".into(), Arc::new(kimi));
         }
     }
+    if wanted("antigravity") {
+        if let Some(agy) = crate::antigravity::AntigravityProvider::new() {
+            m.insert("antigravity".into(), Arc::new(agy));
+        }
+    }
     if wanted("opencode") {
         if let Some(oc) = crate::opencode::OpenCodeProvider::new() {
             m.insert("opencode".into(), Arc::new(oc));
         }
     }
     let builtin_ids: std::collections::HashSet<&str> = [
-        "claude", "codex", "grok", "kimi", "opencode", "fake", "gemini",
+        "claude", "codex", "grok", "kimi", "opencode", "fake", "gemini", "antigravity",
     ]
     .into_iter()
     .collect();

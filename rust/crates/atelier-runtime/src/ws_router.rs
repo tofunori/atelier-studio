@@ -457,13 +457,15 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
                         journal
                     }
                 }
-                Some(t) if t.provider == "kimi" => {
+                Some(t) if t.provider == "kimi" || t.provider == "antigravity" => {
                     // Import une seule fois : native_history rend None quand la
                     // session est déjà ouverte/importée — le journal Atelier
                     // reste alors la source (pas de doublon après reprise).
+                    // Même contrat chez agy (`session/load` rejoue tout).
                     if can_use_native {
-                        native_history_used = t.session_id.is_some() && state.provider("kimi").is_some();
-                        let native = match (t.session_id.as_deref(), state.provider("kimi")) {
+                        native_history_used =
+                            t.session_id.is_some() && state.provider(&t.provider).is_some();
+                        let native = match (t.session_id.as_deref(), state.provider(&t.provider)) {
                             (Some(session_id), Some(p)) => {
                                 p.native_history(session_id, &t.project_root).await
                             }

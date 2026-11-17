@@ -829,6 +829,13 @@ fn describe_server_request(method: &str, params: &Value) -> Option<Value> {
     if method == "claude/can_use_tool" {
         return Some(atelier_providers::claude_interaction_spec(params));
     }
+    // Antigravity : agy n'offre que « autoriser » et « refuser » ; la carte
+    // ajoute « toujours pour ce fil » ou « toujours les modifications », que
+    // le provider retient lui-même (conception v2, D10). Revue de plan : le
+    // plan en entier.
+    if method == atelier_providers::ANTIGRAVITY_PERMISSION_METHOD {
+        return Some(atelier_providers::antigravity_interaction_spec(params));
+    }
     let approval = matches!(
         method,
         "execCommandApproval"
@@ -1135,7 +1142,14 @@ fn make_interaction_relay(
             };
             // Claude attend comme le terminal : sans limite pratique (la
             // demande est close avec le tour). Les autres gardent 120 s.
-            let delai = if method == "claude/can_use_tool" { 3600 } else { 120 };
+            // agy aussi attend sans limite : 120 s couperaient l'outil.
+            let delai = if method == "claude/can_use_tool"
+                || method == atelier_providers::ANTIGRAVITY_PERMISSION_METHOD
+            {
+                3600
+            } else {
+                120
+            };
             match tokio::time::timeout(std::time::Duration::from_secs(delai), answer_rx).await {
                 Ok(Ok(response)) => {
                     garde.spec = None;
@@ -4472,6 +4486,21 @@ ask the user to delete one"), "l'agent retire lui-même ses bulles");
             &json!({"optionId": "deny", "message": "utilise plutôt fd"}),
         );
         assert_eq!(resume, "Refuser · « utilise plutôt fd »");
+    }
+
+    #[test]
+    fn antigravity_carte_a_trois_choix_et_resume() {
+        let params = json!({"sessionId": "s", "toolCall": {"toolCallId": "tc1", "title": "ls",
+            "kind": "execute", "name": "run_command", "args": {"CommandLine": "ls"}},
+            "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+                        {"optionId": "deny", "name": "Deny", "kind": "reject_once"}]});
+        let spec =
+            describe_server_request(atelier_providers::ANTIGRAVITY_PERMISSION_METHOD, &params)
+                .unwrap();
+        assert_eq!(spec["interactionType"], "approval");
+        assert_eq!(spec["choices"].as_array().unwrap().len(), 3);
+        let resume = summarize_interaction(&spec, &json!({"optionId": "allow"}));
+        assert_eq!(resume, "Autoriser");
     }
 
     #[test]

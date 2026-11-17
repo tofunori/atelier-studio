@@ -282,14 +282,13 @@ impl AcpServer {
     }
 
     /// Délai du handshake `initialize` propre au provider (G5).
-    #[allow(dead_code)] // premier client : Antigravity (lot 2)
+    #[allow(dead_code)] // aucun provider ne l'allonge aujourd'hui (agy : 0,1 s)
     pub fn with_init_timeout(mut self, ms: u64) -> Self {
         self.init_timeout_ms = ms;
         self
     }
 
     /// Variables retirées de l'environnement du process ACP.
-    #[allow(dead_code)] // premier client : Antigravity (lot 2)
     pub fn with_env_removed(mut self, vars: &[&'static str]) -> Self {
         self.env_removed = vars.to_vec();
         self

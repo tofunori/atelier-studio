@@ -28,6 +28,13 @@ pub struct TurnCtx {
     pub seen_edits: HashSet<String>,
     /// Dernier `usage_update` brut — absorbé, jamais ré-émis (piège journal).
     pub last_usage_update: Option<Value>,
+    /// Outils encore ouverts (ni `completed` ni `failed`), dans l'ordre
+    /// d'apparition. Seul le mappeur Antigravity le tient : il ferme à la fin
+    /// du tour un `ask_question` laissé `pending` par le CLI.
+    pub open_tools: Vec<String>,
+    /// Nom natif d'outil par toolCallId, quand l'agent le donne à part du
+    /// titre affiché (Antigravity : `run_command`, `write_file`…).
+    pub tool_names: HashMap<String, String>,
 }
 
 pub(crate) fn text_of(update: &Value) -> String {

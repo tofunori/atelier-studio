@@ -66,7 +66,6 @@ impl SessionBook {
 
     /// Oublie une session (fermée par l'escalade du Stop) : le tour suivant
     /// la rouvrira au lieu de prendre la voie rapide.
-    #[allow(dead_code)] // premier client : Antigravity (lot 2)
     pub(crate) fn forget(&mut self, sid: &str) {
         self.opened.remove(sid);
     }
@@ -106,7 +105,6 @@ pub(crate) fn find_config_option<'a>(snapshot: &'a Value, id: &str) -> Option<&'
 /// Option par catégorie ACP (`model`, `thought_level`, `mode`), puis par
 /// identifiant de repli. Les ids varient d'un agent à l'autre ; la catégorie
 /// est le contrat du protocole.
-#[allow(dead_code)] // premier client : Antigravity (lot 2)
 pub(crate) fn find_config_option_by<'a>(
     snapshot: &'a Value,
     category: &str,
@@ -152,14 +150,12 @@ pub(crate) fn option_values(option: &Value) -> Vec<String> {
 
 /// Modes annoncés par une réponse `session/new|load|resume` :
 /// `{modes: {currentModeId, availableModes: [{id, name}]}}`.
-#[allow(dead_code)] // premier client : Antigravity (lot 2)
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct SessionModes {
     pub current: Option<String>,
     pub available: Vec<String>,
 }
 
-#[allow(dead_code)] // premier client : Antigravity (lot 2)
 impl SessionModes {
     pub(crate) fn from_result(result: &Value) -> Option<Self> {
         let modes = result.get("modes").filter(|m| m.is_object())?;
@@ -198,7 +194,6 @@ impl SessionModes {
 /// Pose un mode de session standard. Ne fait rien si le mode est déjà le
 /// courant ; refuse un mode non annoncé AVANT d'écrire sur le fil (un mode
 /// inconnu ne doit jamais retomber en silence sur le mode par défaut).
-#[allow(dead_code)] // premier client : Antigravity (lot 2)
 pub(crate) async fn set_session_mode(
     acp: &AcpServer,
     sid: &str,

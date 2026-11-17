@@ -535,6 +535,54 @@ pub fn builtin_providers() -> Vec<ProviderStatus> {
             ok: false,
             key_missing: None,
         },
+        ProviderStatus {
+            id: "antigravity".into(),
+            label: "Antigravity".into(),
+            kind: "cli".into(),
+            // Aucun modèle en dur : le catalogue vient des options de session
+            // d'agy (ids sans effort), l'effort de `thought_level`.
+            models: vec![],
+            model_reasoning: Value::Object(Default::default()),
+            model_labels: Value::Object(Default::default()),
+            routes: Value::Array(Default::default()),
+            default_model: String::new(),
+            efforts: vec![],
+            capabilities: ProviderCapabilities {
+                reasoning: true,
+                resume: true,
+                // agy fusionne un second prompt dans le tour en cours ;
+                // le pilotage attend le lot 8.
+                steering: false,
+                queue: true,
+                goals: false,
+                tools: true,
+                tool_output: true,
+                permissions: true,
+                interactive_input: true,
+                mcp_elicitation: false,
+                mcp_tools: true,
+                atelier_sessions_mcp: true,
+                // agy ne transmet pas le résultat des outils MCP.
+                mcp_widgets: false,
+                plugins: false,
+                skills: false,
+                skills_attach: false,
+                review: false,
+                structured_review: false,
+                compact: false,
+                image_input: true,
+                durable_history: true,
+                permission_modes: vec![
+                    "default".into(),
+                    "acceptEdits".into(),
+                    "plan".into(),
+                    "bypassPermissions".into(),
+                ],
+            },
+            version: None,
+            ok: false,
+            key_missing: None,
+        },
     ]
 }
 
@@ -571,7 +619,10 @@ mod tests {
     #[test]
     fn builtin_provider_ids() {
         let ids: Vec<_> = builtin_providers().into_iter().map(|p| p.id).collect();
-        assert_eq!(ids, vec!["claude", "codex", "grok", "kimi", "opencode"]);
+        assert_eq!(
+            ids,
+            vec!["claude", "codex", "grok", "kimi", "opencode", "antigravity"]
+        );
     }
 
     #[test]
@@ -610,6 +661,20 @@ mod tests {
             "structuredReview opt-in, jamais déduit de review natif"
         );
         assert_eq!(kimi.capabilities.permission_modes.len(), 4);
+    }
+
+    #[test]
+    fn antigravity_catalogue_sans_modele_en_dur() {
+        let agy = builtin_providers()
+            .into_iter()
+            .find(|p| p.id == "antigravity")
+            .expect("antigravity présent");
+        assert!(agy.models.is_empty());
+        assert!(agy.default_model.is_empty());
+        assert!(agy.efforts.is_empty());
+        assert!(agy.capabilities.permissions);
+        assert!(!agy.capabilities.steering, "pilotage au lot 8");
+        assert!(!agy.capabilities.mcp_widgets);
     }
 
     #[test]
