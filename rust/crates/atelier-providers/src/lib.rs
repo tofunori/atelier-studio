@@ -5,6 +5,9 @@
 pub mod agent_groups;
 mod acp_map;
 mod acp_rpc;
+mod acp_session;
+mod antigravity;
+mod antigravity_map;
 mod api;
 mod claude;
 mod cli_login;
@@ -30,6 +33,10 @@ mod turn_idle;
 
 pub use api::{
     load_api_configs, load_api_provider_list, parse_sse_chunk, write_api_configs, ApiChatProvider, ApiProviderConfig,
+};
+pub use antigravity::{
+    interaction_spec as antigravity_interaction_spec, AntigravityProvider,
+    PERMISSION_METHOD as ANTIGRAVITY_PERMISSION_METHOD,
 };
 pub use claude::ClaudeProvider;
 pub use claude_history::{claude_subagent_events, load_claude_subagent_history};

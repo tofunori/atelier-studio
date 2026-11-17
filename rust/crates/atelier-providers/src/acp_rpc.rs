@@ -86,6 +86,13 @@ impl AcpRpcError {
     pub fn is_invalid_params(&self) -> bool {
         self.code == Some(-32602)
     }
+
+    /// Session inconnue de l'agent : `-32602` (Kimi) ou `-32002` « resource
+    /// not found » (code ACP standard, Antigravity). Le tour suivant repart
+    /// sur une session neuve.
+    pub fn is_session_gone(&self) -> bool {
+        matches!(self.code, Some(-32602) | Some(-32002))
+    }
 }
 
 impl std::fmt::Display for AcpRpcError {
@@ -185,6 +192,12 @@ pub struct AcpServer {
     /// Politique du provider quand une session n'a pas de handler dédié
     /// (OpenCode y met son auto-approbation du plan 045 ; Kimi n'en a pas).
     default_server_handler: Arc<std::sync::Mutex<Option<ServerRequestHandler>>>,
+    /// Délai du handshake `initialize` (10 s par défaut ; un agent qui charge
+    /// ses modèles au démarrage peut demander plus).
+    init_timeout_ms: u64,
+    /// Variables d'environnement retirées du process enfant (ex. une clé API
+    /// qui ferait facturer l'API au lieu de l'abonnement).
+    env_removed: Vec<&'static str>,
 }
 
 /// Réponse sûre quand AUCUN handler ne prend la requête serveur→client :
@@ -263,7 +276,22 @@ impl AcpServer {
             ensure_lock: Arc::new(Mutex::new(())),
             init_cache: Arc::new(std::sync::Mutex::new(None)),
             default_server_handler: Arc::new(std::sync::Mutex::new(None)),
+            init_timeout_ms: 10_000,
+            env_removed: Vec::new(),
         }
+    }
+
+    /// Délai du handshake `initialize` propre au provider (G5).
+    #[allow(dead_code)] // aucun provider ne l'allonge aujourd'hui (agy : 0,1 s)
+    pub fn with_init_timeout(mut self, ms: u64) -> Self {
+        self.init_timeout_ms = ms;
+        self
+    }
+
+    /// Variables retirées de l'environnement du process ACP.
+    pub fn with_env_removed(mut self, vars: &[&'static str]) -> Self {
+        self.env_removed = vars.to_vec();
+        self
     }
 
     /// Génération du process courant (change à chaque spawn).
@@ -332,6 +360,9 @@ impl AcpServer {
             .kill_on_drop(true);
         if let Some(cwd) = cwd {
             cmd.current_dir(cwd);
+        }
+        for var in &self.env_removed {
+            cmd.env_remove(var);
         }
         #[cfg(unix)]
         {
@@ -521,7 +552,7 @@ impl AcpServer {
             });
         }
 
-        match self.request("initialize", init_params, Some(10_000)).await {
+        match self.request("initialize", init_params, Some(self.init_timeout_ms)).await {
             Ok(v) => {
                 let init = AcpInitializeResult::from_value(&v);
                 *self.init_cache.lock().unwrap() = Some((my_gen, init.clone()));
@@ -823,6 +854,68 @@ mod tests {
         assert!(server.generation() > g1);
         assert_eq!(re.protocol_version, 1);
         assert!(server.init_result().is_some());
+    }
+
+    /// Mini-agent ACP en ligne : répond à `initialize` en annonçant si une
+    /// variable d'environnement lui est parvenue, ou se tait (`muet`).
+    fn inline_agent(mode: &str) -> Option<(PathBuf, Vec<String>)> {
+        let node = node_bin()?;
+        let script = r#"
+const muet = process.argv[1] === "muet";
+require("readline").createInterface({ input: process.stdin }).on("line", (l) => {
+  const m = JSON.parse(l);
+  if (muet) return;
+  const vu = Object.prototype.hasOwnProperty.call(process.env, "ATELIER_ACP_TEST_SECRET");
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id,
+    result: { protocolVersion: 1, agentCapabilities: {}, agentInfo: { name: vu ? "vu" : "absent" } } }) + "\n");
+});"#;
+        Some((node, vec!["-e".into(), script.into(), mode.into()]))
+    }
+
+    #[tokio::test]
+    async fn variable_retiree_n_atteint_pas_l_agent() {
+        let Some((node, args)) = inline_agent("normal") else {
+            eprintln!("SKIP: node introuvable");
+            return;
+        };
+        // Nom propre à ce test : aucun autre test ne lit cette variable.
+        std::env::set_var("ATELIER_ACP_TEST_SECRET", "1");
+        let garde = AcpServer::new("test-env");
+        let init = garde.ensure(&node, &args, init_params()).await.unwrap();
+        assert_eq!(init.agent_info.as_ref().unwrap()["name"], "vu");
+        garde.shutdown().await;
+        let propre =
+            AcpServer::new("test-env").with_env_removed(&["ATELIER_ACP_TEST_SECRET"]);
+        let init = propre.ensure(&node, &args, init_params()).await.unwrap();
+        assert_eq!(init.agent_info.as_ref().unwrap()["name"], "absent");
+        propre.shutdown().await;
+        std::env::remove_var("ATELIER_ACP_TEST_SECRET");
+    }
+
+    #[tokio::test]
+    async fn delai_initialize_reglable_par_provider() {
+        let Some((node, args)) = inline_agent("muet") else {
+            eprintln!("SKIP: node introuvable");
+            return;
+        };
+        let server = AcpServer::new("test-muet").with_init_timeout(300);
+        let debut = std::time::Instant::now();
+        let err = server
+            .ensure(&node, &args, init_params())
+            .await
+            .expect_err("agent muet");
+        assert!(err.message.contains("initialize"), "{err}");
+        assert!(debut.elapsed() < Duration::from_secs(5), "{:?}", debut.elapsed());
+        assert!(!server.is_alive().await, "process arrêté après l'échec");
+    }
+
+    #[test]
+    fn session_disparue_couvre_les_deux_codes() {
+        let e = |code| AcpRpcError { code: Some(code), message: String::new(), data: None, transport: false };
+        assert!(e(-32602).is_session_gone());
+        assert!(e(-32002).is_session_gone());
+        assert!(!e(-32000).is_session_gone());
+        assert!(!e(-32002).is_invalid_params());
     }
 
     #[tokio::test]

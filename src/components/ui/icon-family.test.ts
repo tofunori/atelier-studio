@@ -11,7 +11,7 @@ const components = join(__dirname, "..");
 /** Dessins qui ne sont PAS des icônes de la famille, et combien par fichier.
  *  Ajouter une ligne ici demande une raison du même ordre. */
 const DRAWN: Record<string, number> = {
-  "icons.tsx": 4, // logos des fournisseurs (Claude, Codex, Grok) et pont entre sessions
+  "icons.tsx": 5, // logos des fournisseurs (Claude, Codex, Grok, Antigravity) et pont entre sessions
   "RailActivity.tsx": 1, // anneau de progression
   "RailSignalMark.tsx": 1, // signal du rail (repère, pas une icône)
   "UsagePopover.tsx": 1, // anneau d'usage

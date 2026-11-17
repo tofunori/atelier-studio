@@ -854,13 +854,14 @@ pub fn provider_label(id: &str) -> &'static str {
         "codex" => "Codex",
         "kimi" => "Kimi",
         "grok" => "Grok",
+        "antigravity" => "Antigravity",
         "opencode" => "OpenCode",
         _ => "Agent",
     }
 }
 
 pub fn is_mcp_compatible_provider(id: &str) -> bool {
-    matches!(id, "claude" | "codex" | "kimi" | "grok" | "opencode")
+    matches!(id, "claude" | "codex" | "kimi" | "grok" | "opencode" | "antigravity")
 }
 
 /// Faut-il équiper ce fil du serveur MCP Atelier ?
@@ -932,7 +933,7 @@ mod tests {
         // Régression de conception (relecture finale 2026-08-28, I1) : la
         // condition « fil lié » rendait `atelier_widget` invisible dans un
         // fil normal — le cas d'usage moteur de la spec.
-        for provider in ["claude", "codex", "kimi", "grok", "opencode"] {
+        for provider in ["claude", "codex", "kimi", "grok", "opencode", "antigravity"] {
             assert!(
                 should_launch_mcp(provider),
                 "{provider} : un fil sans lien doit tout de même avoir l'outil"

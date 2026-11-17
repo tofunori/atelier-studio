@@ -79,7 +79,7 @@ export type KernelStatus = {
 };
 
 /** Providers qui reçoivent le serveur MCP d'Atelier, donc l'outil du noyau. */
-export const KERNEL_PROVIDERS = ["claude", "codex", "kimi", "grok", "opencode"];
+export const KERNEL_PROVIDERS = ["claude", "codex", "kimi", "grok", "opencode", "antigravity"];
 
 /** Fusionne une cellule reçue (début ou fin) dans la liste, triée par numéro. */
 export function mergeCell(cells: KernelCell[], cell: KernelCell): KernelCell[] {

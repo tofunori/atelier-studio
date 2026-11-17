@@ -249,7 +249,7 @@ export function historyPaths(entries: HistoryEntry[]): string[] {
 export function providerName(provider?: string | null): string {
   const p = (provider ?? "").trim();
   if (!p) return strings().agentLabel;
-  const known: Record<string, string> = { claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi" };
+  const known: Record<string, string> = { claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi", antigravity: "Antigravity" };
   return known[p.toLowerCase()] ?? p.charAt(0).toUpperCase() + p.slice(1);
 }
 

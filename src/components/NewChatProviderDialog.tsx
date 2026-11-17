@@ -4,7 +4,7 @@ import { RowButton } from "./ui";
 import { ProviderIcon } from "./icons";
 import { t } from "../lib/i18n";
 
-const NEW_CHAT_PROVIDERS = ["claude", "codex", "grok", "kimi", "opencode"];
+const NEW_CHAT_PROVIDERS = ["claude", "codex", "grok", "kimi", "opencode", "antigravity"];
 
 /** Choix du fournisseur d'un nouveau chat indépendant ; un CLI non détecté
  * reste listé mais désactivé. */

@@ -102,7 +102,7 @@ export function orderedVisibleProviders(
     .sort((a, b) => rank(a.id) - rank(b.id));
 }
 
-const LINKABLE_AGENT_IDS = ["claude", "codex", "kimi", "grok", "opencode"];
+const LINKABLE_AGENT_IDS = ["claude", "codex", "kimi", "grok", "opencode", "antigravity"];
 
 /** Agents qu'on peut lier à une conversation (mention Atelier, « continuer
  * avec ») : CLI détecté dont le harnais Rust confirme le MCP atelier-sessions. */

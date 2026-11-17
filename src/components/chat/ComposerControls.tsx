@@ -1,7 +1,7 @@
 // ComposerControls (plan 015, slice 5) : barre du composer — menu +, mode de
 // permission, anneau de contexte, sélecteurs provider/modèle/effort, envoi/
 // stop/queue. JSX déplacé verbatim ; états et catalogues restent chez Chat.
-import React, { useEffect, useRef, useState } from "react";
+import React, { Fragment, useEffect, useRef, useState } from "react";
 import { t } from "../../lib/i18n";
 import { Select } from "../Select";
 import { PlusIcon, ProviderIcon, ZapIcon } from "../icons";
@@ -32,7 +32,7 @@ function KernelGlyph() {
 }
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import type { Specialiste } from "../../lib/specialistes";
-import { codexSupportsFastMode, modelDisplayLabel } from "../../lib/modelCatalog";
+import { codexSupportsFastMode, groupAntigravityModels, modelDisplayLabel } from "../../lib/modelCatalog";
 import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, EllipsisIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
 import { modeApresPlan } from "./modeApresPlan";
@@ -721,7 +721,17 @@ export function ComposerControls(p: {
                     )}
                     <div className="model-options">
                     <div className="cm-card">
-                    {menuModels.map((m) => {
+                    {(menuProvider === "antigravity"
+                      ? groupAntigravityModels(menuModels, (m) => modelLabel(m, menuProvider))
+                      : [{ group: null, models: menuModels }]
+                    ).map((section, index, sections) => (
+                    <Fragment key={section.group ?? "all"}>
+                    {sections.length > 1 && (
+                      <div className={`mp-hd${index > 0 ? " mp-hd-next" : ""}`}>
+                        <MenuTitle>{t(section.group === "claude-gpt" ? "chat.model-group-claude-gpt" : "chat.model-group-gemini")}</MenuTitle>
+                      </div>
+                    )}
+                    {section.models.map((m) => {
                       const key = menuProvider + ":" + m.id;
                       // Claude : chaque nouveau choix part en contexte 1M. Le
                       // bouton 200k plus bas reste disponible comme exception
@@ -770,6 +780,8 @@ export function ComposerControls(p: {
                         </div>
                       );
                     })}
+                    </Fragment>
+                    ))}
                     {!menuModels.length && (
                       <p className="model-no-match">{t("settings.model-no-match")}</p>
                     )}

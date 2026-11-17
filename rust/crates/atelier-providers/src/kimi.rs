@@ -15,6 +15,11 @@ use crate::acp_map::{TurnCtx, TurnEmitter};
 use crate::acp_rpc::{
     AcpInitializeResult, AcpRpcError, AcpServer, ServerRequestHandler, SessionUpdateHandler,
 };
+use crate::acp_session::{
+    find_config_option, option_current_value, option_values, remember_config_snapshot,
+    spawn_cancel_watcher, ConfigCache, SessionBook,
+};
+use crate::acp_session::{has_image_block, iso8601_to_epoch_ms};
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 
 use crate::traits::{
@@ -22,9 +27,8 @@ use crate::traits::{
     SendRequest, SendResult,
 };
 use async_trait::async_trait;
-use base64::Engine as _;
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
@@ -36,27 +40,15 @@ use std::time::Duration;
 // 2026-10-18 (problème 31), un `tokio::time::timeout` SEC de 600 s coupait
 // aussi un tour en plein travail.
 
-/// État lié à la génération du process ACP courant — invalidé au respawn.
-#[derive(Default)]
-struct KimiState {
-    generation: u64,
-    /// Sessions ouvertes (new/resume/load) dans CETTE génération, avec
-    /// l'empreinte des `mcpServers` déclarés à l'ouverture : la session n'a
-    /// besoin d'être rouverte que si cette déclaration a changé.
-    opened_sessions: HashMap<String, u64>,
-    /// Sessions refusées `-32602` au resume : le tour suivant repart sur
-    /// `session/new` (jamais de création silencieuse dans le MÊME tour).
-    invalid_sessions: HashSet<String>,
-}
-
 pub struct KimiProvider {
     bin: PathBuf,
     acp_args: Vec<String>,
     acp: AcpServer,
-    state: StdMutex<KimiState>,
+    /// Sessions ouvertes et refusées, par génération du process ACP.
+    state: StdMutex<SessionBook>,
     /// sessionId → dernier snapshot `configOptions` (réponse ou notification).
     /// Std mutex : alimenté par le SessionUpdateHandler synchrone.
-    config: Arc<StdMutex<HashMap<String, Value>>>,
+    config: ConfigCache,
     /// sessionId → dernier catalogue `availableCommands` (éphémère).
     commands: Arc<StdMutex<HashMap<String, Value>>>,
     /// thread_id → sessionId ACP du tour en cours (pour interrupt).
@@ -86,7 +78,7 @@ impl KimiProvider {
             bin,
             acp_args,
             acp: AcpServer::new("kimi"),
-            state: StdMutex::new(KimiState::default()),
+            state: StdMutex::new(SessionBook::default()),
             config: Arc::new(StdMutex::new(HashMap::new())),
             commands: Arc::new(StdMutex::new(HashMap::new())),
             active_turns: StdMutex::new(HashMap::new()),
@@ -269,80 +261,15 @@ fn catalog_from_provider_list(v: &Value) -> (Vec<String>, serde_json::Map<String
     (models, reasoning)
 }
 
-fn find_config_option<'a>(snapshot: &'a Value, id: &str) -> Option<&'a Value> {
-    snapshot
-        .as_array()?
-        .iter()
-        .find(|o| o.get("id").and_then(Value::as_str) == Some(id))
-}
-
-fn option_current_value(snapshot: &Value, id: &str) -> Option<String> {
-    find_config_option(snapshot, id)?
-        .get("currentValue")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
-
-/// Valeurs proposées par une option select (groupes aplatis).
-fn option_values(option: &Value) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(items) = option.get("options").and_then(Value::as_array) {
-        for item in items {
-            if let Some(v) = item.get("value").and_then(Value::as_str) {
-                out.push(v.to_string());
-            } else if let Some(group) = item.get("options").and_then(Value::as_array) {
-                for o in group {
-                    if let Some(v) = o.get("value").and_then(Value::as_str) {
-                        out.push(v.to_string());
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
 /// Limite documentée d'une image envoyée à Kimi (octets sur disque,
 /// AVANT encodage base64) — testée dans ce module.
 pub(crate) const KIMI_IMAGE_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-fn image_mime_for(path: &std::path::Path) -> Option<&'static str> {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())?
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        _ => None,
-    }
-}
-
-/// Image locale → bloc `{type:"image", data, mimeType}` (plan 046 étape 7) :
-/// canonicalisation, MIME par extension, limite de taille, base64 encodé au
-/// dernier moment. Toute erreur porte le NOM du fichier — jamais le base64.
+/// Image locale → bloc `{type:"image", data, mimeType}` (plan 046 étape 7),
+/// via le socle ACP commun. Toute erreur porte le NOM du fichier.
+#[cfg(test)]
 pub(crate) fn kimi_image_block(path: &str) -> Result<Value, String> {
-    let canon =
-        std::fs::canonicalize(path).map_err(|e| format!("image illisible « {path} » : {e}"))?;
-    let Some(mime) = image_mime_for(&canon) else {
-        return Err(format!(
-            "extension d'image non supportée pour Kimi « {path} » (png/jpg/jpeg/gif/webp)."
-        ));
-    };
-    let meta =
-        std::fs::metadata(&canon).map_err(|e| format!("image illisible « {path} » : {e}"))?;
-    if meta.len() > KIMI_IMAGE_MAX_BYTES {
-        return Err(format!(
-            "image « {path} » trop volumineuse ({} octets, max {KIMI_IMAGE_MAX_BYTES}).",
-            meta.len()
-        ));
-    }
-    let bytes = std::fs::read(&canon).map_err(|e| format!("image illisible « {path} » : {e}"))?;
-    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Ok(json!({"type": "image", "data": data, "mimeType": mime}))
+    crate::acp_session::image_block(path, KIMI_IMAGE_MAX_BYTES, "Kimi")
 }
 
 /// Inputs structurés Atelier → content blocks Kimi. Un input invalide échoue
@@ -352,87 +279,9 @@ pub(crate) fn build_prompt_blocks(
     prompt: &str,
     inputs: Option<&Vec<Value>>,
 ) -> Result<Vec<Value>, String> {
-    let Some(inputs) = inputs.filter(|list| !list.is_empty()) else {
-        return Ok(vec![json!({"type": "text", "text": prompt})]);
-    };
-    let mut blocks: Vec<Value> = Vec::new();
-    let mut has_text = false;
-    for input in inputs {
-        match input.get("type").and_then(Value::as_str).unwrap_or("") {
-            "text" => {
-                has_text = true;
-                let text = input.get("text").and_then(Value::as_str).unwrap_or("");
-                blocks.push(json!({"type": "text", "text": text}));
-            }
-            "local_image" => {
-                let path = input
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .ok_or("input image sans chemin")?;
-                blocks.push(kimi_image_block(path)?);
-            }
-            "skill" | "mention" => {
-                let path = input.get("path").and_then(Value::as_str).unwrap_or("");
-                let name = input.get("name").and_then(Value::as_str).unwrap_or(path);
-                if path.is_empty() {
-                    return Err(format!("input « {name} » sans chemin pour Kimi."));
-                }
-                blocks.push(json!({
-                    "type": "resource_link",
-                    "uri": format!("file://{path}"),
-                    "name": name,
-                }));
-            }
-            other => {
-                return Err(format!(
-                    "type d'input non supporté pour Kimi : « {} ».",
-                    other.chars().take(32).collect::<String>()
-                ));
-            }
-        }
-    }
-    if !has_text {
-        blocks.insert(0, json!({"type": "text", "text": prompt}));
-    }
-    Ok(blocks)
+    crate::acp_session::build_prompt_blocks(prompt, inputs, "Kimi", KIMI_IMAGE_MAX_BYTES)
 }
 
-/// `updatedAt` ISO-8601 UTC → epoch millisecondes (shape `mtime` du
-/// navigateur de sessions). Timestamp invalide ⇒ None (tolérance exigée).
-pub(crate) fn iso8601_to_epoch_ms(s: &str) -> Option<u64> {
-    let bytes = s.as_bytes();
-    if bytes.len() < 20 || bytes[4] != b'-' || bytes[7] != b'-' || bytes[10] != b'T' {
-        return None;
-    }
-    let num = |range: std::ops::Range<usize>| -> Option<i64> { s.get(range)?.parse::<i64>().ok() };
-    let (year, month, day) = (num(0..4)?, num(5..7)?, num(8..10)?);
-    let (hour, minute, second) = (num(11..13)?, num(14..16)?, num(17..19)?);
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    let millis = if bytes.get(19) == Some(&b'.') {
-        num(20..23).unwrap_or(0)
-    } else {
-        0
-    };
-    // Days from civil (Howard Hinnant) — UTC uniquement (suffixe Z de Kimi).
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = if y >= 0 { y } else { y - 399 } / 400;
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    let secs = days * 86_400 + hour * 3_600 + minute * 60 + second;
-    if secs < 0 {
-        return None;
-    }
-    Some((secs * 1_000 + millis) as u64)
-}
-
-/// Replay capturé de `session/load` → events d'historique Atelier
-/// (user/thinking/text coalescés, tool_update via le mapper kimi). Ces events
-/// servent à l'AFFICHAGE d'une session importée — jamais ré-émis dans un tour.
 /// Dernière erreur avalée par le CLI : lue dans le log de la session
 /// (`~/.kimi-code/sessions/<wd>/<sid>/logs/kimi-code.log`) pour citer la
 /// cause réelle (ex. « 400 total message size … exceeds limit … ») au lieu
@@ -460,86 +309,10 @@ fn kimi_last_cli_error(session_id: &str) -> Option<String> {
     None
 }
 
-/// Les sessions natives persistent le prompt provider COMPLET : blocs
-/// d'instructions injectés (`<atelier-*>`) et `<system-reminder>` des hooks.
-/// Au replay, ne montrer que ce que l'utilisateur a réellement tapé — un
-/// message réduit à un rappel système disparaît entièrement.
-pub(crate) fn sanitize_replay_user(text: &str) -> String {
-    let mut out = text.to_string();
-    for (open, close) in [
-        ("<atelier-file-scope>", "</atelier-file-scope>"),
-        ("<atelier-discussion-workspace>", "</atelier-discussion-workspace>"),
-        (
-            "<atelier-gallery-integration>",
-            "</atelier-gallery-integration>",
-        ),
-        ("<atelier-zotero-passages>", "</atelier-zotero-passages>"),
-        ("<atelier-kb>", "</atelier-kb>"),
-        ("<system-reminder>", "</system-reminder>"),
-    ] {
-        while let Some(start) = out.find(open) {
-            let Some(rel_end) = out[start + open.len()..].find(close) else {
-                break;
-            };
-            let end = start + open.len() + rel_end + close.len();
-            let remove_from = out[..start].trim_end_matches(['\r', '\n']).len();
-            out.replace_range(remove_from..end, "");
-        }
-    }
-    out.trim().to_string()
-}
-
+/// Replay capturé de `session/load` → events d'historique Atelier, outils via
+/// le mapper kimi. Affichage seulement — jamais ré-émis dans un tour.
 pub(crate) fn replay_to_history(updates: &[Value]) -> Vec<Value> {
-    use crate::acp_map::text_of;
-    let mut events: Vec<Value> = Vec::new();
-    let mut ctx = TurnCtx::default();
-    let mut user = String::new();
-    let mut think = String::new();
-    let mut text = String::new();
-    fn flush(events: &mut Vec<Value>, buf: &mut String, kind: &str) {
-        if buf.is_empty() {
-            return;
-        }
-        let taken = std::mem::take(buf);
-        let cleaned = if kind == "user" {
-            sanitize_replay_user(&taken)
-        } else {
-            taken
-        };
-        if !cleaned.is_empty() {
-            events.push(json!({"kind": kind, "text": cleaned}));
-        }
-    }
-    for u in updates {
-        match u.get("sessionUpdate").and_then(Value::as_str) {
-            Some("user_message_chunk") => {
-                flush(&mut events, &mut think, "thinking");
-                flush(&mut events, &mut text, "text");
-                user.push_str(&text_of(u));
-            }
-            Some("agent_thought_chunk") => {
-                flush(&mut events, &mut user, "user");
-                flush(&mut events, &mut text, "text");
-                think.push_str(&text_of(u));
-            }
-            Some("agent_message_chunk") => {
-                flush(&mut events, &mut user, "user");
-                flush(&mut events, &mut think, "thinking");
-                text.push_str(&text_of(u));
-            }
-            Some("tool_call") | Some("tool_call_update") => {
-                flush(&mut events, &mut user, "user");
-                flush(&mut events, &mut think, "thinking");
-                flush(&mut events, &mut text, "text");
-                events.extend(map_kimi_session_update(u, &mut ctx));
-            }
-            _ => {}
-        }
-    }
-    flush(&mut events, &mut user, "user");
-    flush(&mut events, &mut think, "thinking");
-    flush(&mut events, &mut text, "text");
-    events
+    crate::acp_session::replay_to_history(updates, map_kimi_session_update)
 }
 
 /// Message utilisateur actionnable pour une erreur ACP — jamais de repli.
@@ -561,69 +334,9 @@ fn user_error(e: &AcpRpcError) -> String {
 /// absence d'UI, timeout, fermeture ou option inconnue ⇒ `cancelled`, jamais
 /// une approbation implicite.
 pub(crate) fn kimi_permission_outcome(params: &Value, answer: Option<Value>) -> Value {
-    let cancelled = || json!({"outcome": {"outcome": "cancelled"}});
-    let option_ids: Vec<&str> = params
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|opts| {
-            opts.iter()
-                .filter_map(|o| o.get("optionId").and_then(Value::as_str))
-                .collect()
-        })
-        .unwrap_or_default();
-    let selected = |id: &str| json!({"outcome": {"outcome": "selected", "optionId": id}});
-
-    let Some(ans) = answer else {
-        return cancelled();
-    };
-
-    // 1. Réponse dynamique {optionId} — le chemin nominal Kimi.
-    if let Some(oid) = ans.get("optionId").and_then(Value::as_str) {
-        if option_ids.contains(&oid) {
-            return selected(oid);
-        }
-        // Option inconnue : warning borné (id seulement), refus sûr.
-        let bounded: String = oid.chars().take(64).collect();
-        eprintln!("[kimi] optionId inconnu renvoyé par l'UI, cancelled: {bounded}");
-        return cancelled();
-    }
-
-    // 2. Réponse user_input {answers:{champ: valeur}} — la valeur est l'id
-    //    opaque (options de champ avec `value`). Vide = skip ⇒ cancelled.
-    if let Some(answers) = ans.get("answers").and_then(Value::as_object) {
-        if let Some(v) = answers
-            .values()
-            .filter_map(Value::as_str)
-            .find(|s| !s.is_empty())
-        {
-            if option_ids.contains(&v) {
-                return selected(v);
-            }
-        }
-        return cancelled();
-    }
-
-    // 3. Legacy {allow, scope} — mappé sur les ids canoniques SEULEMENT s'ils
-    //    existent dans la requête (jamais d'id inventé).
-    if let Some(allow) = ans.get("allow").and_then(Value::as_bool) {
-        let target = if allow {
-            if ans.get("scope").and_then(Value::as_str) == Some("session")
-                && option_ids.contains(&"approve_always")
-            {
-                "approve_always"
-            } else {
-                "approve_once"
-            }
-        } else {
-            "reject"
-        };
-        if option_ids.contains(&target) {
-            return selected(target);
-        }
-        return cancelled();
-    }
-
-    cancelled()
+    // Ids canoniques Kimi seulement : la forme héritée {allow} ne retombe
+    // jamais sur un `kind` (revue de plan, questions).
+    crate::acp_session::permission_outcome(params, answer, "Kimi", false)
 }
 
 impl KimiProvider {
@@ -704,24 +417,14 @@ impl KimiProvider {
 
     fn reset_state_if_respawned(&self) {
         let generation = self.acp.generation();
-        let mut st = self.state.lock().unwrap();
-        if st.generation != generation {
-            *st = KimiState {
-                generation,
-                ..Default::default()
-            };
+        if self.state.lock().unwrap().reset_if_respawned(generation) {
             self.config.lock().unwrap().clear();
             self.commands.lock().unwrap().clear();
         }
     }
 
     fn remember_snapshot(&self, sid: &str, result: &Value) {
-        if let Some(opts) = result.get("configOptions").filter(|o| o.is_array()) {
-            self.config
-                .lock()
-                .unwrap()
-                .insert(sid.to_string(), opts.clone());
-        }
+        remember_config_snapshot(&self.config, sid, result);
     }
 
     /// Ouvre la session du tour : `session/new` sans sessionId ; `session/
@@ -736,7 +439,7 @@ impl KimiProvider {
             .as_ref()
             .filter(|s| !s.is_empty())
             .cloned()
-            .filter(|sid| !self.state.lock().unwrap().invalid_sessions.contains(sid));
+            .filter(|sid| !self.state.lock().unwrap().is_invalid(sid));
 
         if let Some(sid) = requested {
             // Voie rapide : session déjà ouverte AVEC la même déclaration MCP.
@@ -744,7 +447,7 @@ impl KimiProvider {
             // depuis que le serveur atelier part sur tout fil — un
             // `session/resume` par envoi, dont l'échec FAIT ÉCHOUER le tour là
             // où le cache répondait.
-            if self.state.lock().unwrap().opened_sessions.get(&sid) == Some(&empreinte) {
+            if self.state.lock().unwrap().is_open_with(&sid, empreinte) {
                 return Ok(sid);
             }
             match self
@@ -757,20 +460,12 @@ impl KimiProvider {
                 .await
             {
                 Ok(result) => {
-                    self.state
-                        .lock()
-                        .unwrap()
-                        .opened_sessions
-                        .insert(sid.clone(), empreinte);
+                    self.state.lock().unwrap().mark_open(&sid, empreinte);
                     self.remember_snapshot(&sid, &result);
                     return Ok(sid);
                 }
-                Err(e) if e.is_invalid_params() => {
-                    self.state
-                        .lock()
-                        .unwrap()
-                        .invalid_sessions
-                        .insert(sid.clone());
+                Err(e) if e.is_session_gone() => {
+                    self.state.lock().unwrap().mark_invalid(&sid);
                     return Err(format!(
                         "La session Kimi {sid} n'existe plus côté CLI — renvoie ton message \
                          pour démarrer une nouvelle session Kimi."
@@ -794,11 +489,7 @@ impl KimiProvider {
             .and_then(Value::as_str)
             .ok_or("session/new sans sessionId")?
             .to_string();
-        self.state
-            .lock()
-            .unwrap()
-            .opened_sessions
-            .insert(sid.clone(), empreinte);
+        self.state.lock().unwrap().mark_open(&sid, empreinte);
         self.remember_snapshot(&sid, &result);
         Ok(sid)
     }
@@ -935,9 +626,7 @@ impl KimiProvider {
         // échoue ici avec son nom de fichier (plan 046 étape 7), et la
         // capacité image annoncée par Kimi est vérifiée.
         let prompt_blocks = build_prompt_blocks(&req.prompt, req.inputs.as_ref())?;
-        if prompt_blocks
-            .iter()
-            .any(|b| b.get("type").and_then(Value::as_str) == Some("image"))
+        if has_image_block(&prompt_blocks)
             && init
                 .agent_capabilities
                 .pointer("/promptCapabilities/image")
@@ -1019,20 +708,12 @@ impl KimiProvider {
 
         // Sonde d'annulation : UNE notification session/cancel, le prompt en
         // cours se résout ensuite avec stopReason:"cancelled".
-        let cancel_acp = self.acp.clone();
-        let cancel_sid = sid.clone();
-        let is_cancelled = Arc::clone(&req.is_cancelled);
-        let watcher = tokio::spawn(async move {
-            loop {
-                if is_cancelled() {
-                    cancel_acp
-                        .notify("session/cancel", json!({"sessionId": cancel_sid}))
-                        .await;
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
-        });
+        let watcher = spawn_cancel_watcher(
+            self.acp.clone(),
+            sid.clone(),
+            Arc::clone(&req.is_cancelled),
+            None,
+        );
 
         // Même filet que Claude/Codex : seul un SILENCE complet de `idle`
         // (aucune notification, aucune requête serveur, personne n'attend
@@ -1375,13 +1056,7 @@ impl Provider for KimiProvider {
         }
         self.ensure_acp().await.ok()?;
         self.reset_state_if_respawned();
-        if self
-            .state
-            .lock()
-            .unwrap()
-            .opened_sessions
-            .contains_key(session_id)
-        {
+        if self.state.lock().unwrap().is_open(session_id) {
             return None; // déjà importée dans cette génération — pas de doublon
         }
         let captured: Arc<StdMutex<Vec<Value>>> = Arc::new(StdMutex::new(Vec::new()));
@@ -1405,16 +1080,12 @@ impl Provider for KimiProvider {
         self.acp.clear_session_handler(session_id).await;
         match res {
             Ok(result) => {
-                self.state
-                    .lock()
-                    .unwrap()
-                    .opened_sessions
-                    .insert(
-                        session_id.to_string(),
-                        // l'import natif n'annonce AUCUN serveur MCP : le
-                        // premier vrai tour devra donc rouvrir la session.
-                        atelier_mcp_fingerprint(&serde_json::json!([])),
-                    );
+                self.state.lock().unwrap().mark_open(
+                    session_id,
+                    // l'import natif n'annonce AUCUN serveur MCP : le
+                    // premier vrai tour devra donc rouvrir la session.
+                    atelier_mcp_fingerprint(&serde_json::json!([])),
+                );
                 self.remember_snapshot(session_id, &result);
                 // La réponse n'est traitée qu'ici — tous les updates de replay
                 // sont déjà arrivés (contrat load vérifié).
@@ -1429,6 +1100,7 @@ impl Provider for KimiProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine as _;
     use crate::traits::SendMode;
 
     #[test]

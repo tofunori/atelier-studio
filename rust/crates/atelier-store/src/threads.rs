@@ -74,7 +74,7 @@ fn default_status() -> String {
 fn known_provider(id: &str) -> bool {
     matches!(
         id,
-        "claude" | "codex" | "grok" | "kimi" | "opencode" | "gemini" | "fake"
+        "claude" | "codex" | "grok" | "kimi" | "opencode" | "gemini" | "antigravity" | "fake"
     ) || id.starts_with("api-")
         || id.starts_with("openai")
 }
@@ -1018,6 +1018,19 @@ mod tests {
         // survit au rechargement disque (normalize au open aussi)
         let store2 = ThreadStore::open(&path);
         assert_eq!(store2.get("t1").unwrap().provider, "kimi");
+    }
+
+    #[test]
+    fn upsert_keeps_antigravity_provider() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("threads.json");
+        let mut store = ThreadStore::open(&path);
+        let t = store
+            .upsert(serde_json::json!({"id":"t1","provider":"antigravity"}), false)
+            .unwrap();
+        assert_eq!(t.provider, "antigravity");
+        let store2 = ThreadStore::open(&path);
+        assert_eq!(store2.get("t1").unwrap().provider, "antigravity");
     }
 
     #[test]
