@@ -890,6 +890,7 @@ require("readline").createInterface({ input: process.stdin }).on("line", (l) => 
         let init = propre.ensure(&node, &args, init_params()).await.unwrap();
         assert_eq!(init.agent_info.as_ref().unwrap()["name"], "absent");
         propre.shutdown().await;
+        std::env::remove_var("ATELIER_ACP_TEST_SECRET");
     }
 
     #[tokio::test]

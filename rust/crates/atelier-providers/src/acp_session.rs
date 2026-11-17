@@ -64,6 +64,13 @@ impl SessionBook {
         self.opened.insert(sid.to_string(), fingerprint);
     }
 
+    /// Oublie une session (fermée par l'escalade du Stop) : le tour suivant
+    /// la rouvrira au lieu de prendre la voie rapide.
+    #[allow(dead_code)] // premier client : Antigravity (lot 2)
+    pub(crate) fn forget(&mut self, sid: &str) {
+        self.opened.remove(sid);
+    }
+
     pub(crate) fn mark_invalid(&mut self, sid: &str) {
         self.invalid.insert(sid.to_string());
     }
@@ -199,9 +206,9 @@ pub(crate) async fn set_session_mode(
     target: &str,
     label: &str,
 ) -> Result<(), String> {
-    if modes.current.as_deref() == Some(target) {
-        return Ok(());
-    }
+    // Toujours renvoyé, même si le cache dit que c'est déjà le mode courant :
+    // les handlers sont retirés entre deux tours, une `current_mode_update`
+    // peut donc avoir été manquée (0,05 s chez agy).
     if !modes.available.iter().any(|m| m == target) {
         return Err(format!(
             "{label} ne propose pas le mode « {target} » (modes : {}).",
@@ -567,20 +574,22 @@ pub(crate) fn replay_to_history(updates: &[Value], map_tool: UpdateMapper) -> Ve
 // ---------------------------------------------------------------------------
 
 /// Escalade du Stop quand `session/cancel` reste sans effet : `session/close`
-/// après `close_after`, puis arrêt du process ACP après `kill_after`
-/// supplémentaires (dernier recours : toutes les sessions du process sont
-/// perdues pour cette génération, et rouvertes au tour suivant).
-#[derive(Debug, Clone, Copy)]
+/// après `close_after`. Jamais d'arrêt du process ACP depuis ici : il porte
+/// les tours des AUTRES fils (et un respawn pendant l'attente serait tué par
+/// erreur) ; un CLI réellement figé reste l'affaire du filet d'inactivité.
+/// `closed` passe à `true` quand le close est parti : l'appelant oublie alors
+/// la session (`SessionBook::forget`) pour que le tour suivant la rouvre.
+#[derive(Debug, Clone)]
 pub(crate) struct StopEscalation {
     pub close_after: Duration,
-    pub kill_after: Duration,
+    pub closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Sonde d'annulation d'un tour. Sans escalade (Kimi) : UNE notification
 /// `session/cancel`, le prompt en cours se résout ensuite avec
 /// `stopReason:"cancelled"`. Avec escalade : la tâche reste en vie après le
-/// cancel et monte d'un cran à chaque délai ; l'appelant l'interrompt
-/// (`abort`) dès que le prompt s'est résolu.
+/// cancel et envoie `session/close` si le prompt ne s'est toujours pas
+/// résolu ; l'appelant l'interrompt (`abort`) dès que le prompt s'est résolu.
 pub(crate) fn spawn_cancel_watcher(
     acp: AcpServer,
     sid: String,
@@ -599,10 +608,14 @@ pub(crate) fn spawn_cancel_watcher(
         let Some(esc) = escalation else {
             return;
         };
+        let generation = acp.generation();
         tokio::time::sleep(esc.close_after).await;
+        if acp.generation() != generation {
+            return; // process remplacé : la session n'existe plus de toute façon
+        }
+        esc.closed
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         let _ = close_session(&acp, &sid).await;
-        tokio::time::sleep(esc.kill_after).await;
-        acp.shutdown().await;
     })
 }
 
@@ -632,6 +645,9 @@ mod tests {
             "même génération : rien ne bouge"
         );
         assert!(book.is_open_with("s1", 42));
+        book.forget("s1");
+        assert!(!book.is_open("s1"), "oubliée après un close");
+        book.mark_open("s1", 42);
         assert!(book.reset_if_respawned(2));
         assert!(!book.is_open_with("s1", 42));
         assert!(!book.is_invalid("s2"));

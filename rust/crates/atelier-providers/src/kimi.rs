@@ -20,9 +20,6 @@ use crate::acp_session::{
     spawn_cancel_watcher, ConfigCache, SessionBook,
 };
 use crate::acp_session::{has_image_block, iso8601_to_epoch_ms};
-// Réexporté pour les tests de ce module (`use super::*`).
-#[cfg(test)]
-use crate::acp_session::sanitize_replay_user;
 use crate::kimi_map::{map_kimi_prompt_result, map_kimi_session_update};
 
 use crate::traits::{
