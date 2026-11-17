@@ -117,7 +117,7 @@ function sessionResult(sid, st) {
 // Requêtes serveur → client : ids EN CHAÎNE comme agy.
 let serverReqId = 0;
 const pendingServerReqs = new Map();
-function serverRequest(method, params) {
+function serverRequest(method, params): Promise<any> {
   serverReqId += 1;
   const id = String(serverReqId);
   return new Promise((resolve) => {
@@ -139,7 +139,7 @@ async function permissionFor(sid, toolCall) {
   return "cancelled";
 }
 
-async function runTool(sid, st, tc, extra) {
+async function runTool(sid, st, tc, extra?) {
   update(sid, { sessionUpdate: "tool_call", status: "in_progress", ...tc });
   const verdict = await permissionFor(sid, { ...tc, ...(extra || {}) });
   if (verdict === "allow") {
