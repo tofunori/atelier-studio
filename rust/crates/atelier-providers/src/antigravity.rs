@@ -82,6 +82,9 @@ const PLAN_MAX: usize = 64 * 1024;
 pub struct AntigravityProvider {
     bin: PathBuf,
     acp_args: Vec<String>,
+    /// Arguments placés avant une commande latérale (`--version`, `models`) :
+    /// vide pour le vrai binaire, le script du faux agy en test.
+    cli_prefix: Vec<String>,
     acp: AcpServer,
     /// Dossier de travail du process ACP : jamais un projet (D1, D11).
     process_dir: PathBuf,
@@ -101,18 +104,25 @@ pub struct AntigravityProvider {
     idle: Duration,
     /// Délai avant `session/close` quand le Stop reste sans effet.
     stop_close_after: Duration,
+    /// Options de la dernière session de sonde (catalogue, lot 3).
+    catalog: StdMutex<Option<Value>>,
+    /// Palier du compte tel qu'agy le rapporte (`_meta.antigravity.tier`).
+    tier: StdMutex<Option<String>>,
+    /// Libellés de `agy models` (id → libellé), lus une fois.
+    labels: StdMutex<serde_json::Map<String, Value>>,
 }
 
 impl AntigravityProvider {
     pub fn new() -> Option<Self> {
-        resolve_bin().map(|bin| Self::with_bin(bin, vec!["acp".into()]))
+        resolve_bin().map(|bin| Self::with_bin(bin, vec!["acp".into()], Vec::new()))
     }
 
     /// Constructeur direct (tests : `node fake_agy_acp.mts <mode>`).
-    fn with_bin(bin: PathBuf, acp_args: Vec<String>) -> Self {
+    fn with_bin(bin: PathBuf, acp_args: Vec<String>, cli_prefix: Vec<String>) -> Self {
         Self {
             bin,
             acp_args,
+            cli_prefix,
             acp: AcpServer::new("antigravity").with_env_removed(ENV_REMOVED),
             process_dir: std::env::temp_dir(),
             state: StdMutex::new(SessionBook::default()),
@@ -124,6 +134,9 @@ impl AntigravityProvider {
             edits_always: Arc::new(StdMutex::new(HashSet::new())),
             idle: crate::turn_idle::idle_from_env(),
             stop_close_after: STOP_CLOSE_AFTER,
+            catalog: StdMutex::new(None),
+            tier: StdMutex::new(None),
+            labels: StdMutex::new(serde_json::Map::new()),
         }
     }
 
@@ -252,6 +265,99 @@ fn canonical(path: &str) -> String {
     std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.trim_end_matches('/').to_string())
+}
+
+/// Sortie de `agy models` : une ligne « Fetching available models... » puis
+/// `id<TAB>libellé` (sonde). Lignes sans tabulation ignorées.
+pub(crate) fn parse_agy_models(stdout: &str) -> Vec<(String, String)> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (id, label) = line.split_once('\t')?;
+            let (id, label) = (id.trim(), label.trim());
+            (!id.is_empty() && !id.contains(' ')).then(|| (id.to_string(), label.to_string()))
+        })
+        .collect()
+}
+
+/// Première version `x.y.z` trouvée dans une sortie `--version`.
+pub(crate) fn parse_version(stdout: &str) -> Option<String> {
+    stdout
+        .split(|c: char| c.is_whitespace() || c == 'v' || c == ',')
+        .find(|tok| {
+            let parts: Vec<&str> = tok.split('.').collect();
+            parts.len() >= 3
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        })
+        .map(str::to_string)
+}
+
+/// Catalogue pour providerStatus, d'après les options d'une session :
+/// modèles (ids sans effort, jamais coupés), modèle courant par défaut,
+/// crans de `thought_level`. Les crans d'un modèle qui n'est pas le courant
+/// sont supposés identiques (inconnue U3) ; un modèle sans réglage de
+/// réflexion ignore l'effort au tour.
+pub(crate) fn catalog_from_snapshot(
+    snapshot: &Value,
+    cli_labels: &serde_json::Map<String, Value>,
+) -> Option<Value> {
+    let model_opt = find_config_option_by(snapshot, "model", "model")?;
+    let models = option_values(model_opt);
+    if models.is_empty() {
+        return None;
+    }
+    let default = model_opt
+        .get("currentValue")
+        .and_then(Value::as_str)
+        .unwrap_or(&models[0])
+        .to_string();
+    let mut labels = serde_json::Map::new();
+    for item in model_opt
+        .get("options")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let (Some(value), Some(name)) = (
+            item.get("value").and_then(Value::as_str),
+            item.get("name").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        if name != value {
+            labels.insert(value.to_string(), json!(name));
+        }
+    }
+    for id in &models {
+        if let Some(label) = cli_labels.get(id) {
+            labels.insert(id.clone(), label.clone());
+        }
+    }
+    let mut reasoning = serde_json::Map::new();
+    if let Some(thought) = find_config_option_by(snapshot, "thought_level", "thought_level") {
+        let efforts = option_values(thought);
+        if !efforts.is_empty() {
+            let default_effort = thought
+                .get("currentValue")
+                .and_then(Value::as_str)
+                .unwrap_or(&efforts[0])
+                .to_string();
+            for id in &models {
+                reasoning.insert(
+                    id.clone(),
+                    json!({"supported_efforts": efforts, "default_effort": default_effort}),
+                );
+            }
+        }
+    }
+    Some(json!({
+        "models": models,
+        "defaultModel": default,
+        "modelReasoning": Value::Object(reasoning),
+        "modelLabels": Value::Object(labels),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -628,6 +734,12 @@ impl AntigravityProvider {
 
     fn remember_session(&self, sid: &str, result: &Value) {
         remember_config_snapshot(&self.config, sid, result);
+        if let Some(name) = result
+            .pointer("/_meta/antigravity/tier/name")
+            .and_then(Value::as_str)
+        {
+            *self.tier.lock().unwrap() = Some(name.to_string());
+        }
         if let Some(modes) = SessionModes::from_result(result) {
             self.modes.lock().unwrap().insert(sid.to_string(), modes);
         }
@@ -846,6 +958,76 @@ impl AntigravityProvider {
                 outcome
             })
         })
+    }
+
+    /// Commande latérale sans tour ni quota (`--version`, `models`).
+    async fn cli_output(&self, args: &[&str], secs: u64) -> Option<String> {
+        let out = tokio::time::timeout(
+            Duration::from_secs(secs),
+            tokio::process::Command::new(&self.bin)
+                .args(&self.cli_prefix)
+                .args(args)
+                .env_remove("GEMINI_API_KEY")
+                .env_remove("GOOGLE_API_KEY")
+                .current_dir(&self.process_dir)
+                .output(),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    async fn cli_version(&self) -> Option<String> {
+        parse_version(&self.cli_output(&["--version"], 8).await?)
+    }
+
+    /// Libellés de `agy models`, lus une fois (la liste ne change qu'avec
+    /// une mise à jour d'agy).
+    async fn cli_labels(&self) -> serde_json::Map<String, Value> {
+        {
+            let cached = self.labels.lock().unwrap();
+            if !cached.is_empty() {
+                return cached.clone();
+            }
+        }
+        let Some(out) = self.cli_output(&["models"], 15).await else {
+            return serde_json::Map::new();
+        };
+        let labels: serde_json::Map<String, Value> = parse_agy_models(&out)
+            .into_iter()
+            .map(|(id, label)| (id, json!(label)))
+            .collect();
+        *self.labels.lock().unwrap() = labels.clone();
+        labels
+    }
+
+    /// Session de sonde : ses options donnent le catalogue (1,1 s à la
+    /// sonde ; absente de `session/list`, faute de tour). Jamais
+    /// `authenticate` (D7) : une connexion manquante se lit ici.
+    async fn probe_catalog(&self) -> Result<Value, AcpRpcError> {
+        let result = self
+            .acp
+            .request(
+                "session/new",
+                json!({"cwd": self.process_dir.to_string_lossy(), "mcpServers": []}),
+                Some(30_000),
+            )
+            .await?;
+        if let Some(name) = result
+            .pointer("/_meta/antigravity/tier/name")
+            .and_then(Value::as_str)
+        {
+            *self.tier.lock().unwrap() = Some(name.to_string());
+        }
+        let snapshot = result.get("configOptions").cloned().unwrap_or(Value::Null);
+        *self.catalog.lock().unwrap() = Some(snapshot.clone());
+        if let Some(sid) = result.get("sessionId").and_then(Value::as_str) {
+            let _ = crate::acp_session::close_session(&self.acp, sid).await;
+        }
+        Ok(snapshot)
     }
 
     async fn send_acp(&self, req: &SendRequest) -> Result<SendResult, String> {
@@ -1104,6 +1286,86 @@ impl Provider for AntigravityProvider {
             }
             None => false,
         }
+    }
+
+    /// Sonde Réglages : binaire, version, handshake, puis une session de
+    /// sonde. Jamais de prompt ni d'`authenticate`.
+    async fn setup_probe(&self) -> Option<Value> {
+        let version = self.cli_version().await;
+        let base = |state: &str, models: usize, error: Option<String>| {
+            json!({
+                "state": state,
+                "version": version,
+                "binPath": self.bin.to_string_lossy(),
+                "models": models,
+                "loginCommand": "agy",
+                "shadowed": null,
+                "error": error,
+                "tier": self.tier.lock().unwrap().clone(),
+            })
+        };
+        if let Some(v) = &version {
+            if compare_versions(v, AGY_MIN_VERSION) < 0 {
+                return Some(base("version_unsupported", 0, None));
+            }
+        }
+        let init = match self.ensure_acp().await {
+            Ok(init) => init,
+            Err(e) if e.is_auth_required() => return Some(base("login_needed", 0, None)),
+            Err(e) => return Some(base("protocol_error", 0, Some(e.to_string()))),
+        };
+        let info = init.agent_info.as_ref();
+        if let Some(v) = info.and_then(|i| i.get("version")).and_then(Value::as_str) {
+            if compare_versions(v, AGY_MIN_VERSION) < 0 {
+                return Some(base("version_unsupported", 0, None));
+            }
+        }
+        let name_ok = info
+            .and_then(|i| i.get("name"))
+            .and_then(Value::as_str)
+            .is_none_or(|n| n == AGENT_NAME);
+        if init.protocol_version != 1 || !name_ok {
+            return Some(base(
+                "protocol_error",
+                0,
+                Some("handshake inattendu".into()),
+            ));
+        }
+        self.reset_state_if_respawned();
+        let snapshot = match self.probe_catalog().await {
+            Ok(s) => s,
+            Err(e) if e.is_auth_required() => return Some(base("login_needed", 0, None)),
+            Err(e) => return Some(base("protocol_error", 0, Some(e.to_string()))),
+        };
+        let count = find_config_option_by(&snapshot, "model", "model")
+            .map(|o| option_values(o).len())
+            .unwrap_or(0);
+        let state = if count == 0 {
+            "model_config_needed"
+        } else {
+            "ready"
+        };
+        Some(base(state, count, None))
+    }
+
+    /// Catalogue vivant : options de la dernière session connue (sonde ou
+    /// tour), libellés d'`agy models`. Jamais de liste en dur.
+    async fn dynamic_models(&self) -> Option<Value> {
+        let cached = self
+            .catalog
+            .lock()
+            .unwrap()
+            .clone()
+            .or_else(|| self.config.lock().unwrap().values().next().cloned());
+        let snapshot = match cached {
+            Some(s) => s,
+            None => {
+                self.ensure_ready().await.ok()?;
+                self.probe_catalog().await.ok()?
+            }
+        };
+        let labels = self.cli_labels().await;
+        catalog_from_snapshot(&snapshot, &labels)
     }
 
     /// `session/list` ignore `cwd` chez agy : le filtre se fait ici, sur

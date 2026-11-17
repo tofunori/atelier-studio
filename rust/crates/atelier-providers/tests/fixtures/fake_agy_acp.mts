@@ -28,6 +28,21 @@
 
 import process from "node:process";
 
+// Commandes latérales (sans ACP) : `--version`, `models`.
+if (process.argv[2] === "--version") {
+  process.stdout.write("agy 1.5.10\n");
+  process.exit(0);
+}
+if (process.argv[2] === "models") {
+  process.stdout.write(
+    "Fetching available models...\n" +
+      "gemini-4-carbon\tGemini 4 Carbon\n" +
+      "gemini-4-carbon-high\tGemini 4 Carbon (High)\n" +
+      "claude-opus-5-5\tClaude Opus 5.5 (Thinking)\n",
+  );
+  process.exit(0);
+}
+
 const MODE = process.argv[2] || "nominal";
 const VERSION = MODE === "old_version" ? "1.5.9" : "1.5.10";
 const HOME = process.env.HOME || "/tmp";
@@ -45,7 +60,7 @@ const MODES = ["default", "accept-edits", "auto", "plan"];
 
 let sessionCounter = 0;
 const sessions = new Map();
-const counters = { resume: 0, close: 0, set_mode: [] };
+const counters = { resume: 0, close: 0, authenticate: 0, set_mode: [] };
 
 function newState() {
   return { model: "gemini-4-carbon", thought: "medium", mode: "default", cancel: null, close: null };
@@ -287,6 +302,9 @@ async function handle(msg) {
           { id: "agent-platform", name: "Agent Platform" },
         ],
       });
+    case "authenticate":
+      counters.authenticate += 1;
+      return reply(id, {});
     case "session/new": {
       if (MODE === "auth_required") return replyErr(id, -32000, "Authentication required");
       if (typeof params?.cwd !== "string" || !Array.isArray(params?.mcpServers)) {

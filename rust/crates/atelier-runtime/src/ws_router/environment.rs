@@ -16,6 +16,8 @@ pub(super) fn agent_install_command(id: &str) -> Option<&'static str> {
     match id {
         "claude" => Some("curl -fsSL https://claude.ai/install.sh | bash"),
         "codex" => Some("brew install --cask codex"),
+        // antigravity.google/docs/cli : installe `agy` dans ~/.local/bin.
+        "antigravity" => Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
         _ => None,
     }
 }
@@ -281,6 +283,10 @@ mod tests {
         assert_eq!(
             agent_install_command("codex"),
             Some("brew install --cask codex")
+        );
+        assert_eq!(
+            agent_install_command("antigravity"),
+            Some("curl -fsSL https://antigravity.google/cli/install.sh | bash")
         );
         assert_eq!(agent_install_command("kimi"), None);
     }

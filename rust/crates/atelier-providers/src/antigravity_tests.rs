@@ -29,7 +29,8 @@ fn fixture_provider(mode: &str) -> Option<AntigravityProvider> {
     );
     Some(AntigravityProvider::with_bin(
         node,
-        vec![fixture, mode.into()],
+        vec![fixture.clone(), mode.into()],
+        vec![fixture],
     ))
 }
 
@@ -844,4 +845,110 @@ fn carte_de_forme_inattendue_garde_les_options() {
 fn environnement_sans_cles_api() {
     assert!(ENV_REMOVED.contains(&"GEMINI_API_KEY"));
     assert!(ENV_REMOVED.contains(&"GOOGLE_API_KEY"));
+}
+
+// ------------------------------------------------- catalogue et sonde (lot 3)
+
+#[tokio::test]
+async fn sonde_reglages_prete_avec_palier() {
+    let Some(p) = fixture_provider("nominal") else {
+        return;
+    };
+    let probe = p.setup_probe().await.unwrap();
+    assert_eq!(probe["state"], "ready", "{probe}");
+    assert_eq!(probe["version"], "1.5.10");
+    assert_eq!(probe["models"], 3);
+    assert_eq!(probe["tier"], "Google AI Pro");
+    assert_eq!(probe["loginCommand"], "agy");
+    // La session de sonde est refermée.
+    assert_eq!(counters(&p).await["close"], 1);
+}
+
+#[tokio::test]
+async fn sonde_connexion_manquante_sans_authenticate() {
+    let Some(p) = fixture_provider("auth_required") else {
+        return;
+    };
+    let probe = p.setup_probe().await.unwrap();
+    assert_eq!(probe["state"], "login_needed");
+    assert_eq!(
+        counters(&p).await["authenticate"],
+        0,
+        "jamais authenticate (D7)"
+    );
+}
+
+#[tokio::test]
+async fn sonde_version_trop_ancienne() {
+    let Some(p) = fixture_provider("old_version") else {
+        return;
+    };
+    let probe = p.setup_probe().await.unwrap();
+    assert_eq!(probe["state"], "version_unsupported");
+}
+
+#[tokio::test]
+async fn catalogue_vivant_modeles_efforts_libelles() {
+    let Some(p) = fixture_provider("nominal") else {
+        return;
+    };
+    let cat = p.dynamic_models().await.unwrap();
+    assert_eq!(
+        cat["models"],
+        json!(["gemini-4-carbon", "claude-opus-5-5", "gpt-oss-120b-medium"])
+    );
+    assert_eq!(cat["defaultModel"], "gemini-4-carbon");
+    assert_eq!(cat["modelLabels"]["gemini-4-carbon"], "Gemini 4 Carbon");
+    assert_eq!(
+        cat["modelLabels"]["claude-opus-5-5"],
+        "Claude Opus 5.5 (Thinking)"
+    );
+    assert_eq!(
+        cat["modelReasoning"]["claude-opus-5-5"]["supported_efforts"],
+        json!(["low", "medium", "high"])
+    );
+    assert_eq!(
+        cat["modelReasoning"]["claude-opus-5-5"]["default_effort"],
+        "medium"
+    );
+}
+
+#[test]
+fn lecture_de_agy_models() {
+    let out = "Fetching available models...\ngemini-4-carbon-high\tGemini 4 Carbon (High)\n\
+               gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n\nligne sans tabulation\n";
+    assert_eq!(
+        parse_agy_models(out),
+        vec![
+            (
+                "gemini-4-carbon-high".to_string(),
+                "Gemini 4 Carbon (High)".to_string()
+            ),
+            (
+                "gpt-oss-120b-medium".to_string(),
+                "GPT-OSS 120B (Medium)".to_string()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn lecture_de_version() {
+    assert_eq!(parse_version("agy 1.5.10\n").as_deref(), Some("1.5.10"));
+    assert_eq!(parse_version("1.5.10").as_deref(), Some("1.5.10"));
+    assert_eq!(
+        parse_version("antigravity v1.6.0 (abc)").as_deref(),
+        Some("1.6.0")
+    );
+    assert_eq!(parse_version("rien"), None);
+}
+
+#[test]
+fn ids_de_modele_jamais_coupes() {
+    let snapshot = json!([{"id":"model","category":"model","currentValue":"gpt-oss-120b-medium",
+        "options":[{"value":"gpt-oss-120b-medium","name":"GPT-OSS"}]}]);
+    let cat = catalog_from_snapshot(&snapshot, &serde_json::Map::new()).unwrap();
+    assert_eq!(cat["models"], json!(["gpt-oss-120b-medium"]));
+    assert_eq!(cat["modelLabels"]["gpt-oss-120b-medium"], "GPT-OSS");
+    assert!(cat["modelReasoning"].as_object().unwrap().is_empty());
 }
