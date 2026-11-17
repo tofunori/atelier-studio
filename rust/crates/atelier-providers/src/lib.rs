@@ -5,6 +5,7 @@
 pub mod agent_groups;
 mod acp_map;
 mod acp_rpc;
+mod acp_session;
 mod api;
 mod claude;
 mod cli_login;
