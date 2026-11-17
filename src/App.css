@@ -6847,6 +6847,9 @@ iframe.atelier-gallery-fullscreen::backdrop { background: var(--gallery-fullscre
 .composer-menu.cm-panel .mp-star { display: inline-flex; font-size: 0; color: var(--text-muted); }
 .composer-menu.cm-panel .mp-star.on { color: var(--text-secondary); }
 .composer-menu.cm-panel .mp-hd { padding: 12px 4px 8px; }
+/* Antigravity : deux groupes de modèles (un par quota), séparés par un filet */
+.composer-menu.cm-panel .cm-card .mp-hd:first-child { padding-top: 4px; }
+.composer-menu.cm-panel .cm-card .mp-hd-next { margin-top: 4px; border-top: 1px solid var(--border-subtle); }
 .composer-menu.cm-panel .model-manage-row { padding: 6px 8px; }
 
 /* effort : titre + palier, jauge dans un encart, Fast et modèle en rangées */

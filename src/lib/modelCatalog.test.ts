@@ -88,3 +88,25 @@ describe("replaceRetiredModel", () => {
     expect(modelDisplayLabel("claude", "claude-fable-5-2")).toBe("Fable 5.2");
   });
 });
+
+describe("groupAntigravityModels", () => {
+  it("range Claude et GPT à part, Gemini d'abord, ordre conservé", async () => {
+    const { groupAntigravityModels } = await import("./modelCatalog");
+    const models = [
+      { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+      { id: "gemini-4-carbon", label: "Gemini 4 Carbon" },
+      { id: "gpt-oss-120b", label: "GPT-OSS 120B" },
+      { id: "orchestrator", label: "Orchestrator" },
+    ];
+    const groups = groupAntigravityModels(models, (m) => m.label);
+    expect(groups.map((g) => [g.group, g.models.map((m) => m.id)])).toEqual([
+      ["gemini", ["gemini-4-carbon", "orchestrator"]],
+      ["claude-gpt", ["claude-opus-5-5", "gpt-oss-120b"]],
+    ]);
+  });
+
+  it("un seul groupe quand rien n'est Claude ni GPT", async () => {
+    const { groupAntigravityModels } = await import("./modelCatalog");
+    expect(groupAntigravityModels([{ id: "gemini-3-8-flash" }], () => "Gemini 3.8 Flash")).toHaveLength(1);
+  });
+});

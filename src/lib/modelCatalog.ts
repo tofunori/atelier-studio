@@ -143,3 +143,22 @@ export function modelDisplayLabel(
   });
   return `${words.join(" ")}${free ? " · Free" : ""}` || model;
 }
+
+/** Antigravity compte Claude et GPT sur un quota séparé de celui de Gemini :
+ * le menu des modèles les range en deux groupes, Gemini d'abord. L'ordre de
+ * chaque groupe (favoris en tête) est celui reçu. */
+export type ModelQuotaGroup = "gemini" | "claude-gpt";
+
+export function antigravityQuotaGroup(id: string, label: string): ModelQuotaGroup {
+  const leaf = id.split("/").pop() ?? id;
+  return /^(claude|gpt)\b/i.test(label) || /^(claude|gpt)[-_]/i.test(leaf) ? "claude-gpt" : "gemini";
+}
+
+export function groupAntigravityModels<T extends { id: string }>(
+  models: T[], label: (m: T) => string,
+): { group: ModelQuotaGroup; models: T[] }[] {
+  const order: ModelQuotaGroup[] = ["gemini", "claude-gpt"];
+  return order
+    .map((group) => ({ group, models: models.filter((m) => antigravityQuotaGroup(m.id, label(m)) === group) }))
+    .filter((section) => section.models.length > 0);
+}
