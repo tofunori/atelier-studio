@@ -11,14 +11,14 @@ const info = (id: string, ok: boolean): ProviderInfo => ({
 });
 
 describe("NewChatProviderDialog", () => {
-  it("liste les cinq agents, désactive ceux qui ne sont pas détectés", async () => {
+  it("liste les six agents, désactive ceux qui ne sont pas détectés", async () => {
     const onCreate = vi.fn();
     render(<NewChatProviderDialog providers={[info("codex", true), info("kimi", false)]} onCreate={onCreate} onClose={() => {}} />);
     // la vraie modale (portail Base UI), jamais un substitut en ligne
     await waitFor(() => expect(screen.getByRole("dialog").getAttribute("data-slot")).toBe("dialog-content"));
     const cards = document.querySelectorAll<HTMLButtonElement>(".provider-new-card");
     expect([...cards].map((card) => card.querySelector("span")?.textContent))
-      .toEqual(["Claude", "Codex", "Grok", "kimi", "Opencode"]);
+      .toEqual(["Claude", "Codex", "Grok", "kimi", "Opencode", "Antigravity"]);
     const kimi = [...cards].find((card) => card.textContent?.includes("kimi"))!;
     expect(kimi.disabled).toBe(true);
     expect(kimi.textContent).toContain(t("app.provider-unavailable"));

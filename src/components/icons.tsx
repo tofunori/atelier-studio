@@ -51,6 +51,18 @@ export function GrokIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+export function AntigravityIcon({ size = 13 }: { size?: number }) {
+  // point qui s'élève au-dessus du sol (dessin propre à Atelier, pas le logo Google)
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 13.5h11" />
+      <circle cx="8" cy="5" r="2.25" />
+      <path d="M8 9.5v1.5M5.25 9.75l.6 1.1M10.75 9.75l-.6 1.1" />
+    </svg>
+  );
+}
+
 // globe générique pour les providers API (OpenRouter, GLM, MiniMax…)
 export function ApiProviderIcon({ size = 14 }: IconProps) {
   return <GlobeIcon size={grid(size)} />;
@@ -60,6 +72,7 @@ export function ProviderIcon({ provider, size = 13 }: { provider: string; size?:
   if (provider === "codex") return <CodexIcon size={size} />;
   if (provider === "claude") return <ClaudeIcon size={size} />;
   if (provider === "grok") return <GrokIcon size={size} />;
+  if (provider === "antigravity") return <AntigravityIcon size={size} />;
   return <ApiProviderIcon size={size} />;
 }
 

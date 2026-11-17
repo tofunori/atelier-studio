@@ -188,7 +188,7 @@ function AttentionList(p: { items: HomeAttentionItem[]; onResume: ResearchHomeAc
 
 /** Nom affiché du fournisseur (« Claude », pas l'identifiant brut). */
 const PROVIDER_NAMES: Record<string, string> = {
-  claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi",
+  claude: "Claude", codex: "Codex", grok: "Grok", opencode: "OpenCode", kimi: "Kimi", antigravity: "Antigravity",
 };
 function providerName(id: string): string {
   return PROVIDER_NAMES[id] ?? (id ? id.charAt(0).toUpperCase() + id.slice(1) : id);

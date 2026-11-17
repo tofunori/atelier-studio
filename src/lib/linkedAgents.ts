@@ -6,6 +6,7 @@ const AGENT_ALIASES: Record<string, ProviderId> = {
   kimi: "kimi",
   grok: "grok",
   opencode: "opencode",
+  antigravity: "antigravity",
 };
 
 export type LinkedAgentMention = {
