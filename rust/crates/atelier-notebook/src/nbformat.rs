@@ -116,7 +116,9 @@ pub struct UiCell {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all_fields` : l'interface lit `textPlain`, `imagePng`… (sans lui,
+// les champs des variantes restaient en snake_case et rien ne s'affichait).
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum UiOutput {
     Stream {
         name: String,
@@ -905,5 +907,34 @@ mod tests {
     fn strip_ansi_removes_escape_codes() {
         let dirty = "\u{1b}[0;31mValueError\u{1b}[0m: bad \u{1b}[1mshape\u{1b}[0m";
         assert_eq!(strip_ansi(dirty), "ValueError: bad shape");
+    }
+}
+
+#[cfg(test)]
+mod ui_output_serde_tests {
+    use super::UiOutput;
+
+    /// L'onglet lit `textPlain`, `imagePng`, `executionCount` : un champ resté
+    /// en snake_case n'affichait ni résultat, ni tableau, ni figure.
+    #[test]
+    fn data_output_fields_are_camel_case() {
+        let out = UiOutput::Data {
+            execution_count: Some(3),
+            text_plain: Some("42".into()),
+            text_html: None,
+            text_markdown: None,
+            text_latex: None,
+            image_svg: None,
+            image_png: Some("iVBOR".into()),
+            image_jpeg: None,
+            application_json: None,
+            display_id: None,
+        };
+        let v = serde_json::to_value(&out).unwrap();
+        assert_eq!(v["kind"], "data");
+        assert_eq!(v["textPlain"], "42");
+        assert_eq!(v["imagePng"], "iVBOR");
+        assert_eq!(v["executionCount"], 3);
+        assert!(v.get("text_plain").is_none());
     }
 }

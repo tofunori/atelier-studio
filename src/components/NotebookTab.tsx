@@ -107,6 +107,10 @@ function initialModeFromUrl(url: string): NotebookMode {
   }
 }
 
+function firstLine(source: string): string {
+  return source.split("\n").find((line) => line.trim())?.trim().slice(0, 80) ?? "";
+}
+
 function normalizeMathLatex(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -245,12 +249,14 @@ const ProposalDiffCard = memo(function ProposalDiffCard({
         {hasDiagnostics ? (
           <span className="nb-proposal-warn">
             {proposal.diagnostics.redundantImports.length > 0
-              ? `Imports déjà présents en amont : ${proposal.diagnostics.redundantImports.join(", ")}`
+              ? t("notebook.redundant-imports", { list: proposal.diagnostics.redundantImports.join(", ") })
               : ""}
             {proposal.diagnostics.brokenDownstreamSymbols.length > 0
-              ? ` · Symboles requis en aval : ${proposal.diagnostics.brokenDownstreamSymbols
-                  .map((s) => `${s.symbol} ([${s.usedInCells.join(", ")}])`)
-                  .join(", ")}`
+              ? ` · ${t("notebook.downstream-symbols", {
+                  list: proposal.diagnostics.brokenDownstreamSymbols
+                    .map((s) => `${s.symbol} ([${s.usedInCells.join(", ")}])`)
+                    .join(", "),
+                })}`
               : ""}
           </span>
         ) : null}
@@ -290,10 +296,14 @@ const OutputBlock = memo(function OutputBlock({
   if (output.kind === "error") {
     return (
       <pre className="nb-error-out" data-part="output">
-        <span className="nb-error-name">
-          {output.ename}: {output.evalue}
-        </span>
-        {output.traceback ? `\n${output.traceback}` : ""}
+        {/* La trace se termine déjà par « ename: evalue » : ne pas la doubler. */}
+        {output.traceback ? (
+          output.traceback
+        ) : (
+          <span className="nb-error-name">
+            {output.ename}: {output.evalue}
+          </span>
+        )}
       </pre>
     );
   }
@@ -322,7 +332,7 @@ const OutputBlock = memo(function OutputBlock({
     const label = `${notebookName} · Out[${cellIndex}]`;
     window.dispatchEvent(
       new CustomEvent("kernel-add-to-chat", {
-        detail: { text: `Figure produite dans \`${label}\`\n` },
+        detail: { text: `${t("notebook.figure-cite", { label })}\n` },
       }),
     );
   };
@@ -398,7 +408,7 @@ const OutputBlock = memo(function OutputBlock({
             ) : (
               <img
                 src={`data:image/${figure.format};base64,${figure.payload}`}
-                alt={`Sortie graphique cellule ${cellIndex}`}
+                alt={t("notebook.figure-alt", { n: cellIndex })}
               />
             )}
           </RowButton>
@@ -1179,11 +1189,11 @@ export default function NotebookTab({
               <table className="nb-booktabs">
                 <thead>
                   <tr>
-                    <th>Variable</th>
-                    <th>Type</th>
-                    <th>Dimensions</th>
-                    <th>Taille</th>
-                    <th>Aperçu</th>
+                    <th>{t("notebook.var-name")}</th>
+                    <th>{t("notebook.var-type")}</th>
+                    <th>{t("notebook.var-shape")}</th>
+                    <th>{t("notebook.var-size")}</th>
+                    <th>{t("notebook.var-preview")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1242,7 +1252,7 @@ export default function NotebookTab({
                     </span>
                     <span>
                       +{entry.addedLines} / −{entry.removedLines}
-                      {entry.outputsChanged ? " · sorties modifiées" : ""}
+                      {entry.outputsChanged ? ` · ${t("notebook.outputs-changed")}` : ""}
                     </span>
                   </div>
                   <div className="nb-diff-well">
@@ -1269,7 +1279,7 @@ export default function NotebookTab({
                     className="nb-outline-btn"
                     data-current={focusedCellId === cell.id ? "true" : "false"}
                     title={`[${cell.index}] ${cell.title || cell.cellType}`}
-                    aria-label={`Cellule ${cell.index}`}
+                    aria-label={t("notebook.cell", { n: cell.index })}
                     onClick={() => scrollToCell(cell.id)}
                   >
                     <span className="nb-outline-tick" data-kind={cell.cellType} />
@@ -1367,7 +1377,7 @@ export default function NotebookTab({
                               className="nb-editor-area"
                               value={draftSource}
                               rows={Math.max(4, draftSource.split("\n").length + 1)}
-                              aria-label={`Cellule Markdown ${cell.index}`}
+                              aria-label={t("notebook.cell-markdown", { n: cell.index })}
                               onChange={(e) => setDraftSource(e.target.value)}
                               onKeyDown={(e) => handleEditorKeyDown(e, cell)}
                               autoFocus
@@ -1380,7 +1390,7 @@ export default function NotebookTab({
                               }}
                             >
                               <MdBody
-                                text={cell.source || "*Cellule de prose vide*"}
+                                text={cell.source || t("notebook.empty-prose")}
                                 streaming={false}
                                 components={MD_COMPONENTS}
                                 remarkPlugins={mdPlugins.remark}
@@ -1420,9 +1430,7 @@ export default function NotebookTab({
                         {isRunningCell ? (
                           <Spinner size={12} />
                         ) : (
-                          <span className="nb-cell-num">
-                            {cell.executionCount ?? cell.index}
-                          </span>
+                          <span className="nb-cell-num">{cell.executionCount ?? ""}</span>
                         )}
                       </div>
 
@@ -1434,21 +1442,22 @@ export default function NotebookTab({
                             onClick={() => toggleFold(cell.id)}
                           >
                             <ChevronDownIcon size={12} className="nb-chevron" />
-                            <span className="nb-cell-fold-title">
-                              {cell.title || `Cellule ${cell.index}`}
-                            </span>
+                            {/* Un seul numéro par cellule (celui d'exécution, en
+                                gouttière) : le titre ne s'affiche que s'il existe,
+                                ou repliée, pour savoir ce qui est caché. */}
+                            {cell.title || isFolded ? (
+                              <span className="nb-cell-fold-title">
+                                {cell.title || firstLine(cell.source)}
+                              </span>
+                            ) : null}
                           </RowButton>
-
-                          {cell.executionCount != null ? (
-                            <span className="nb-cell-exec-badge">[{cell.executionCount}]</span>
-                          ) : null}
 
                           <div className="nb-cell-actions">
                             {mode === "live" && cell.cellType === "code" ? (
                               <IconButton
                                 size="s"
                                 label={t("notebook.run-cell")}
-                                title={`${t("notebook.run-cell")} (⇧Entrée)`}
+                                title={`${t("notebook.run-cell")} (⇧↵)`}
                                 disabled={isBusy}
                                 onClick={() =>
                                   void handleRunCell(

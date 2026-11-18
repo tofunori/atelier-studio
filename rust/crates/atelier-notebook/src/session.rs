@@ -158,13 +158,10 @@ impl ZmqKernelHandle {
         std::fs::create_dir_all(runtime_dir)
             .map_err(|e| format!("dossier runtime ZMQ : {e}"))?;
         let ports = pick_ephemeral_ports().map_err(|e| format!("allocation ports ZMQ : {e}"))?;
-        let nonce = format!(
-            "{}:{}:{}",
-            std::process::id(),
-            notebook_path,
-            Instant::now().elapsed().as_nanos()
-        );
-        let key = sha256_hex(nonce.as_bytes())[..32].to_string();
+        // Clé HMAC aléatoire (uuid v4, comme jupyter_client) : dérivée du pid
+        // et du chemin, elle se devinait, et tout processus local pouvait
+        // alors exécuter du code dans le noyau via ses ports TCP.
+        let key = uuid::Uuid::new_v4().simple().to_string();
         let conn = ConnectionFile {
             transport: "tcp".into(),
             ip: "127.0.0.1".into(),
@@ -202,6 +199,9 @@ impl ZmqKernelHandle {
         cmd.args(args)
             .current_dir(cwd)
             .envs(&spec.env_vars)
+            // ipykernel surveille ce parent et s'arrête s'il disparaît : un
+            // serveur Atelier tué ne laisse pas de noyau orphelin.
+            .env("JPY_PARENT_PID", std::process::id().to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -281,7 +281,7 @@ impl ZmqKernelHandle {
             }
         }
 
-        let (shell, iopub, _stdin, control, mut hb) = tokio::try_join!(
+        let (shell, iopub, stdin, control, mut hb) = tokio::try_join!(
             connect_retry(conn.shell_addr(), ZmqSocketType::Dealer, true),
             connect_retry(conn.iopub_addr(), ZmqSocketType::Sub, false),
             connect_retry(conn.stdin_addr(), ZmqSocketType::Dealer, true),
@@ -290,7 +290,11 @@ impl ZmqKernelHandle {
         )?;
 
         let (mut shell_rx, shell_tx) = shell.into_split();
-        let (mut iopub_rx, _iopub_tx) = iopub.into_split();
+        // La moitié écriture d'`iopub` (et le socket `stdin`) doivent vivre aussi
+        // longtemps que la lecture : les lâcher ici envoyait un FIN TCP, et
+        // libzmq refermait alors le canal `iopub` après le premier message —
+        // plus aucune sortie avec un vrai ipykernel.
+        let (mut iopub_rx, iopub_tx) = iopub.into_split();
         let (mut control_rx, control_tx) = control.into_split();
 
         let hmac_key = conn.key.as_bytes().to_vec();
@@ -319,6 +323,13 @@ impl ZmqKernelHandle {
                         }
                     }
                 }
+                // Canal fermé (noyau mort, tué par manque de mémoire…) : lâcher
+                // les attentes, sinon la cellule restait « en cours » à jamais.
+                shared_shell
+                    .shell_waiters
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
             });
         }
 
@@ -368,6 +379,7 @@ impl ZmqKernelHandle {
             let ws_weak = workspace;
             let cb = listener;
             tokio::spawn(async move {
+                let _garde_connexions = (iopub_tx, stdin);
                 while let Ok(frames) = iopub_rx.recv_multipart().await {
                     // En ZMTP 3.x PUB/SUB, l'émetteur peut préfixer un topic avant `<IDS|MSG>` :
                     // `JupyterMessage::decode` cherche `<IDS|MSG>` à n'importe quel indice !
@@ -636,14 +648,17 @@ impl ZmqKernelHandle {
     }
 
     pub async fn interrupt(&self) -> Result<(), String> {
-        // 1. Signal POSIX au groupe de processus (interrompt les boucles C/NumPy/PyMC).
+        // Comme jupyter_client : un signal pour un noyau local (interrupt_mode
+        // « signal », le défaut d'ipykernel), le message `interrupt_request`
+        // seulement sans processus à signaler. Les deux ensemble levaient deux
+        // KeyboardInterrupt et la cellule ne rendait jamais la main.
         #[cfg(unix)]
         if let Some(pid) = self.pid {
             unsafe {
                 let _ = libc::kill(-(pid as i32), libc::SIGINT);
             }
+            return Ok(());
         }
-        // 2. Requête `interrupt_request` sur le canal `control` ZMQ.
         let req = JupyterMessage::new_request(&self.session_id, "interrupt_request", json!({}));
         let frames = req.encode(&self.hmac_key);
         let _ = self.control_tx.lock().await.send_multipart(&frames).await;
@@ -1090,6 +1105,7 @@ pub fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
 // 3. Espace de travail par cahier et `NotebookManager`
 // ============================================================================
 
+#[derive(Clone)]
 pub enum RunningBackend {
     Zmq(Arc<ZmqKernelHandle>),
     Fallback(Arc<FallbackPythonHandle>),
@@ -1149,11 +1165,18 @@ pub struct NotebookWorkspace {
     pub busy_cell: Mutex<Option<String>>,
     pub variables: Mutex<Vec<LiveVariable>>,
     pub selected_kernel_id: Mutex<Option<String>>,
+    /// Dernière activité (ouverture du noyau, exécution) : sert à arrêter
+    /// les noyaux inactifs, comme le noyau Python des fils.
+    pub last_activity: Mutex<Instant>,
 }
 
 type WeakWorkspace = std::sync::Weak<NotebookWorkspace>;
 
 impl NotebookWorkspace {
+    pub fn touch(&self) {
+        *self.last_activity.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+    }
+
     pub fn status(&self) -> NotebookKernelStatus {
         let busy_cell_id = self
             .busy_cell
@@ -1330,6 +1353,7 @@ impl NotebookManager {
             busy_cell: Mutex::new(None),
             variables: Mutex::new(Vec::new()),
             selected_kernel_id: Mutex::new(None),
+            last_activity: Mutex::new(Instant::now()),
         });
         map.insert(canonical, Arc::clone(&ws));
         Ok(ws)
@@ -1351,6 +1375,7 @@ impl NotebookManager {
         project_root: Option<&Path>,
         requested_kernel_id: Option<&str>,
     ) -> Result<(), String> {
+        ws.touch();
         if let Some(kid) = requested_kernel_id {
             *ws.selected_kernel_id
                 .lock()
@@ -1538,13 +1563,15 @@ impl NotebookManager {
             status: ws.status(),
         });
 
-        let exec_res = {
-            let guard = ws.kernel.lock().await;
-            match guard.as_ref() {
-                Some(k) => k.execute_cell(&resolved_id, &code).await,
-                None => Err("noyau arrêté".into()),
-            }
+        // Le handle est cloné hors du verrou : le garder pendant l'exécution
+        // bloquait Interrompre (et l'état du noyau) jusqu'à la fin de la cellule.
+        let running = ws.kernel.lock().await.clone();
+        ws.touch();
+        let exec_res = match running.as_ref() {
+            Some(k) => k.execute_cell(&resolved_id, &code).await,
+            None => Err("noyau arrêté".into()),
         };
+        ws.touch();
 
         *ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
@@ -1577,12 +1604,9 @@ impl NotebookManager {
         }
 
         // Rafraîchissement des variables en mémoire vive.
-        let vars = {
-            let guard = ws.kernel.lock().await;
-            match guard.as_ref() {
-                Some(k) => k.fetch_variables().await,
-                None => Vec::new(),
-            }
+        let vars = match running.as_ref() {
+            Some(k) => k.fetch_variables().await,
+            None => Vec::new(),
         };
         *ws.variables.lock().unwrap_or_else(|e| e.into_inner()) = vars.clone();
         self.emit(NotebookPushEvent::VariablesUpdated {
@@ -1852,6 +1876,36 @@ impl NotebookManager {
         Ok(diff_notebooks(&base_doc, &doc))
     }
 
+    /// Arrête les noyaux restés inactifs plus de `idle` (aucune cellule en
+    /// cours). Rend les chemins des cahiers dont le noyau a été arrêté.
+    pub async fn reap_idle(&self, idle: Duration) -> Vec<String> {
+        let list: Vec<Arc<NotebookWorkspace>> =
+            self.workspaces.lock().await.values().cloned().collect();
+        let mut stopped = Vec::new();
+        for ws in list {
+            let quiet = ws.last_activity.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
+            if !quiet || ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+                continue;
+            }
+            // Une exécution en cours tient la barrière : on n'y touche pas.
+            let Ok(_gate) = ws.exec_gate.try_lock() else {
+                continue;
+            };
+            let Some(k) = ws.kernel.lock().await.take() else {
+                continue;
+            };
+            k.shutdown().await;
+            ws.variables.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            let path = ws.path.display().to_string();
+            self.emit(NotebookPushEvent::KernelStatus {
+                path: path.clone(),
+                status: NotebookKernelStatus::default(),
+            });
+            stopped.push(path);
+        }
+        stopped
+    }
+
     pub async fn shutdown_all(&self) {
         let list: Vec<Arc<NotebookWorkspace>> =
             self.workspaces.lock().await.values().cloned().collect();
@@ -2014,6 +2068,7 @@ mod tests {
             busy_cell: Mutex::new(None),
             variables: Mutex::new(Vec::new()),
             selected_kernel_id: Mutex::new(None),
+            last_activity: Mutex::new(Instant::now()),
         });
 
         let spec = DiscoveredKernel {

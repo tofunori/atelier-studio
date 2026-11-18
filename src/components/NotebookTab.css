@@ -283,12 +283,6 @@
   opacity: 1;
 }
 
-.nb-cell-exec-badge {
-  font-family: var(--font-code);
-  font-size: var(--fs-label);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
 
 /* Prose Markdown sans aucun cadre au repos */
 .nb-prose {
@@ -489,9 +483,18 @@
   font-size: var(--fs-body-s);
 }
 
-.nb-html-out table,
+/* Un DataFrame garde sa largeur naturelle ; seul le tableau des variables
+   occupe toute la ligne. */
+.nb-html-out table {
+  width: auto;
+}
+
 .nb-booktabs {
   width: 100%;
+}
+
+.nb-html-out table,
+.nb-booktabs {
   border-collapse: collapse;
   font-size: var(--fs-body-s);
   font-variant-numeric: tabular-nums;
@@ -524,6 +527,16 @@
   border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
 }
 
+/* Index des lignes (pandas met un <th> en tête de chaque ligne) : même
+   filet et même graisse que les cellules, sinon il décalait les traits. */
+.nb-html-out tbody th {
+  font-weight: 400;
+  text-align: left;
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 65%, transparent);
+}
+
+.nb-html-out tr:last-child th,
 .nb-html-out tr:last-child td,
 .nb-booktabs tr:last-child td {
   border-bottom: 1px solid var(--border-subtle);

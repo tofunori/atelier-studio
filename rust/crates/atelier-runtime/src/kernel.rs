@@ -52,6 +52,9 @@ pub fn spawn_idle_reaper(state: AppState) {
             for thread_id in state.kernels().reap_idle(IDLE_SHUTDOWN).await {
                 publish_status(&state, &thread_id);
             }
+            // Noyaux des cahiers .ipynb : même règle (l'arrêt publie lui-même
+            // l'état du noyau à l'onglet).
+            state.notebooks().reap_idle(IDLE_SHUTDOWN).await;
         }
     });
 }
