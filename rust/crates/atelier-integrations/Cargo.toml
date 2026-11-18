@@ -8,6 +8,15 @@ description = "Intégrations facultatives (Ragdoc, gbrain, calculs, Crossref, Zo
 
 [dependencies]
 serde_json = { workspace = true }
+# fetch.rs : outils épinglés téléchargés par Atelier (pixi).
+flate2 = "1"
+fs2 = "0.4"
+hex = "0.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"
+tar = "0.4"
+ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+webpki-roots = "0.26"
 
 [dev-dependencies]
 tempfile = { workspace = true }

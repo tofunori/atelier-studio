@@ -336,8 +336,14 @@ fn atelier_env_view(state: &AppState) -> Value {
         "dir": dir,
         "installed": atelier_kernel::pixi::env_prefix(dir).join("bin/python").is_file(),
         "pixi": pixi.binary(),
+        "pixiDownload": pixi.binary().is_none() && pixi.available(),
     });
-    if view["pixi"].is_null() {
+    if view["pixiDownload"] == json!(true) {
+        view["note"] = json!(format!(
+            "pixi n'est pas sur la machine : Atelier télécharge pixi {} au premier démarrage de cet env, puis crée l'env (quelques minutes).",
+            atelier_kernel::pixi::PIXI_VERSION
+        ));
+    } else if view["pixi"].is_null() {
         view["install"] = json!(atelier_kernel::pixi::INSTALL_LINE);
         view["note"] = json!(atelier_kernel::pixi::missing_message());
     }

@@ -150,6 +150,7 @@ impl AppState {
             paths.app_dir.clone(),
             home_dir,
         ));
+        notebooks.set_python_envs(Arc::clone(&kernels));
         let notebook_bus = bus.clone();
         notebooks.set_listener(Arc::new(move |event| {
             let _ = notebook_bus.send(crate::notebook_tool::push_event_message(&event));

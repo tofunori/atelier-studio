@@ -1162,7 +1162,7 @@ export default function NotebookTab({
   const rssLabel = formatBytes(status.rssBytes, getResolvedLanguage());
   const kernelLabel =
     status.state === "starting"
-      ? t("notebook.kernel-starting")
+      ? t(status.message === "installing-env" ? "notebook.kernel-installing" : "notebook.kernel-starting")
       : status.displayName || snapshot?.preferredKernelspec || t("notebook.kernel-off");
 
   const modeOptions = useMemo(

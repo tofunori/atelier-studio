@@ -69,6 +69,10 @@ impl ProbeContext {
             dirs.push(home.join(".opencode/bin"));
         }
         dirs.extend(EXTRA_DIRS.iter().map(PathBuf::from));
+        // TeX Live de l'installeur officiel, hors du PATH d'une app lancée
+        // depuis le menu des applications (Linux).
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        dirs.extend(atelier_integrations::tectonic::tex_bin_dirs(home.as_deref()));
         let command_line_tools = cfg!(target_os = "macos").then(|| {
             std::process::Command::new("xcode-select")
                 .arg("-p")
