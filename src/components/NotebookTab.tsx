@@ -50,6 +50,7 @@ import {
   type UiOutput,
 } from "../lib/notebook";
 import { setDocumentUnsaved } from "../lib/unsavedDocuments";
+import { attachCellScrollAnchor } from "../lib/cellScrollAnchor";
 import { MD_COMPONENTS, MdBody, highlightCode, useMdPlugins } from "./chat/md";
 import {
   Button,
@@ -123,6 +124,28 @@ function normalizeMathLatex(raw: string): string {
     return `$$\n${trimmed.slice(1, -1).trim()}\n$$`;
   }
   return `$$\n${trimmed}\n$$`;
+}
+
+/** Sorties d'une cellule. Relancée, elle efface ses sorties puis les
+ *  réécrit : sans ancrage du défilement (WebKit, donc Atelier sur Mac), la
+ *  page remontait de toute leur hauteur et la vue tombait sur une autre
+ *  cellule. Pendant l'exécution, la zone garde la hauteur d'avant. */
+function HeldOutputs({ running, children }: { running: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const settled = useRef(0);
+  useLayoutEffect(() => {
+    if (!running && ref.current) settled.current = ref.current.offsetHeight;
+  });
+  return (
+    <div
+      ref={ref}
+      className="nb-outputs"
+      data-held={running ? "true" : undefined}
+      style={running && settled.current ? { minHeight: settled.current } : undefined}
+    >
+      {children}
+    </div>
+  );
 }
 
 function NotebookSelectionBar({
@@ -731,6 +754,16 @@ export default function NotebookTab({
       cancelled = true;
     };
   }, [mode, path, projectRoot, snapshot?.revision]);
+
+  // La première cellule visible reste à sa place quand les sorties changent
+  // de taille (WebKit n'ancre pas le défilement : la vue sautait sur Mac).
+  const sheetReady = Boolean(snapshot) && !loading && mode !== "diff";
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    const sheet = scroller?.querySelector<HTMLElement>(".nb-sheet");
+    if (!scroller || !sheet || !sheetReady) return;
+    return attachCellScrollAnchor(scroller, sheet, ".nb-cell[data-cell-id]");
+  }, [sheetReady]);
 
   // Sélection de texte pour « Ajouter au chat » et « Question rapide ».
   useEffect(() => {
@@ -1751,8 +1784,8 @@ export default function NotebookTab({
                               </pre>
                             )}
 
-                            {cell.outputs.length > 0 ? (
-                              <div className="nb-outputs">
+                            {cell.outputs.length > 0 || isRunningCell ? (
+                              <HeldOutputs running={isRunningCell}>
                                 {cell.outputs.map((out, oi) => (
                                   <OutputBlock
                                     key={oi}
@@ -1766,7 +1799,7 @@ export default function NotebookTab({
                                     savedKeySet={savedFigures}
                                   />
                                 ))}
-                              </div>
+                              </HeldOutputs>
                             ) : null}
                           </>
                         ) : null}

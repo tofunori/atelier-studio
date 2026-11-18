@@ -132,6 +132,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Ancrage fait en JS (lib/cellScrollAnchor) : le même sur WebKit et Chromium. */
+  overflow-anchor: none;
   padding: var(--sp-6) var(--sp-6) var(--sp-8);
 }
 
