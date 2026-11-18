@@ -116,7 +116,10 @@ test('agent notes in LaTeX: signed in place, reply in the thread and the chat, l
     await page.locator('.texa-block').first().locator('.texa-resolve').click();
     expect((await resolved).ok()).toBe(true);
     await expect(heads).toHaveCount(1);
-    expect(readStore(root)[key].map(a => a.id)).toEqual(['a1-1']);
+    // Le pointerdown sur la note non lue enregistre d'abord « lue » (premier
+    // POST, celui attendu plus haut), puis le clic enregistre la résolution :
+    // le store n'est à jour qu'après le second, d'où l'attente.
+    await expect.poll(() => readStore(root)[key].map(a => a.id)).toEqual(['a1-1']);
   });
 });
 
