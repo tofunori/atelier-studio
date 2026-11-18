@@ -118,11 +118,19 @@ pub struct UiCell {
 #[derive(Debug, Clone, Serialize)]
 // `rename_all_fields` : l'interface lit `textPlain`, `imagePng`… (sans lui,
 // les champs des variantes restaient en snake_case et rien ne s'affichait).
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum UiOutput {
     Stream {
         name: String,
         text: String,
+        /// Lignes du début non envoyées à l'écran (flux géant) ; le fichier
+        /// les garde toutes.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        omitted_lines: Option<usize>,
     },
     Data {
         execution_count: Option<u64>,
@@ -135,12 +143,77 @@ pub enum UiOutput {
         image_jpeg: Option<String>,
         application_json: Option<Value>,
         display_id: Option<String>,
+        /// Formats trop lourds pour l'écran (gardés dans le fichier).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        omitted: Vec<OmittedMime>,
     },
     Error {
         ename: String,
         evalue: String,
         traceback: String,
     },
+}
+
+/// Format d'une sortie gardé dans le fichier mais pas envoyé à l'écran.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmittedMime {
+    pub mime: String,
+    pub bytes: usize,
+}
+
+/// Plafonds d'AFFICHAGE : au-delà, l'onglet gèle (des millions de lignes à
+/// mettre en page à chaque rafraîchissement). Le document garde tout.
+pub const UI_STREAM_MAX_BYTES: usize = 200_000;
+pub const UI_TEXT_MAX_BYTES: usize = 200_000;
+pub const UI_HTML_MAX_BYTES: usize = 2_000_000;
+pub const UI_SVG_MAX_BYTES: usize = 4_000_000;
+pub const UI_IMAGE_MAX_BYTES: usize = 12_000_000;
+/// Plafond de MÉMOIRE d'un flux : une boucle infinie de `print` ne doit pas
+/// remplir la RAM du Mac. Au-delà, le flux s'arrête avec une marque visible.
+pub const DOC_STREAM_MAX_BYTES: usize = 32_000_000;
+pub const DOC_STREAM_TRUNCATED_MARK: &str =
+    "\n[Atelier: output stopped here, more than 32 MB were printed]\n";
+
+fn floor_char_boundary(s: &str, mut i: usize) -> usize {
+    i = i.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Dernière partie d'un texte trop long (coupée à une fin de ligne), avec le
+/// nombre de lignes laissées de côté.
+pub fn tail_for_ui(text: &str, max: usize) -> (&str, Option<usize>) {
+    if text.len() <= max {
+        return (text, None);
+    }
+    let mut start = floor_char_boundary(text, text.len() - max);
+    if let Some(nl) = text[start..].find('\n') {
+        if start + nl + 1 < text.len() {
+            start += nl + 1;
+        }
+    }
+    let omitted = text.as_bytes()[..start]
+        .iter()
+        .filter(|&&b| b == b'\n')
+        .count();
+    (&text[start..], Some(omitted.max(1)))
+}
+
+/// Début d'un texte trop long (coupé à une fin de ligne).
+pub fn head_for_ui(text: &str, max: usize) -> (&str, bool) {
+    if text.len() <= max {
+        return (text, false);
+    }
+    let mut end = floor_char_boundary(text, max);
+    if let Some(nl) = text[..end].rfind('\n') {
+        if nl > 0 {
+            end = nl + 1;
+        }
+    }
+    (&text[..end], true)
 }
 
 /// Retire les séquences ANSI CSI (`\x1b[...m`, curseur, etc.) des tracebacks et flux.
@@ -391,7 +464,12 @@ impl NotebookCell {
     }
 
     /// Applique un événement `iopub` en direct à la liste des sorties de la cellule.
-    pub fn apply_iopub_output(&mut self, msg_type: &str, content: &Value, transient: Option<&Value>) {
+    pub fn apply_iopub_output(
+        &mut self,
+        msg_type: &str,
+        content: &Value,
+        transient: Option<&Value>,
+    ) {
         match msg_type {
             "stream" => {
                 let name = content
@@ -402,6 +480,31 @@ impl NotebookCell {
                     .get("text")
                     .map(multiline_to_string)
                     .unwrap_or_default();
+                // Plafond mémoire, tous flux de la cellule confondus.
+                let stored: usize = self
+                    .outputs
+                    .iter()
+                    .map(|o| match o {
+                        CellOutput::Stream { text, .. } => text.len(),
+                        _ => 0,
+                    })
+                    .sum();
+                if stored >= DOC_STREAM_MAX_BYTES {
+                    let marked = self.outputs.iter().any(|o| {
+                        matches!(o, CellOutput::Stream { text, .. } if text.ends_with(DOC_STREAM_TRUNCATED_MARK))
+                    });
+                    if !marked {
+                        if let Some(CellOutput::Stream { text, .. }) = self
+                            .outputs
+                            .iter_mut()
+                            .rev()
+                            .find(|o| matches!(o, CellOutput::Stream { .. }))
+                        {
+                            text.push_str(DOC_STREAM_TRUNCATED_MARK);
+                        }
+                    }
+                    return;
+                }
                 if let Some(CellOutput::Stream {
                     name: prev_name,
                     text: prev_text,
@@ -548,10 +651,14 @@ fn append_carriage_aware(buf: &mut String, chunk: &str) {
 
 pub fn output_to_ui(output: &CellOutput) -> UiOutput {
     match output {
-        CellOutput::Stream { name, text } => UiOutput::Stream {
-            name: name.clone(),
-            text: strip_ansi(text),
-        },
+        CellOutput::Stream { name, text } => {
+            let (shown, omitted_lines) = tail_for_ui(text, UI_STREAM_MAX_BYTES);
+            UiOutput::Stream {
+                name: name.clone(),
+                text: strip_ansi(shown),
+                omitted_lines,
+            }
+        }
         CellOutput::ExecuteResult {
             execution_count,
             data,
@@ -568,7 +675,15 @@ pub fn output_to_ui(output: &CellOutput) -> UiOutput {
             let joined = if traceback.is_empty() {
                 format!("{ename}: {evalue}")
             } else {
-                strip_ansi(&traceback.join("\n"))
+                // Une RecursionError peut produire des milliers de cadres : la
+                // fin de la trace est la partie utile.
+                let full = traceback.join("\n");
+                let (tail, cut) = tail_for_ui(&full, UI_TEXT_MAX_BYTES);
+                let tail = strip_ansi(tail);
+                match cut {
+                    Some(n) => format!("[… {n} lines]\n{tail}"),
+                    None => tail,
+                }
             };
             UiOutput::Error {
                 ename: ename.clone(),
@@ -590,17 +705,52 @@ fn mime_to_ui(
     data: &Map<String, Value>,
     display_id: Option<String>,
 ) -> UiOutput {
+    let mut omitted = Vec::new();
+    let mut capped = |mime: &str, max: usize| -> Option<String> {
+        let value = mime_str(data, mime)?;
+        if value.len() > max {
+            omitted.push(OmittedMime {
+                mime: mime.to_string(),
+                bytes: value.len(),
+            });
+            None
+        } else {
+            Some(value)
+        }
+    };
+    let text_html = capped("text/html", UI_HTML_MAX_BYTES);
+    let text_markdown = capped("text/markdown", UI_HTML_MAX_BYTES);
+    let text_latex = capped("text/latex", UI_HTML_MAX_BYTES);
+    let image_svg = capped("image/svg+xml", UI_SVG_MAX_BYTES);
+    let image_png = capped("image/png", UI_IMAGE_MAX_BYTES).map(|s| s.trim().to_string());
+    let image_jpeg = capped("image/jpeg", UI_IMAGE_MAX_BYTES).map(|s| s.trim().to_string());
+    // Le texte brut reste toujours affichable : on en montre le début.
+    let text_plain = mime_str(data, "text/plain").map(|s| {
+        let (head, cut) = head_for_ui(&s, UI_TEXT_MAX_BYTES);
+        if cut {
+            omitted.push(OmittedMime {
+                mime: "text/plain".into(),
+                bytes: s.len(),
+            });
+        }
+        strip_ansi(head)
+    });
+    let application_json = data
+        .get("application/json")
+        .filter(|v| v.to_string().len() <= UI_TEXT_MAX_BYTES)
+        .cloned();
     UiOutput::Data {
         execution_count,
-        text_plain: mime_str(data, "text/plain").map(|s| strip_ansi(&s)),
-        text_html: mime_str(data, "text/html"),
-        text_markdown: mime_str(data, "text/markdown"),
-        text_latex: mime_str(data, "text/latex"),
-        image_svg: mime_str(data, "image/svg+xml"),
-        image_png: mime_str(data, "image/png").map(|s| s.trim().to_string()),
-        image_jpeg: mime_str(data, "image/jpeg").map(|s| s.trim().to_string()),
-        application_json: data.get("application/json").cloned(),
+        text_plain,
+        text_html,
+        text_markdown,
+        text_latex,
+        image_svg,
+        image_png,
+        image_jpeg,
+        application_json,
         display_id,
+        omitted,
     }
 }
 
@@ -624,10 +774,9 @@ impl NotebookDocument {
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let raw_cells = obj
-            .get("cells")
-            .and_then(Value::as_array)
-            .ok_or_else(|| NotebookError::Invalid("champ `cells` manquant dans le .ipynb".into()))?;
+        let raw_cells = obj.get("cells").and_then(Value::as_array).ok_or_else(|| {
+            NotebookError::Invalid("champ `cells` manquant dans le .ipynb".into())
+        })?;
 
         let mut seen_ids = std::collections::HashSet::new();
         let mut cells = Vec::with_capacity(raw_cells.len());
@@ -868,7 +1017,10 @@ mod tests {
         assert_eq!(doc.language(), "python");
         assert_eq!(doc.preferred_kernelspec().as_deref(), Some("pymc-albedo"));
         assert_eq!(doc.cells.len(), 2);
-        assert_eq!(doc.cells[0].source, "# Modèle Mundlak\nÉquation principale.");
+        assert_eq!(
+            doc.cells[0].source,
+            "# Modèle Mundlak\nÉquation principale."
+        );
         assert_eq!(
             doc.cells[1].inferred_title().as_deref(),
             Some("Ajustement bayésien")
@@ -876,8 +1028,14 @@ mod tests {
 
         let saved = doc.to_ipynb_string().unwrap();
         let reparsed: Value = serde_json::from_str(&saved).unwrap();
-        assert_eq!(reparsed["metadata"]["jupytext"]["formats"], "ipynb,py:percent");
-        assert_eq!(reparsed["cells"][0]["attachments"]["eq.png"]["image/png"], "AAAA");
+        assert_eq!(
+            reparsed["metadata"]["jupytext"]["formats"],
+            "ipynb,py:percent"
+        );
+        assert_eq!(
+            reparsed["cells"][0]["attachments"]["eq.png"]["image/png"],
+            "AAAA"
+        );
         assert_eq!(reparsed["cells"][1]["execution_count"], 3);
     }
 
@@ -892,9 +1050,21 @@ mod tests {
             outputs: Vec::new(),
             extra: Map::new(),
         };
-        cell.apply_iopub_output("stream", &json!({"name": "stderr", "text": "10%|#   |"}), None);
-        cell.apply_iopub_output("stream", &json!({"name": "stderr", "text": "\r50%|#####|"}), None);
-        cell.apply_iopub_output("stream", &json!({"name": "stderr", "text": "\r100%|#####|\nDone\n"}), None);
+        cell.apply_iopub_output(
+            "stream",
+            &json!({"name": "stderr", "text": "10%|#   |"}),
+            None,
+        );
+        cell.apply_iopub_output(
+            "stream",
+            &json!({"name": "stderr", "text": "\r50%|#####|"}),
+            None,
+        );
+        cell.apply_iopub_output(
+            "stream",
+            &json!({"name": "stderr", "text": "\r100%|#####|\nDone\n"}),
+            None,
+        );
         assert_eq!(cell.outputs.len(), 1);
         if let CellOutput::Stream { text, .. } = &cell.outputs[0] {
             assert_eq!(text, "100%|#####|\nDone\n");
@@ -929,6 +1099,7 @@ mod ui_output_serde_tests {
             image_jpeg: None,
             application_json: None,
             display_id: None,
+            omitted: Vec::new(),
         };
         let v = serde_json::to_value(&out).unwrap();
         assert_eq!(v["kind"], "data");
@@ -936,5 +1107,84 @@ mod ui_output_serde_tests {
         assert_eq!(v["imagePng"], "iVBOR");
         assert_eq!(v["executionCount"], 3);
         assert!(v.get("text_plain").is_none());
+    }
+
+    /// Un flux géant n'envoie que sa fin à l'écran, coupée à une ligne, et
+    /// dit combien de lignes il a laissées de côté.
+    #[test]
+    fn giant_stream_sends_only_its_tail() {
+        let text: String = (0..100_000).map(|i| format!("ligne {i}\n")).collect();
+        let out = super::output_to_ui(&super::CellOutput::Stream {
+            name: "stdout".into(),
+            text: text.clone(),
+        });
+        let UiOutput::Stream {
+            text: shown,
+            omitted_lines,
+            ..
+        } = out
+        else {
+            panic!("flux attendu");
+        };
+        assert!(shown.len() <= super::UI_STREAM_MAX_BYTES);
+        assert!(shown.ends_with("ligne 99999\n"));
+        assert!(
+            shown.starts_with("ligne "),
+            "coupé au milieu d'une ligne : {}",
+            &shown[..20]
+        );
+        let kept = shown.matches('\n').count();
+        assert_eq!(omitted_lines.unwrap() + kept, 100_000);
+    }
+
+    /// Une image ou un HTML trop lourd reste dans le fichier mais n'est pas
+    /// envoyé à l'écran ; le texte brut, lui, est toujours montré (début).
+    #[test]
+    fn heavy_mime_is_omitted_from_screen_only() {
+        let mut data = serde_json::Map::new();
+        data.insert(
+            "text/html".into(),
+            serde_json::json!("x".repeat(super::UI_HTML_MAX_BYTES + 1)),
+        );
+        data.insert("text/plain".into(), serde_json::json!("<DataFrame>"));
+        let out = super::output_to_ui(&super::CellOutput::DisplayData {
+            data,
+            metadata: serde_json::Map::new(),
+            display_id: None,
+        });
+        let v = serde_json::to_value(&out).unwrap();
+        assert!(v.get("textHtml").unwrap().is_null());
+        assert_eq!(v["textPlain"], "<DataFrame>");
+        assert_eq!(v["omitted"][0]["mime"], "text/html");
+        assert_eq!(v["omitted"][0]["bytes"], super::UI_HTML_MAX_BYTES + 1);
+    }
+
+    /// Une boucle de `print` sans fin s'arrête à 32 Mo avec une marque, au
+    /// lieu de remplir la mémoire.
+    #[test]
+    fn endless_print_stops_at_memory_cap() {
+        let mut cell = super::NotebookCell {
+            id: "c".into(),
+            cell_type: super::CellKind::Code,
+            source: String::new(),
+            metadata: serde_json::Map::new(),
+            execution_count: None,
+            outputs: Vec::new(),
+            extra: serde_json::Map::new(),
+        };
+        let chunk = "y".repeat(1_000_000) + "\n";
+        for _ in 0..40 {
+            cell.apply_iopub_output(
+                "stream",
+                &serde_json::json!({"name": "stdout", "text": chunk}),
+                None,
+            );
+        }
+        let super::CellOutput::Stream { text, .. } = &cell.outputs[0] else {
+            panic!()
+        };
+        assert!(text.len() < super::DOC_STREAM_MAX_BYTES + 2_000_000);
+        assert!(text.ends_with(super::DOC_STREAM_TRUNCATED_MARK));
+        assert_eq!(text.matches(super::DOC_STREAM_TRUNCATED_MARK).count(), 1);
     }
 }

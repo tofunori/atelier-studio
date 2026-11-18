@@ -696,3 +696,124 @@ async fn delete_automation_answers_and_releases_ordered_queue() {
     .expect("la mutation ordonnée suivante reste bloquée derrière deleteAutomation");
     client.close(None).await.unwrap();
 }
+
+/// Lit les trames jusqu'à celle qui satisfait `pred` (délai global `secs`).
+/// Rend aussi toutes les trames vues, pour vérifier ce qui n'a PAS eu lieu.
+async fn receive_until(
+    client: &mut Client,
+    secs: u64,
+    what: &str,
+    pred: impl Fn(&Value) -> bool,
+) -> (Value, Vec<Value>) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
+    let mut seen = Vec::new();
+    loop {
+        let frame = tokio::time::timeout_at(deadline, client.next())
+            .await
+            .unwrap_or_else(|_| panic!("attendu en vain : {what}\nvu : {seen:#?}"))
+            .unwrap()
+            .unwrap();
+        let Ok(text) = frame.to_text() else { continue };
+        let Ok(value) = serde_json::from_str::<Value>(text) else { continue };
+        if pred(&value) {
+            return (value, seen);
+        }
+        seen.push(value);
+    }
+}
+
+fn notebook_event<'a>(frame: &'a Value, event: &str) -> Option<&'a Value> {
+    (frame["type"] == "notebookEvent" && frame["data"]["event"] == event).then(|| &frame["data"])
+}
+
+/// De bout en bout par la vraie connexion de l'app, avec un vrai ipykernel :
+/// une cellule plus longue que le délai des requêtes (ici 1 s, 15 s dans
+/// l'app) va jusqu'au bout au lieu d'être coupée ; `input()` reçoit sa
+/// réponse ; Enregistrer écrit les sorties.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn notebook_long_cell_and_input_over_the_real_socket() {
+    let Ok(python) = std::env::var("ATELIER_TEST_IPYKERNEL_PYTHON") else {
+        eprintln!("ATELIER_TEST_IPYKERNEL_PYTHON absent : test ipykernel réel sauté");
+        return;
+    };
+    let (mut client, fixture) = fixture(Duration::from_secs(1)).await;
+    let project = tempfile::tempdir().unwrap();
+    // Le projet porte son env (.venv) : c'est lui que l'onglet choisit.
+    let prefix = std::path::Path::new(&python).parent().unwrap().parent().unwrap();
+    std::os::unix::fs::symlink(prefix, project.path().join(".venv")).unwrap();
+    let nb = project.path().join("analyse.ipynb");
+    let cell = |id: &str, src: &str| {
+        json!({"id": id, "cell_type": "code", "source": src, "outputs": [], "metadata": {}, "execution_count": null})
+    };
+    std::fs::write(
+        &nb,
+        json!({
+            "nbformat": 4, "nbformat_minor": 5, "metadata": {},
+            "cells": [
+                cell("slow", "import time\nfor i in range(3):\n    print('tic', i, flush=True)\n    time.sleep(1)"),
+                cell("ask", "nom = input('Votre nom ? ')\nprint('bonjour', nom)"),
+            ]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let root = project.path().display().to_string();
+    let path = nb.display().to_string();
+    let reply_to = |id: &'static str| move |v: &Value| v["type"] == "notebookCommand" && v["requestId"] == id;
+
+    send(&mut client, json!({"type":"notebookCommand","requestId":"open","op":"open","path":path,"projectRoot":root})).await;
+    let (opened, _) = receive_until(&mut client, 10, "open", reply_to("open")).await;
+    assert!(opened["error"].is_null(), "{opened}");
+
+    // 1. Cellule de 3 s, délai des requêtes 1 s : réponse immédiate, puis la
+    //    cellule finit (sorties complètes) sans erreur de délai.
+    let started = tokio::time::Instant::now();
+    send(&mut client, json!({"type":"notebookCommand","requestId":"run","op":"runCell","path":path,"projectRoot":root,"cellId":"slow"})).await;
+    let (reply, _) = receive_until(&mut client, 5, "réponse runCell", reply_to("run")).await;
+    assert_eq!(reply["data"]["started"], true, "{reply}");
+    assert!(started.elapsed() < Duration::from_secs(1), "runCell a attendu la fin de la cellule");
+    let (done, seen) = receive_until(&mut client, 60, "fin de la cellule lente", |v| {
+        notebook_event(v, "cellUpdated")
+            .is_some_and(|d| d["cell"]["id"] == "slow" && d["running"] == false)
+    })
+    .await;
+    let text = done["data"]["cell"]["outputs"][0]["text"].as_str().unwrap_or("");
+    assert_eq!(text, "tic 0\ntic 1\ntic 2\n", "{done}");
+    assert!(
+        !seen.iter().any(|v| v["code"] == "REQUEST_TIMEOUT" || v["code"] == "REQUEST_DELAYED"),
+        "délai dépassé renvoyé à l'onglet : {seen:#?}"
+    );
+    assert!(seen.iter().any(|v| notebook_event(v, "runFailed").is_some()) == false);
+
+    // 2. input() : la demande arrive, la réponse passe pendant que la
+    //    cellule tourne.
+    send(&mut client, json!({"type":"notebookCommand","requestId":"run2","op":"runCell","path":path,"projectRoot":root,"cellId":"ask"})).await;
+    let (asked, _) = receive_until(&mut client, 30, "inputRequested", |v| notebook_event(v, "inputRequested").is_some()).await;
+    assert_eq!(asked["data"]["cellId"], "ask");
+    assert_eq!(asked["data"]["prompt"], "Votre nom ? ");
+    send(&mut client, json!({"type":"notebookCommand","requestId":"answer","op":"sendInput","path":path,"projectRoot":root,"value":"Ada"})).await;
+    let (answered, _) = receive_until(&mut client, 10, "réponse sendInput", reply_to("answer")).await;
+    assert!(answered["error"].is_null(), "{answered}");
+    let (done, _) = receive_until(&mut client, 30, "fin de la cellule input", |v| {
+        notebook_event(v, "cellUpdated")
+            .is_some_and(|d| d["cell"]["id"] == "ask" && d["running"] == false)
+    })
+    .await;
+    let text: String = done["data"]["cell"]["outputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|o| o["text"].as_str())
+        .collect();
+    assert!(text.contains("bonjour Ada"), "{done}");
+
+    // 3. Enregistrer écrit les sorties dans le fichier.
+    send(&mut client, json!({"type":"notebookCommand","requestId":"save","op":"save","path":path,"projectRoot":root})).await;
+    let (saved, _) = receive_until(&mut client, 10, "save", reply_to("save")).await;
+    assert_eq!(saved["data"]["snapshot"]["unsaved"], false, "{saved}");
+    let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&nb).unwrap()).unwrap();
+    assert_eq!(on_disk["cells"][0]["outputs"][0]["text"], json!(["tic 0\n", "tic 1\n", "tic 2\n"]));
+
+    fixture.state.notebooks().shutdown_all().await;
+    client.close(None).await.unwrap();
+}
