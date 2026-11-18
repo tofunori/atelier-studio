@@ -11,10 +11,15 @@ pub struct AppPaths {
 }
 
 impl AppPaths {
-    /// Production paths under `~/Library/Application Support/atelier-studio`.
+    /// Production paths under `~/Library/Application Support/atelier-studio`
+    /// on macOS, or `~/.local/share/atelier-studio` on Linux.
     pub fn default_mac() -> Self {
         let home = dirs_home();
-        let app_dir = home.join("Library/Application Support/atelier-studio");
+        let app_dir = if cfg!(target_os = "macos") {
+            home.join("Library/Application Support/atelier-studio")
+        } else {
+            home.join(".local/share/atelier-studio")
+        };
         Self::from_app_dir(app_dir)
     }
 

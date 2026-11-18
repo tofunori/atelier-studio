@@ -45,6 +45,7 @@ flate2 = "1"
 # graphiques d'Excel et les EMF rendus en SVG partent en PNG, seul format lu par
 # les modèles avec JPEG, GIF et WebP. Pur Rust, sans rsvg-convert.
 resvg = "0.48"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 zip = { version = "2", default-features = false, features = ["deflate"] }

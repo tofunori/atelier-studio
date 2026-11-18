@@ -1233,6 +1233,10 @@ export default function App() {
     if (!activeProject) return;
     return registerSetupTerminal((command, request) => {
       setShowSettings(false);
+      setProjectsHome(null);
+      setGalleryFullscreen(false);
+      setPaletteOpen(false);
+      setPluginsOpen(false);
       closeSetupWelcome();
       setLayout((l) => (l === "chat" ? "split" : l));
       setTerminalRequest({ command });
@@ -3185,7 +3189,10 @@ export default function App() {
           return;
         }
       }
-      if (e.metaKey && e.altKey && e.code === "KeyK") {
+      const isNonMacPlatform = typeof navigator !== "undefined" && /Linux|Win/i.test(navigator.platform);
+      const inTermHost = e.target instanceof Element && Boolean(e.target.closest(".term-host"));
+      const primaryMod = e.metaKey || (isNonMacPlatform && !inTermHost && e.ctrlKey);
+      if (primaryMod && e.altKey && e.code === "KeyK") {
         e.preventDefault();
         // toggle : minimisé → rouvre la conversation ; ouvert → minimise ; fermé → neuf
         const m = qaModeRef.current;
@@ -3194,24 +3201,24 @@ export default function App() {
         else { setQaDraft(""); setQaContext(null); setQaMode("open"); }
         return;
       }
-      // ⇧⌘P : accueil des projets (ouvre, ou referme s'il est déjà là)
-      if (e.metaKey && e.shiftKey && !e.altKey && e.code === "KeyP") {
+      // ⇧⌘P (ou Ctrl+Shift+P hors Mac) : accueil des projets (ouvre, ou referme s'il est déjà là)
+      if (primaryMod && e.shiftKey && !e.altKey && e.code === "KeyP") {
         e.preventDefault();
         setProjectsHome((current) => (current ? null : "open"));
         return;
       }
-      if (e.metaKey && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {
+      if (primaryMod && !e.shiftKey && ["KeyK", "KeyP"].includes(e.code)) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
         return;
       }
       if (e.key === "Escape") setPaletteOpen(false);
-      if (e.metaKey && e.shiftKey && e.code === "KeyA") {
+      if (primaryMod && e.shiftKey && e.code === "KeyA") {
         setLayout((l) => (l === "chat" ? "split" : "chat"));
       }
-      if (e.metaKey && !e.shiftKey && e.code === "Digit1") setLayout("chat");
-      if (e.metaKey && !e.shiftKey && e.code === "Digit2") setLayout("atelier");
-      if (e.metaKey && !e.shiftKey && e.code === "Digit0") setLayout("split");
+      if (primaryMod && !e.shiftKey && e.code === "Digit1") setLayout("chat");
+      if (primaryMod && !e.shiftKey && e.code === "Digit2") setLayout("atelier");
+      if (primaryMod && !e.shiftKey && e.code === "Digit0") setLayout("split");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

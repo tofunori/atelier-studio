@@ -452,9 +452,15 @@ fn word_command(path: &Path) -> tokio::process::Command {
             cmd
         }
         None => {
-            let mut cmd = tokio::process::Command::new("open");
-            cmd.args(["-b", "com.microsoft.Word"]).arg(path);
-            cmd
+            if cfg!(target_os = "macos") {
+                let mut cmd = tokio::process::Command::new("open");
+                cmd.args(["-b", "com.microsoft.Word"]).arg(path);
+                cmd
+            } else {
+                let mut cmd = tokio::process::Command::new("xdg-open");
+                cmd.arg(path);
+                cmd
+            }
         }
     }
 }

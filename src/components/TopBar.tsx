@@ -13,7 +13,49 @@ import type { Surface } from "./surfaces";
 import { MoreIcon } from "./icons";
 
 
-import { Columns2Icon, PanelRightIcon, SquareIcon } from "lucide-react";
+import { Columns2Icon, MinusIcon, PanelRightIcon, SquareIcon, XIcon } from "lucide-react";
+
+function isNonMacTauriWindow(): boolean {
+  return typeof window !== "undefined"
+    && "__TAURI_INTERNALS__" in window
+    && typeof navigator !== "undefined"
+    && !/Mac/i.test(navigator.platform);
+}
+
+function LinuxWindowControls() {
+  if (!isNonMacTauriWindow()) return null;
+  const withWin = (fn: (win: Awaited<ReturnType<typeof import("@tauri-apps/api/window")["getCurrentWindow"]>>) => Promise<void>) => {
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => fn(getCurrentWindow()))
+      .catch(() => {});
+  };
+  return (
+    <div className="topbar-linux-win-controls">
+      <IconButton
+        size="s"
+        label="Minimize"
+        onClick={() => withWin((w) => w.minimize())}
+      >
+        <MinusIcon size={14} />
+      </IconButton>
+      <IconButton
+        size="s"
+        label="Maximize"
+        onClick={() => withWin((w) => w.toggleMaximize())}
+      >
+        <SquareIcon size={12} />
+      </IconButton>
+      <IconButton
+        size="s"
+        className="topbar-linux-win-close"
+        label={t("action.close")}
+        onClick={() => withWin((w) => w.close())}
+      >
+        <XIcon size={14} />
+      </IconButton>
+    </div>
+  );
+}
 function LayoutChatIcon() {
   return (
     <SquareIcon size={14} />
@@ -119,8 +161,20 @@ export default function TopBar({
   // (variante Graphite, 2026-11-15). Les autres gardent le fond du panneau.
   // Un document actif (LaTeX, PDF, Word, code) ouvre toujours sur sa barre.
   const atelierTopBar = showAtelier && (documentActive || TOOLBAR_FIRST_SURFACES.has(activeSurface));
+  const handleTopBarMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !isNonMacTauriWindow()) return;
+    const target = e.target as HTMLElement | null;
+    if (!target || target.closest("button, a, input, select, textarea, [role='tab'], [role='menuitem']")) return;
+    if (!target.hasAttribute("data-tauri-drag-region")) return;
+    if (e.detail === 2) {
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize()).catch(() => {});
+      return;
+    }
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().startDragging()).catch(() => {});
+  };
   return (
     <div ref={barRef} className="topbar" data-tauri-drag-region data-layout={split ? "split" : layout}
+      onMouseDown={handleTopBarMouseDown}
       data-chat-attached={chatVisible ? "" : undefined} data-atelier-attached={showAtelier && layout !== "chat" ? "" : undefined}
       data-atelier-top={atelierTopBar ? "bar" : undefined}>
       <div className="topbar-start" data-tauri-drag-region>
@@ -163,6 +217,7 @@ export default function TopBar({
               {key:"quick", label:t("qa.open"), onSelect:onQuickAsk},
             ]} />
         </div>
+        <LinuxWindowControls />
       </div>
     </div>
   );

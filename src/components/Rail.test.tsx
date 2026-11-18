@@ -390,7 +390,7 @@ describe("jauge du quota dans la barre compacte", () => {
     const { container } = renderUi(<Rail {...makeProps()} />);
     expect(container.querySelector(".rail-usage")).toBeNull();
     act(() => writeUsageSnapshot({ providers: { claude: { kind: "limits", ts: 0, data: { primary: { used_percent: 86 } } } }, models: {} }));
-    const gauge = screen.getByRole("button", { name: "Usage 86 %" });
+    const gauge = screen.getByRole("button", { name: "Usage · Claude 86 %" });
     expect(gauge.classList.contains("high")).toBe(true);
     const seen = vi.fn();
     window.addEventListener("usage-toggle", seen);

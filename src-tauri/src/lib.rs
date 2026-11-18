@@ -3,6 +3,7 @@ mod atelier;
 mod boot_metrics;
 mod browser;
 mod claude_connector;
+mod clipboard;
 mod dictation;
 mod discussions;
 mod identity;
@@ -14,7 +15,7 @@ mod macos_services;
 mod process_registry;
 mod remote_gateway;
 mod sidecar;
-#[cfg(target_os = "macos")]
+#[cfg(unix)]
 mod single_instance;
 mod ui_state;
 mod unsaved_guard;
@@ -49,12 +50,22 @@ fn migrate_app_data_dir(support_root: &Path, old_identifier: &str, new_identifie
 }
 
 fn application_support_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join("Library/Application Support"))
+    dirs::home_dir().map(|home| {
+        if cfg!(target_os = "macos") {
+            home.join("Library/Application Support")
+        } else {
+            home.join(".local/share")
+        }
+    })
+}
+
+pub(crate) fn atelier_data_dir() -> Option<PathBuf> {
+    application_support_root().map(|root| root.join("atelier-studio"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(target_os = "macos")]
+    #[cfg(unix)]
     let _instance = match single_instance::enter() {
         Ok(Some(guard)) => guard,
         Ok(None) => return,
@@ -64,7 +75,70 @@ pub fn run() {
         }
     };
     let boot_clock = boot_metrics::BootClock::new();
+    #[cfg(target_os = "linux")]
+    let saved_linux_session: Vec<(&str, Option<std::ffi::OsString>)> = [
+        "XDG_RUNTIME_DIR",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "WAYLAND_DISPLAY",
+        "DISPLAY",
+        "XDG_CURRENT_DESKTOP",
+        "XDG_SESSION_TYPE",
+    ]
+    .into_iter()
+    .map(|k| (k, std::env::var_os(k)))
+    .collect();
     let _ = fix_path_env::fix();
+    #[cfg(target_os = "linux")]
+    {
+        for (k, v) in saved_linux_session {
+            if std::env::var_os(k).is_none() {
+                if let Some(val) = v {
+                    std::env::set_var(k, val);
+                }
+            }
+        }
+        let uid = unsafe { libc::geteuid() };
+        let runtime_dir = PathBuf::from(format!("/run/user/{uid}"));
+        if runtime_dir.is_dir() {
+            if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+                std::env::set_var("XDG_RUNTIME_DIR", &runtime_dir);
+            }
+            let bus = runtime_dir.join("bus");
+            if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() && bus.exists() {
+                std::env::set_var(
+                    "DBUS_SESSION_BUS_ADDRESS",
+                    format!("unix:path={}", bus.display()),
+                );
+            }
+            if std::env::var_os("WAYLAND_DISPLAY").is_none() && runtime_dir.join("wayland-0").exists() {
+                std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
+            }
+        }
+        if std::env::var_os("SSL_CERT_FILE").is_none() {
+            for cert in [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/ca-bundle.pem",
+            ] {
+                if PathBuf::from(cert).is_file() {
+                    std::env::set_var("SSL_CERT_FILE", cert);
+                    break;
+                }
+            }
+        }
+    }
+    if let Some(app_dir) = atelier_data_dir() {
+        let tectonic_dir = app_dir.join("tools").join("tectonic-0.17.0");
+        let home_bins = std::env::var("HOME")
+            .ok()
+            .map(|h| format!("{h}/.local/bin:{h}/.opencode/bin:"))
+            .unwrap_or_default();
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var(
+            "PATH",
+            format!("{home_bins}{}:{current_path}", tectonic_dir.display()),
+        );
+    }
     let builder = tauri::Builder::default()
         .manage(boot_clock)
         .manage(atelier_workspace::QuitGuard::new())
@@ -105,6 +179,8 @@ pub fn run() {
             discussions::discussion_create_document,
             remote_gateway::remote_device_action,
             claude_connector::claude_connector_action,
+            clipboard::clipboard_read_text,
+            clipboard::clipboard_write_text,
             atelier::gallery_token,
             appsnap::appsnap_get_state,
             appsnap::appsnap_read_capture,

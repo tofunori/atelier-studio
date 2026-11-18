@@ -14,7 +14,7 @@ import { renderUi, resetTestState } from "../../test/render";
 import { setLanguage, t } from "../../lib/i18n";
 import { FakeWS } from "../../test/fixtures/sidecar";
 import {
-  CLAUDE_MISSING, CLAUDE_READY, CODEX_MISSING, CODEX_READY, TOOLS, setupStatus,
+  CLAUDE_MISSING, CLAUDE_READY, CODEX_MISSING, CODEX_READY, OPENCODE_MISSING, TOOLS, setupStatus,
 } from "../../test/fixtures/setupEnvironment";
 import { relaySidecarMessage } from "../../lib/sidecarRelays";
 import {
@@ -60,7 +60,7 @@ async function findWelcome() {
 async function firstLaunch() {
   renderUi(<SetupWelcomeHost />);
   relay({ type: "environmentStatus", tools: TOOLS });
-  relay(setupStatus([CLAUDE_MISSING, CODEX_MISSING]));
+  relay(setupStatus([CLAUDE_MISSING, CODEX_MISSING, OPENCODE_MISSING]));
   return findWelcome();
 }
 
@@ -89,9 +89,9 @@ describe("accueil — visibilité", () => {
 });
 
 describe("accueil — contenu et pied de fenêtre", () => {
-  it("montre les deux agents et Zotero, seul outil facultatif", async () => {
+  it("montre les trois agents (Claude Code, Codex, OpenCode) et Zotero, seul outil facultatif", async () => {
     const dialog = await firstLaunch();
-    for (const title of ["Claude Code", "Codex", "Zotero"]) {
+    for (const title of ["Claude Code", "Codex", "OpenCode", "Zotero"]) {
       expect(within(dialog).getByRole("group", { name: title })).toBeInTheDocument();
     }
     // PDF livrés avec l'app, LaTeX téléchargé au besoin : rien à installer

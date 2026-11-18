@@ -15,6 +15,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub(crate) const CLAUDE_LOGIN_COMMAND: &str = "claude auth login";
 pub(crate) const CODEX_LOGIN_COMMAND: &str = "codex login";
+pub(crate) const OPENCODE_LOGIN_COMMAND: &str = "opencode auth login";
 
 async fn run(bin: &Path, args: &[&str]) -> Option<Output> {
     let child = tokio::process::Command::new(bin)
@@ -62,6 +63,38 @@ pub(crate) fn codex_logged_in(output: &Output) -> Option<bool> {
     stderr.contains("Not logged in").then_some(false)
 }
 
+fn strip_ansi(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next();
+            while let Some(seq) = chars.next() {
+                if ('@'..='~').contains(&seq) {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `opencode auth list` : code 0 avec « 0 credentials » (et aucune clé
+/// `Environment`) = à connecter ; au moins un identifiant = prêt.
+pub(crate) fn opencode_logged_in(output: &Output) -> Option<bool> {
+    if !output.status.success() {
+        return None;
+    }
+    let text = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    if text.contains("0 credentials") && !text.contains("Environment") {
+        Some(false)
+    } else {
+        Some(true)
+    }
+}
+
 fn probe_json(bin: &Path, version: Option<String>, logged_in: Option<bool>, login: &str) -> Value {
     json!({
         "state": if logged_in == Some(false) { "login_needed" } else { "ready" },
@@ -94,6 +127,17 @@ pub(crate) async fn codex_probe(bin: &Path) -> Value {
         version.as_ref().and_then(version_token),
         logged_in,
         CODEX_LOGIN_COMMAND,
+    )
+}
+
+pub(crate) async fn opencode_probe(bin: &Path) -> Value {
+    let (version, status) = tokio::join!(run(bin, &["--version"]), run(bin, &["auth", "list"]));
+    let logged_in = status.as_ref().and_then(opencode_logged_in);
+    probe_json(
+        bin,
+        version.as_ref().and_then(version_token),
+        logged_in,
+        OPENCODE_LOGIN_COMMAND,
     )
 }
 
@@ -168,5 +212,27 @@ mod tests {
             r#"echo "error: unrecognized subcommand" >&2; exit 2"#,
         );
         assert_eq!(codex_probe(&old).await["state"], "ready");
+    }
+
+    #[tokio::test]
+    async fn opencode_states_follow_auth_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let logged_out = fake_cli(
+            dir.path(),
+            r#"case "$1" in --version) echo "1.19.6";; auth) printf "Credentials ~/.local/share/opencode/auth.json\n0 credentials\n";; esac"#,
+        );
+        let probe = opencode_probe(&logged_out).await;
+        assert_eq!(probe["state"], "login_needed");
+        assert_eq!(probe["version"], "1.19.6");
+        assert_eq!(probe["loginCommand"], OPENCODE_LOGIN_COMMAND);
+
+        let ready_dir = tempfile::tempdir().unwrap();
+        let ready = fake_cli(
+            ready_dir.path(),
+            r#"case "$1" in --version) echo "1.19.6";; auth) printf "Credentials\nOpenRouter api\n1 credential\n";; esac"#,
+        );
+        let probe = opencode_probe(&ready).await;
+        assert_eq!(probe["state"], "ready");
+        assert_eq!(probe["version"], "1.19.6");
     }
 }

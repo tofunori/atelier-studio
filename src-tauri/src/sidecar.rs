@@ -55,7 +55,7 @@ fn session_token() -> Result<String, String> {
 }
 
 fn lockfile_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join("Library/Application Support/atelier-studio/sidecar.lock"))
+    crate::atelier_data_dir().map(|dir| dir.join("sidecar.lock"))
 }
 
 /// Candidate paths for `atelier-studio-server` (dev tree + staged resource).

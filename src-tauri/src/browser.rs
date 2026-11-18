@@ -205,7 +205,11 @@ fn store_capture_from_title(title: &str) {
 
 fn vivaldi_profile_dir() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or("home introuvable")?;
-    let base = home.join("Library/Application Support/Vivaldi");
+    let base = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Vivaldi")
+    } else {
+        home.join(".config/vivaldi")
+    };
     for profile in ["Default", "Profile 1", "Profile 2"] {
         let path = base.join(profile);
         if path.join("Bookmarks").exists() || path.join("Preferences").exists() {

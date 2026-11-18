@@ -49,20 +49,22 @@ fn retry_owner(mut file: File, mut activate: impl FnMut(i32) -> bool) {
 }
 
 pub fn enter() -> Result<Option<InstanceGuard>, String> {
-    let directory = dirs::home_dir().ok_or("Dossier utilisateur introuvable")?
-        .join("Library/Application Support/atelier-studio");
+    let directory = crate::atelier_data_dir().ok_or("Dossier utilisateur introuvable")?;
     std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
     match acquire(&directory.join("desktop-instance.lock")).map_err(|e| e.to_string())? {
         Acquisition::Owner(guard) => Ok(Some(guard)),
         Acquisition::Existing(file) => {
             // The owner may still be publishing its PID or registering with
             // AppKit. Re-read the same inode instead of trusting a stale PID.
+            #[cfg(target_os = "macos")]
             retry_owner(file, |pid| {
                 let Some(app) = objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(pid) else { return false };
                 if app.bundleIdentifier().is_none_or(|id| id.to_string() != "com.tofunori.atelier") { return false; }
                 #[allow(deprecated)]
                 app.activateWithOptions(objc2_app_kit::NSApplicationActivationOptions::ActivateIgnoringOtherApps)
             });
+            #[cfg(not(target_os = "macos"))]
+            let _ = file;
             Ok(None)
         }
     }

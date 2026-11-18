@@ -903,7 +903,12 @@ fn write_thread_mcp_config(req: &SendRequest) -> Option<std::path::PathBuf> {
         .map(std::path::PathBuf::from)
         .or_else(|_| {
             std::env::var("HOME").map(|h| {
-                std::path::PathBuf::from(h).join("Library/Application Support/atelier-studio")
+                let sub = if cfg!(target_os = "macos") {
+                    "Library/Application Support/atelier-studio"
+                } else {
+                    ".local/share/atelier-studio"
+                };
+                std::path::PathBuf::from(h).join(sub)
             })
         })
         .ok()?;

@@ -43,13 +43,22 @@ import { buildModelRows, type ModelRow } from "../models/buildModelRows";
 import { ModelsGrid } from "../models/ModelsGrid";
 import { groupRoutes, type Route } from "../models/groupRoutes";
 import { OpenCodeRouter } from "../models/OpenCodeRouter";
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from "../../icons";
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, ProviderIcon } from "../../icons";
 import { Button, IconButton, InlineNotice, Select, SegmentedControl, StatusBadge } from "../../ui";
 import { Checkbox, CheckboxIndicator } from "../../shadcn/checkbox";
 import { Field, FieldGroup, FieldLabel } from "../../shadcn/field";
 import { Input } from "../../shadcn/input";
-import { runSetupCommand, withResolvedBinary } from "../../../lib/setupEnvironment";
-import { SetupCommandFallback } from "../../setup/SetupRows";
+import {
+  OPENCODE_GO_LOGIN_COMMAND,
+  OPENCODE_PROVIDER_LOGIN_COMMAND,
+  installPlan,
+  runSetupCommand,
+  useSetupEnvironment,
+  withResolvedBinary,
+  type SetupCommandKind,
+} from "../../../lib/setupEnvironment";
+import { wsReady } from "../../../lib/wsBus";
+import { SetupCommandFallback, SetupInlineTerminal } from "../../setup/SetupRows";
 
 // Copié tel quel de Settings.tsx:85-109 — seul consommateur restant.
 function normalizeApiProviderRows(value: unknown): ApiProviderRow[] {
@@ -158,9 +167,28 @@ export default function Models(p: SectionProps) {
   // « Revérifier » (Non disponibles) : redétection des CLI d'agents installés
   // depuis le lancement. En attente jusqu'au prochain providerStatus, 10 s au plus.
   const [rechecking, setRechecking] = useState(false);
-  // Connexion sans terminal intégré (aucun projet ouvert) : la commande
-  // s'affiche sous la ligne, à coller dans Terminal de macOS.
+  const [opencodeScanning, setOpencodeScanning] = useState(false);
+  // Connexion/installation sans terminal de projet : terminal PTY en ligne si
+  // le bus WS est actif, sinon commande affichée à copier.
   const [loginFallback, setLoginFallback] = useState<{ id: string; command: string } | null>(null);
+  const [inlineTerm, setInlineTerm] = useState<{ id: string; command: string; nonce: number } | null>(null);
+  const setupEnv = useSetupEnvironment();
+
+  function triggerRowCommand(id: string, command: string, kind: SetupCommandKind) {
+    const ran = runSetupCommand(command, { kind, origin: "models" });
+    if (ran === "terminal") {
+      setLoginFallback(null);
+      setInlineTerm(null);
+      return;
+    }
+    if (wsReady()) {
+      setLoginFallback(null);
+      setInlineTerm((prev) => ({ id, command, nonce: (prev?.nonce ?? 0) + 1 }));
+      return;
+    }
+    setInlineTerm(null);
+    setLoginFallback({ id, command });
+  }
 
   function authLabel(auth: string) {
     const labels: Record<string, string> = {
@@ -203,6 +231,8 @@ export default function Models(p: SectionProps) {
       const m = JSON.parse(event.data);
       if (m.type === "providerStatus") {
         setRechecking(false);
+        const ocRefreshing = Boolean(m.modelCatalogs?.opencode?.refreshing);
+        setOpencodeScanning(ocRefreshing);
         const providers = Array.isArray(m.providers) ? m.providers : [];
         setProvs(providers.map((provider: ProviderCatalogRow) => ({
           ...provider,
@@ -251,6 +281,11 @@ export default function Models(p: SectionProps) {
   // nulle part dans l'app pour lui.
   const authByProvider = new Map((setup?.providers ?? []).map((sp) => [sp.id, sp.auth]));
   const rowsAvecAuth: ModelRow[] = rows.map((row) => {
+    // OpenCode n'expose via `opencode models` que les routes effectivement
+    // accessibles (modèles Zen gratuits inclus, même avec 0 clé payante).
+    if (row.provider === "opencode" && row.status === "ready") {
+      return row;
+    }
     const auth = authByProvider.get(row.provider);
     if (row.status === "ready" && auth && auth !== "ready") {
       return { ...row, status: "absent" };
@@ -280,9 +315,15 @@ export default function Models(p: SectionProps) {
 
   function refreshCatalog() {
     if (p.ws?.readyState !== 1) return;
-    p.ws.send(JSON.stringify({ type: "providerStatus" }));
+    p.ws.send(JSON.stringify({ type: "providerStatus", refresh: true }));
     p.ws.send(JSON.stringify({ type: "setupStatus" }));
     p.ws.send(JSON.stringify({ type: "apiProviders" }));
+  }
+
+  function scanOpenCodeModels() {
+    if (p.ws?.readyState !== 1) return;
+    setOpencodeScanning(true);
+    p.ws.send(JSON.stringify({ type: "providerStatus", refresh: true, provider: "opencode" }));
   }
 
   // Le serveur rescanne le PATH puis répond providerStatus + setupStatus, que
@@ -353,7 +394,7 @@ export default function Models(p: SectionProps) {
   // donnera concrètement un nouveau fil, dérivé en lecture seule des mêmes
   // réglages que le reste de la page — jamais un état local dupliqué.
   const activeProviderRow = provs?.find((row) => row.id === s.defaultProvider) ?? null;
-  const activeModelId = s.defaultModel[s.defaultProvider] ?? "";
+  const activeModelId = s.defaultModel[s.defaultProvider] || activeProviderRow?.defaultModel || "";
   const activeModelLabel = activeModelId
     ? modelDisplayLabel(s.defaultProvider, activeModelId, activeProviderRow?.modelLabels)
     : t("settings.checking");
@@ -367,22 +408,17 @@ export default function Models(p: SectionProps) {
     default: t("action.ask-default"),
     plan: t("permission.plan"),
   };
-  // Fournisseur de départ : un Select à 2 options (Claude/Codex). C'ÉTAIT un
-  // SegmentedControl — remplacé le 2026-08-24 pour une raison mesurée, pas
-  // esthétique : sa pastille ACTIVE se peignait en rgb(30,33,36) sur un rail
-  // en rgb(44,47,52), donc le choix sélectionné était PLUS SOMBRE que son
-  // propre fond et se lisait « désactivé » en thème sombre (même défaut que
-  // le toggle de la galerie, cf. décision de l'accent). Le Select aligne
-  // aussi cette rangée sur les autres réglages à choix unique de la page
-  // (Langue, Effort par défaut, Mode de permission) : une seule grammaire.
-  // Le SegmentedControl reste le bon outil ailleurs (filtre de passerelles
-  // du routeur opencode, où voir les options d'un coup d'œil sert à choisir).
-  //
-  // Les autres fournisseurs (API, Grok, opencode…) restent sélectionnables
-  // depuis le tableau via leur propre défaut, mais ne sont pas encore des
-  // fournisseurs de DÉPART complets (pas de defaultModel/defaultEffort dédié
-  // pour tous). Généraliser ce sélecteur est hors périmètre de cette tâche.
-  const providerLabelFor = (id: string) => (id === "claude" ? "Claude" : id === "codex" ? "Codex" : id);
+  const providerLabelFor = (id: string) =>
+    id === "claude" ? "Claude" : id === "codex" ? "Codex" : id === "opencode" ? "OpenCode" : id;
+  const defaultProviderOptions = [
+    { value: "claude", label: "Claude" },
+    { value: "codex", label: "Codex" },
+    { value: "opencode", label: "OpenCode" },
+    ...(!["claude", "codex", "opencode"].includes(s.defaultProvider)
+      ? [{ value: s.defaultProvider, label: providerLabelFor(s.defaultProvider) }]
+      : []),
+  ];
+  const favoriteRows = rowsAvecAuth.filter((row) => row.isFavorite);
 
   return (
     <>
@@ -397,10 +433,7 @@ export default function Models(p: SectionProps) {
             title={t("settings.default-provider")}
             value={s.defaultProvider}
             onChange={(value) => save({ defaultProvider: value })}
-            options={[
-              { value: "claude", label: "Claude" },
-              { value: "codex", label: "Codex" },
-            ]}
+            options={defaultProviderOptions}
           />
         </Row>
         <Row
@@ -479,6 +512,80 @@ export default function Models(p: SectionProps) {
         />
       )}
 
+      {/* Bloc 2b : Modèles favoris + passerelles OpenCode accessibles directement en bas du catalogue */}
+      {provs !== null && (
+        <>
+          <h2>{t("settings.favorites-title")}</h2>
+          <p className="set-sub">{t("settings.favorites-sub")}</p>
+          <Group>
+            {favoriteRows.length > 0 ? (
+              favoriteRows.map((fav) => (
+                <Row
+                  key={`fav-${fav.key}`}
+                  title={fav.label}
+                  desc={`${providerLabelFor(fav.provider)} · ${fav.modelId}`}
+                >
+                  <ProviderIcon provider={fav.provider} size={13} />
+                  <Button
+                    variant="ghost"
+                    className="set-btn quiet"
+                    onClick={() => handleToggleFavorite(fav)}
+                  >
+                    {t("action.remove")}
+                  </Button>
+                </Row>
+              ))
+            ) : (
+              <p className="set-empty">{t("settings.favorites-empty")}</p>
+            )}
+            {opencodeProvider?.ok && (() => {
+              const ocSetup = setup?.providers.find((sp) => sp.id === "opencode") ?? null;
+              const ocInline = inlineTerm?.id === "opencode-quick" ? inlineTerm : null;
+              const ocFallback = loginFallback?.id === "opencode-quick" ? loginFallback.command : null;
+              return (
+                <>
+                  <Row
+                    title={t("settings.opencode-actions-title")}
+                    desc={t("settings.opencode-actions-desc")}
+                  >
+                    <Button
+                      variant="secondary"
+                      disabled={opencodeScanning || p.ws?.readyState !== 1}
+                      onClick={scanOpenCodeModels}
+                    >
+                      {opencodeScanning ? t("settings.opencode-router.scanning") : t("settings.opencode-router.scan-models")}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => triggerRowCommand("opencode-quick", withResolvedBinary(OPENCODE_GO_LOGIN_COMMAND, ocSetup?.binPath), "login")}
+                    >
+                      {t("setup.connect-opencode-go")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="set-btn quiet"
+                      onClick={() => triggerRowCommand("opencode-quick", withResolvedBinary(OPENCODE_PROVIDER_LOGIN_COMMAND, ocSetup?.binPath), "login")}
+                    >
+                      {t("setup.add-provider")}
+                    </Button>
+                  </Row>
+                  {ocInline && (
+                    <SetupInlineTerminal
+                      key={`${ocInline.nonce}:${ocInline.command}`}
+                      command={ocInline.command}
+                      onClose={() => setInlineTerm(null)}
+                    />
+                  )}
+                  {ocFallback && (
+                    <SetupCommandFallback key={ocFallback} command={ocFallback} onHide={() => setLoginFallback(null)} />
+                  )}
+                </>
+              );
+            })()}
+          </Group>
+        </>
+      )}
+
       {/* Bloc 3 : Non disponibles — fournisseurs sans accès utilisable pour
           l'instant (voir le commentaire sur `nonDisponibles` ci-dessus).
           L'information d'installation de l'ancienne section setup devient
@@ -504,6 +611,9 @@ export default function Models(p: SectionProps) {
             {nonDisponibles.map((row) => {
               const su = setup?.providers.find((sp) => sp.id === row.id) ?? null;
               const fallback = loginFallback?.id === row.id ? loginFallback.command : null;
+              const inline = inlineTerm?.id === row.id ? inlineTerm : null;
+              const install = su && (!su.installed || su.auth === "not_installed") ? su.installCommand : null;
+              const plan = install ? installPlan(install, setupEnv.tools) : null;
               return (
                 <React.Fragment key={row.id}>
                 <Row
@@ -520,19 +630,37 @@ export default function Models(p: SectionProps) {
                   {su && (
                     <StatusBadge status={authClass(su.auth)}>{authLabel(su.auth)}</StatusBadge>
                   )}
+                  {plan ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => triggerRowCommand(row.id, plan.command, "install")}
+                    >
+                      {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
+                    </Button>
+                  ) : null}
+                  {row.id === "opencode" && su?.auth === "login_needed" ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        const command = withResolvedBinary(OPENCODE_GO_LOGIN_COMMAND, su.binPath);
+                        triggerRowCommand(row.id, command, "login");
+                      }}
+                    >
+                      {t("setup.connect-opencode-go")}
+                    </Button>
+                  ) : null}
                   {su?.auth === "login_needed" && su.loginCommand ? (
                     // ouvre le terminal Atelier avec la commande exacte
                     // annoncée par le harnais (binaire résolu : juste après
                     // une installation, son dossier n'est pas forcément dans
-                    // le PATH) ; sans projet, pas de terminal intégré : la
-                    // commande s'affiche à copier. Après le login : la ligne
-                    // se rafraîchit au prochain providerStatus/setupStatus.
+                    // le PATH) ; sans projet, terminal intégré en ligne (ou
+                    // commande à copier si hors-ligne). Après le login : la
+                    // ligne se rafraîchit au prochain providerStatus/setupStatus.
                     <Button
                       variant="secondary"
                       onClick={() => {
                         const command = withResolvedBinary(su.loginCommand!, su.binPath);
-                        const ran = runSetupCommand(command, { kind: "login", origin: "models" });
-                        setLoginFallback(ran === "copy" ? { id: row.id, command } : null);
+                        triggerRowCommand(row.id, command, "login");
                       }}
                     >
                       {t("settings.setup-login-terminal")}
@@ -540,6 +668,13 @@ export default function Models(p: SectionProps) {
                   ) : null}
                   {row.version && <span className="setup-version">{row.version}</span>}
                 </Row>
+                {inline && (
+                  <SetupInlineTerminal
+                    key={`${inline.nonce}:${inline.command}`}
+                    command={inline.command}
+                    onClose={() => setInlineTerm(null)}
+                  />
+                )}
                 {fallback && (
                   <SetupCommandFallback key={fallback} command={fallback} onHide={() => setLoginFallback(null)} />
                 )}
@@ -768,22 +903,63 @@ export default function Models(p: SectionProps) {
             commentaire sur `openCodeGroups` ci-dessus) : le composant filtre
             lui-même en interne pour garder les épinglées visibles hors
             filtre. */}
-        {showOpenCodeRouter && (
-          <div className="set-group">
-            <div className="set-group-label">{t("settings.opencode-router.section-title")}</div>
-            <p className="set-sub">{t("settings.opencode-router.section-desc")}</p>
-            <OpenCodeRouter
-              groups={openCodeGroups}
-              gateways={openCodeGateways}
-              activeGateway={routerGateway}
-              query={routerQuery}
-              onGatewayChange={setRouterGateway}
-              onQueryChange={setRouterQuery}
-              onTogglePin={handleToggleRoutePin}
-              pinned={pinnedRouteIds}
-            />
-          </div>
-        )}
+        {showOpenCodeRouter && (() => {
+          const ocSetup = setup?.providers.find((sp) => sp.id === "opencode") ?? null;
+          const routerInline = inlineTerm?.id === "opencode-router" ? inlineTerm : null;
+          const routerFallback = loginFallback?.id === "opencode-router" ? loginFallback.command : null;
+          return (
+            <div className="set-group">
+              <div className="set-headline">
+                <div className="set-group-label">{t("settings.opencode-router.section-title")}</div>
+                <span className="set-headline-actions">
+                  <Button
+                    variant="ghost"
+                    className="set-btn quiet"
+                    disabled={opencodeScanning || p.ws?.readyState !== 1}
+                    onClick={scanOpenCodeModels}
+                  >
+                    {opencodeScanning ? t("settings.opencode-router.scanning") : t("settings.opencode-router.scan-models")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="set-btn quiet"
+                    onClick={() => triggerRowCommand("opencode-router", withResolvedBinary(OPENCODE_GO_LOGIN_COMMAND, ocSetup?.binPath), "login")}
+                  >
+                    {t("setup.connect-opencode-go")}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="set-btn quiet"
+                    onClick={() => triggerRowCommand("opencode-router", withResolvedBinary(OPENCODE_PROVIDER_LOGIN_COMMAND, ocSetup?.binPath), "login")}
+                  >
+                    {t("setup.add-provider")}
+                  </Button>
+                </span>
+              </div>
+              <p className="set-sub">{t("settings.opencode-router.section-desc")}</p>
+              {routerInline && (
+                <SetupInlineTerminal
+                  key={`${routerInline.nonce}:${routerInline.command}`}
+                  command={routerInline.command}
+                  onClose={() => setInlineTerm(null)}
+                />
+              )}
+              {routerFallback && (
+                <SetupCommandFallback key={routerFallback} command={routerFallback} onHide={() => setLoginFallback(null)} />
+              )}
+              <OpenCodeRouter
+                groups={openCodeGroups}
+                gateways={openCodeGateways}
+                activeGateway={routerGateway}
+                query={routerQuery}
+                onGatewayChange={setRouterGateway}
+                onQueryChange={setRouterQuery}
+                onTogglePin={handleToggleRoutePin}
+                pinned={pinnedRouteIds}
+              />
+            </div>
+          );
+        })()}
       </Advanced>
     </>
   );

@@ -114,9 +114,44 @@ jobs:
             exit 1
           fi
       - name: Publish verified release
+        if: false # Published after Linux bundle completes
+        run: echo "Deferred to publish-release"
+
+  build-linux-x64:
+    needs: build-macos
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file lsof xdg-utils ripgrep \
+            libssl-dev libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            rust
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Fetch PDFium
+        run: bash scripts/fetch-pdfium.sh
+      - name: Install npm dependencies
+        run: |
+          npm ci
+          npm --prefix gallery ci
+          npm --prefix gallery/notes-src ci
+          npm --prefix gallery/whiteboard-src ci
+          npm --prefix packages/atelier-protocol ci
+      - name: Build Linux x86_64 .deb
+        run: npm run tauri:build:app
+      - name: Upload Linux .deb and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Pas de --latest : l'app n'est pas encore notariée/signée Developer ID,
-        # on ne veut pas la pousser comme "latest" par défaut tant que ce n'est
-        # pas le cas (voir plan 064).
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+        run: |
+          gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/deb/*.deb --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false

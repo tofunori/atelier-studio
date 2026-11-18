@@ -134,10 +134,17 @@ export function normalizeTools(value: unknown): EnvironmentTool[] {
 }
 
 /** Agents proposés au premier lancement, dans l'ordre affiché. */
-export const SETUP_AGENTS = ["claude", "codex"] as const;
+export const SETUP_AGENTS = ["claude", "codex", "opencode"] as const;
 export type SetupAgentId = (typeof SETUP_AGENTS)[number];
 
-const AGENT_LABELS: Record<SetupAgentId, string> = { claude: "Claude Code", codex: "Codex" };
+export const OPENCODE_GO_LOGIN_COMMAND = "opencode auth login --provider opencode-go";
+export const OPENCODE_PROVIDER_LOGIN_COMMAND = "opencode auth login";
+
+const AGENT_LABELS: Record<SetupAgentId, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
+};
 
 /** Libellé d'agent affiché (celui du serveur s'il est connu). */
 export function agentLabel(id: SetupAgentId, provider: SetupProviderStatus | null | undefined): string {
@@ -241,6 +248,8 @@ export function registerSetupTerminal(opener: SetupTerminalOpener | null): () =>
   };
 }
 
+let pendingAgentCommand: { id: SetupAgentId; command: string; kind: SetupCommandKind } | null = null;
+
 /** Lance une commande d'installation ou de connexion. « terminal » : le
  *  terminal intégré l'a prise (App a fermé ce qui le couvrait) ; « copy » :
  *  aucun terminal intégré (pas de projet ouvert) — l'appelant montre la
@@ -249,6 +258,29 @@ export function runSetupCommand(command: string, request: SetupCommandRequest): 
   const opener = terminalOpener;
   if (command.trim() && opener && opener(command, request)) return "terminal";
   return "copy";
+}
+
+/** Lance une commande d'agent depuis un menu flottant (ex. sélecteur du chat) :
+ *  utilise le terminal du projet s'il est ouvert, sinon ouvre la fenêtre
+ *  d'accueil où `AgentSetupRow` démarre immédiatement son terminal intégré. */
+export function launchAgentSetupCommand(
+  id: SetupAgentId,
+  command: string,
+  kind: SetupCommandKind,
+  origin: SetupOrigin,
+): void {
+  if (runSetupCommand(command, { kind, origin }) === "terminal") return;
+  pendingAgentCommand = { id, command, kind };
+  update({ welcomeOpen: true });
+}
+
+export function consumePendingAgentCommand(
+  id: SetupAgentId,
+): { command: string; kind: SetupCommandKind } | null {
+  if (!pendingAgentCommand || pendingAgentCommand.id !== id) return null;
+  const next = { command: pendingAgentCommand.command, kind: pendingAgentCommand.kind };
+  pendingAgentCommand = null;
+  return next;
 }
 
 // ----- Commandes : binaires résolus plutôt que dépendants du PATH -----
@@ -330,6 +362,7 @@ export function resetSetupEnvironmentForTests(): void {
   pendingTools = false;
   welcomeDecided = false;
   terminalOpener = null;
+  pendingAgentCommand = null;
   if (recheckTimer) clearTimeout(recheckTimer);
   recheckTimer = null;
   emit();

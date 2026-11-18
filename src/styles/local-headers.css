@@ -76,8 +76,9 @@
    être ouverte), jamais sous les feux natifs ; elle finit au séparateur. */
 .topbar-start { overflow: hidden; box-sizing: border-box;
   padding-left: max(calc(var(--tb-chat-left, 0px) + 8px), var(--tb-lights)); padding-right: 8px; }
-/* plein écran macOS : plus de feux natifs, plus de réserve (audit GAP-22) */
-:root[data-fullscreen] .topbar { --tb-lights: 12px; }
+/* plein écran macOS ou fenêtre native hors macOS : plus de feux natifs, plus de réserve (audit GAP-22) */
+:root[data-fullscreen] .topbar,
+:root[data-no-traffic-lights] .topbar { --tb-lights: 12px; }
 .topbar-start .project-chat-tabs { overflow: hidden; font-size: var(--fs-m); height: 100%; }
 .topbar-chat-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-m); }
 .topbar-chat-actions { flex: none; display: flex; align-items: center; }
@@ -90,6 +91,11 @@
 .topbar-right { container-type: inline-size; container-name: topbar-documents; }
 .topbar-window-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .topbar-window-overflow { display: none; }
+.topbar-linux-win-controls { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; flex: none; }
+.topbar-linux-win-close.ui-iconbtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-error) 20%, transparent);
+  color: var(--status-error);
+}
 @container topbar-documents (max-width: 300px) {
   .topbar-window-actions { display: none; }
   .topbar-window-overflow { display: flex; }

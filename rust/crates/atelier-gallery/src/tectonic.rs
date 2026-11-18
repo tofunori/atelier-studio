@@ -38,6 +38,10 @@ const PINNED: &[(&str, &str)] = &[
         "x86_64-unknown-linux-musl",
         "8533d07f9ccbd7a65824b9e0459041bca34af1eb33daba48f59215593753a3b7",
     ),
+    (
+        "aarch64-unknown-linux-musl",
+        "b10954a95404f3ab2328d2fa59a5ebab8e657f893fab096f98be8db7c0c979b8",
+    ),
 ];
 
 /// Plafonds de taille : l'archive 0.17.0 fait ~12 Mo, l'exécutable ~26 Mo.
@@ -64,6 +68,8 @@ fn current_target() -> Option<&'static str> {
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         // musl : exécutable statique, valable sur toute distribution x86_64.
         Some("x86_64-unknown-linux-musl")
+    } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+        Some("aarch64-unknown-linux-musl")
     } else {
         None
     }
@@ -104,7 +110,14 @@ pub fn app_dir() -> Option<PathBuf> {
         .or_else(|| {
             std::env::var_os("HOME")
                 .filter(|home| !home.is_empty())
-                .map(|home| PathBuf::from(home).join("Library/Application Support/atelier-studio"))
+                .map(|home| {
+                    let sub = if cfg!(target_os = "macos") {
+                        "Library/Application Support/atelier-studio"
+                    } else {
+                        ".local/share/atelier-studio"
+                    };
+                    PathBuf::from(home).join(sub)
+                })
         })
 }
 

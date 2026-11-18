@@ -33,7 +33,9 @@ export default function SetupWelcomeDialog(p: { open: boolean }) {
     ?? env.providers?.find((provider) => provider.auth === "ready")
     ?? null;
   const readyName = readyAgent
-    ? (readyAgent.id === "claude" || readyAgent.id === "codex" ? agentLabel(readyAgent.id, readyAgent) : readyAgent.label)
+    ? (readyAgent.id === "claude" || readyAgent.id === "codex" || readyAgent.id === "opencode"
+      ? agentLabel(readyAgent.id, readyAgent)
+      : readyAgent.label)
     : "";
   const optional = (env.tools ?? []).filter((tool) => OPTIONAL_TOOLS.has(tool.id));
 

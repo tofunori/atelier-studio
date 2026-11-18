@@ -55,8 +55,8 @@ pub fn read_ui_state(path: &Path) -> Result<HashMap<String, String>, String> {
 
 #[tauri::command]
 pub fn ui_state_snapshot() -> Result<HashMap<String, String>, String> {
-    let home = dirs::home_dir().ok_or_else(|| "répertoire utilisateur introuvable".to_string())?;
-    read_ui_state(&home.join("Library/Application Support/atelier-studio/ui.json"))
+    let dir = crate::atelier_data_dir().ok_or_else(|| "répertoire utilisateur introuvable".to_string())?;
+    read_ui_state(&dir.join("ui.json"))
 }
 
 #[cfg(test)]

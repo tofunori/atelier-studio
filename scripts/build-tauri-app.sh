@@ -2,7 +2,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-LOCK_ID="$(printf '%s' "$REPO_ROOT" | shasum -a 256 | awk '{print $1}')"
+if command -v sha256sum >/dev/null 2>&1; then
+  LOCK_ID="$(printf '%s' "$REPO_ROOT" | sha256sum | awk '{print $1}')"
+else
+  LOCK_ID="$(printf '%s' "$REPO_ROOT" | shasum -a 256 | awk '{print $1}')"
+fi
 LOCK_DIR="${TMPDIR:-/tmp}/atelier-tauri-build-${LOCK_ID}.lock"
 LOCK_PID_FILE="$LOCK_DIR/pid"
 
@@ -42,6 +46,13 @@ cd "$REPO_ROOT"
 # Ne pas stripper les build-scripts ni les proc-macros contourne le problème
 # sans toucher aux exécutables livrés ; une valeur déjà exportée l'emporte.
 export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
-source "$REPO_ROOT/scripts/tauri-signing-args.sh"
-# ${arr[@]+…} : bash 3.2 de macOS refuse un tableau vide sous `set -u`.
-npm run tauri -- build --bundles app ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  source "$REPO_ROOT/scripts/tauri-signing-args.sh"
+  # ${arr[@]+…} : bash 3.2 de macOS refuse un tableau vide sous `set -u`.
+  npm run tauri -- build --bundles app ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"
+else
+  # Sur Linux, fenêtre sans barre GTK grise (decorations: false, contrôles dans TopBar)
+  # et paquet .deb léger par défaut.
+  LINUX_CONFIG='{"app":{"windows":[{"title":"Atelier","width":1280,"height":820,"minWidth":720,"minHeight":480,"maximized":true,"decorations":false,"dragDropEnabled":false}]}}'
+  npm run tauri -- build --bundles deb --config "$LINUX_CONFIG" "$@"
+fi

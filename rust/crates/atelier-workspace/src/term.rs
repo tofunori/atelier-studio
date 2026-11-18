@@ -3,6 +3,8 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -15,6 +17,7 @@ pub enum TermEvent {
 }
 
 struct TermSlot {
+    generation: u64,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     master: Box<dyn portable_pty::MasterPty + Send>,
     /// Independent signal handle: the wait thread owns the child itself, so
@@ -22,8 +25,24 @@ struct TermSlot {
     killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
 }
 
+fn resolve_valid_cwd(cwd: Option<&str>) -> PathBuf {
+    if let Some(dir) = cwd.map(str::trim).filter(|s| !s.is_empty() && *s != "__discussions__") {
+        let pb = PathBuf::from(dir);
+        if pb.is_dir() {
+            return pb;
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if home.is_dir() {
+            return home;
+        }
+    }
+    std::env::temp_dir()
+}
+
 pub struct TerminalHub {
-    terms: Mutex<HashMap<String, TermSlot>>,
+    terms: Arc<Mutex<HashMap<String, TermSlot>>>,
+    next_gen: AtomicU64,
     events: Arc<Mutex<Vec<TermEvent>>>,
     event_sink: Option<TermEventSink>,
 }
@@ -37,7 +56,8 @@ impl Default for TerminalHub {
 impl TerminalHub {
     pub fn new() -> Self {
         Self {
-            terms: Mutex::new(HashMap::new()),
+            terms: Arc::new(Mutex::new(HashMap::new())),
+            next_gen: AtomicU64::new(1),
             events: Arc::new(Mutex::new(Vec::new())),
             event_sink: None,
         }
@@ -51,7 +71,8 @@ impl TerminalHub {
         F: Fn(TermEvent) + Send + Sync + 'static,
     {
         Self {
-            terms: Mutex::new(HashMap::new()),
+            terms: Arc::new(Mutex::new(HashMap::new())),
+            next_gen: AtomicU64::new(1),
             events: Arc::new(Mutex::new(Vec::new())),
             event_sink: Some(Arc::new(sink)),
         }
@@ -74,22 +95,116 @@ impl TerminalHub {
             pixel_height: 0,
         }) {
             Ok(p) => p,
-            Err(_) => return,
+            Err(e) => {
+                dispatch_event(
+                    &self.events,
+                    self.event_sink.as_ref(),
+                    TermEvent::Data {
+                        term_id: term_id.to_string(),
+                        data: format!("\r\n[erreur PTY : {e}]\r\n"),
+                    },
+                );
+                return;
+            }
         };
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let default_shell = if cfg!(target_os = "macos") {
+            "/bin/zsh"
+        } else if Path::new("/bin/bash").is_file() {
+            "/bin/bash"
+        } else {
+            "/bin/sh"
+        };
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|s| !s.is_empty() && Path::new(s).is_file())
+            .unwrap_or_else(|| default_shell.into());
         let mut cmd = CommandBuilder::new(&shell);
         cmd.arg("-l");
-        if let Some(cwd) = cwd.filter(|s| !s.is_empty()) {
-            cmd.cwd(cwd);
-        } else if let Ok(home) = std::env::var("HOME") {
-            cmd.cwd(home);
+        cmd.cwd(resolve_valid_cwd(cwd));
+        if let Ok(home) = std::env::var("HOME") {
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            let app_sub = if cfg!(target_os = "macos") {
+                "Library/Application Support/atelier-studio"
+            } else {
+                ".local/share/atelier-studio"
+            };
+            let tectonic_dir = format!("{home}/{app_sub}/tools/tectonic-0.17.0");
+            let extra = format!("{home}/.local/bin:{home}/.opencode/bin:{tectonic_dir}");
+            cmd.env(
+                "PATH",
+                if current_path.is_empty() {
+                    extra
+                } else {
+                    format!("{extra}:{current_path}")
+                },
+            );
         }
         cmd.env("TERM", "xterm-256color");
+        cmd.env("COLORTERM", "truecolor");
+        #[cfg(target_os = "linux")]
+        {
+            let lang_missing = std::env::var("LC_ALL").unwrap_or_default().is_empty()
+                && matches!(
+                    std::env::var("LANG").as_deref(),
+                    Err(_) | Ok("") | Ok("C") | Ok("POSIX")
+                );
+            if lang_missing {
+                cmd.env("LANG", "C.UTF-8");
+            }
+            if std::env::var_os("SSL_CERT_FILE").is_none() {
+                for cert in [
+                    "/etc/ssl/certs/ca-certificates.crt",
+                    "/etc/pki/tls/certs/ca-bundle.crt",
+                    "/etc/ssl/ca-bundle.pem",
+                ] {
+                    if Path::new(cert).is_file() {
+                        cmd.env("SSL_CERT_FILE", cert);
+                        break;
+                    }
+                }
+            }
+            let uid = unsafe { libc::geteuid() };
+            let runtime_dir = format!("/run/user/{uid}");
+            if Path::new(&runtime_dir).is_dir() {
+                if std::env::var_os("XDG_RUNTIME_DIR").is_none() {
+                    cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
+                }
+                let bus = format!("{runtime_dir}/bus");
+                if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none()
+                    && Path::new(&bus).exists()
+                {
+                    cmd.env("DBUS_SESSION_BUS_ADDRESS", format!("unix:path={bus}"));
+                }
+                if std::env::var_os("WAYLAND_DISPLAY").is_none()
+                    && Path::new(&format!("{runtime_dir}/wayland-0")).exists()
+                {
+                    cmd.env("WAYLAND_DISPLAY", "wayland-0");
+                }
+            }
+        }
 
         let child = match pair.slave.spawn_command(cmd) {
             Ok(c) => c,
-            Err(_) => return,
+            Err(e) => {
+                dispatch_event(
+                    &self.events,
+                    self.event_sink.as_ref(),
+                    TermEvent::Data {
+                        term_id: term_id.to_string(),
+                        data: format!("\r\n[impossible de lancer le shell ({shell}) : {e}]\r\n"),
+                    },
+                );
+                dispatch_event(
+                    &self.events,
+                    self.event_sink.as_ref(),
+                    TermEvent::Exit {
+                        term_id: term_id.to_string(),
+                        exit_code: 1,
+                    },
+                );
+                return;
+            }
         };
         let mut reader = match pair.master.try_clone_reader() {
             Ok(r) => r,
@@ -130,11 +245,18 @@ impl TerminalHub {
             }
         });
 
+        let slot_gen = self.next_gen.fetch_add(1, Ordering::Relaxed);
+        let terms_exit = Arc::clone(&self.terms);
         thread::spawn(move || {
             let code = match child_wait.wait() {
                 Ok(status) => status.exit_code() as i32,
                 Err(_) => -1,
             };
+            if let Ok(mut map) = terms_exit.lock() {
+                if map.get(&tid_exit).is_some_and(|s| s.generation == slot_gen) {
+                    map.remove(&tid_exit);
+                }
+            }
             dispatch_event(
                 &events_exit,
                 sink_exit.as_ref(),
@@ -148,6 +270,7 @@ impl TerminalHub {
         terms.insert(
             term_id.to_string(),
             TermSlot {
+                generation: slot_gen,
                 writer: Arc::new(Mutex::new(writer)),
                 master: pair.master,
                 killer,
@@ -245,5 +368,15 @@ mod tests {
             [TermEvent::Data { term_id, data }]
                 if term_id == "term-1" && data == "echo"
         ));
+    }
+
+    #[test]
+    fn non_existent_or_discussions_cwd_falls_back_to_existing_directory() {
+        let resolved_disc = resolve_valid_cwd(Some("__discussions__"));
+        assert!(resolved_disc.is_dir());
+        let resolved_missing = resolve_valid_cwd(Some("/nonexistent/atelier/path/xyz"));
+        assert!(resolved_missing.is_dir());
+        let tmp = tempfile::tempdir().unwrap();
+        assert_eq!(resolve_valid_cwd(Some(tmp.path().to_str().unwrap())), tmp.path());
     }
 }

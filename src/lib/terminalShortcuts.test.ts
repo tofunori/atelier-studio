@@ -34,4 +34,12 @@ describe("terminalShortcutFor", () => {
     expect(shortcut({ code: "Equal", key: "+" })).toEqual({ kind: "font-increase" });
     expect(shortcut({ code: "KeyC", key: "c", ctrlKey: true })).toBeNull();
   });
+
+  it("supports Linux Ctrl+Shift terminal chords while keeping plain Ctrl for SIGINT/shell", () => {
+    expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: false, code: "KeyC", key: "c" })).toBeNull();
+    expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyC", key: "C" })).toEqual({ kind: "copy" });
+    expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyV", key: "V" })).toEqual({ kind: "paste" });
+    expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyT", key: "T" })).toEqual({ kind: "new-tab" });
+    expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyW", key: "W" })).toEqual({ kind: "close-tab" });
+  });
 });

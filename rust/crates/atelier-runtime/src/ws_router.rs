@@ -284,7 +284,11 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "ping" => vec![ok(PongMessage::new())],
         "send" => crate::send::handle_send(state, &msg).await,
         "interrupt" => crate::send::handle_interrupt(state, &msg).await,
-        "providerStatus" => crate::send::handle_provider_status(state).await,
+        "providerStatus" => {
+            let force_refresh = msg.get("refresh").and_then(Value::as_bool).unwrap_or(false);
+            let target = msg.get("provider").and_then(Value::as_str);
+            crate::send::handle_provider_status_opts(state, force_refresh, target).await
+        }
         "status" => crate::send::handle_status(state).await,
         "receiptStatus" => {
             let id = msg
@@ -2493,6 +2497,14 @@ async fn handle_get_usage(state: &AppState) -> Vec<String> {
         }
     }
     let providers = crate::usage::collect_providers().await;
+    if let Some(oc_models) = providers
+        .pointer("/opencode/data/models")
+        .and_then(Value::as_object)
+    {
+        for (model_id, stats) in oc_models {
+            models.entry(model_id.clone()).or_insert_with(|| stats.clone());
+        }
+    }
     // Clés legacy claude/codex = miroir de providers.* (anciens clients).
     let legacy = |k: &str| providers.get(k).cloned().unwrap_or(Value::Null);
     vec![json_msg(json!({

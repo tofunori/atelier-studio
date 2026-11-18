@@ -133,8 +133,11 @@ fn with_discussion_workspace_instruction(
 }
 
 fn is_managed_workspace(root: &str) -> bool {
-    const MARKER: &str = "/Library/Application Support/atelier-studio/discussions/";
-    let Some((prefix, id)) = root.split_once(MARKER) else { return false; };
+    const MARKERS: [&str; 2] = [
+        "/Library/Application Support/atelier-studio/discussions/",
+        "/.local/share/atelier-studio/discussions/",
+    ];
+    let Some((prefix, id)) = MARKERS.iter().find_map(|m| root.split_once(m)) else { return false; };
     !prefix.is_empty()
         && !id.is_empty()
         && !id.contains('/')
@@ -2795,29 +2798,77 @@ fn provider_status_snapshot(state: &AppState) -> String {
 }
 
 pub async fn handle_provider_status(state: &AppState) -> Vec<String> {
-    let ids = provider_status_list(Some(state.app_dir())).into_iter().map(|provider| provider.id).collect::<Vec<_>>();
+    handle_provider_status_opts(state, false, None).await
+}
+
+pub async fn handle_provider_status_opts(
+    state: &AppState,
+    force_refresh: bool,
+    target_provider: Option<&str>,
+) -> Vec<String> {
+    let ids = provider_status_list(Some(state.app_dir()))
+        .into_iter()
+        .map(|provider| provider.id)
+        .collect::<Vec<_>>();
     for id in ids {
-        let Some(provider) = state.provider(&id) else { continue };
+        let Some(provider) = state.provider(&id) else {
+            continue;
+        };
+        let force_this = force_refresh && target_provider.map_or(true, |target| target == id);
+        if force_this {
+            provider.invalidate_models().await;
+        }
         let refresh = {
             let mut cache = state.model_cache().lock().unwrap_or_else(|e| e.into_inner());
             match cache.get_mut(&id) {
-                Some(entry) if entry.refreshing || entry.checked.elapsed() < std::time::Duration::from_secs(if entry.value.is_some() { 300 } else { 30 }) => false,
-                Some(entry) => { entry.refreshing = true; true },
-                None => { cache.insert(id.clone(), crate::state::ModelCacheEntry { value:None, checked:std::time::Instant::now(), refreshing:true }); true },
+                Some(entry) if entry.refreshing => false,
+                Some(entry)
+                    if !force_this
+                        && entry.checked.elapsed()
+                            < std::time::Duration::from_secs(if entry.value.is_some() {
+                                300
+                            } else {
+                                30
+                            }) =>
+                {
+                    false
+                }
+                Some(entry) => {
+                    entry.refreshing = true;
+                    true
+                }
+                None => {
+                    cache.insert(
+                        id.clone(),
+                        crate::state::ModelCacheEntry {
+                            value: None,
+                            checked: std::time::Instant::now(),
+                            refreshing: true,
+                        },
+                    );
+                    true
+                }
             }
         };
-        if !refresh { continue; }
+        if !refresh {
+            continue;
+        }
         let state = state.clone();
         tokio::spawn(async move {
             let workers = state.model_workers();
             let value = tokio::time::timeout(std::time::Duration::from_secs(60), async {
                 let _slot = workers.acquire().await.ok()?;
                 provider.dynamic_models().await
-            }).await.ok().flatten();
+            })
+            .await
+            .ok()
+            .flatten();
             {
                 let mut cache = state.model_cache().lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(entry) = cache.get_mut(&id) {
-                    if value.is_some() { entry.value = value; }
+                    if value.is_some() {
+                        entry.value = value;
+                    }
                     entry.checked = std::time::Instant::now();
                     entry.refreshing = false;
                 }

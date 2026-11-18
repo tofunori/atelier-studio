@@ -549,4 +549,48 @@ describe("Section Modèles", () => {
     // vérification que Chat.tsx utilise bien `indexOf`.
     expect(key.split(":")[1]).not.toBe(modelId);
   });
+
+  it("permet de choisir OpenCode comme fournisseur par défaut, garde ses modèles gratuits « Prêt » et liste les favoris en bas", async () => {
+    const ws = fakeWsOuvert();
+    const set = vi.fn();
+    const s = { ...DEFAULT_SETTINGS, favoriteModels: { opencode: ["opencode/beam-free"] } };
+    renderUi(<Models {...props({ ws, s, set })} />);
+    emit(ws, {
+      type: "providerStatus",
+      providers: [{
+        id: "opencode",
+        label: "OpenCode",
+        ok: true,
+        kind: "cli",
+        defaultModel: "opencode/beam-free",
+        models: ["opencode/beam-free"],
+        modelLabels: { "opencode/beam-free": "Beam Free" },
+        efforts: ["low", "medium", "high"],
+      }],
+    });
+    emit(ws, {
+      type: "setupStatus",
+      status: {
+        runtime: { node: "rust", version: "1.0.0", bundled: false },
+        sidecar: { pid: 1, startedAt: "", appVersion: "1.0.0", bundleHash: "x", dir: "/x" },
+        providers: [{
+          id: "opencode", label: "OpenCode", kind: "cli", installed: true, version: "1.19.6",
+          binPath: "/home/t/.opencode/bin/opencode", auth: "login_needed", models: 1,
+          loginCommand: "opencode auth login",
+        }],
+      },
+    });
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByText(t("settings.models-grid.status-ready"))).toBeInTheDocument();
+    expect(screen.getByText(t("settings.favorites-title"))).toBeInTheDocument();
+
+    const trigger = screen.getByRole("combobox", { name: t("settings.default-provider") });
+    fireEvent.click(trigger);
+    const option = await screen.findByRole("option", { name: "OpenCode" });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    expect(set).toHaveBeenCalledWith(expect.objectContaining({ defaultProvider: "opencode" }));
+  });
 });

@@ -10,10 +10,36 @@ import { xtermThemeFor } from "../lib/themes";
 import { loadSettings } from "../lib/settings";
 import { terminalShortcutFor, type TerminalShortcut } from "../lib/terminalShortcuts";
 
-// Monaspace Neon (Nerd Font Mono) bundlée en WOFF2 (cf. @font-face dans App.css) ;
-// repli sur les Nerd Fonts système puis Menlo. Les glyphes powerline/icônes sont
-// dans Monaspace même (variante NF), pas besoin de police de symboles séparée.
-const TERM_FONT = "'Monaspace Neon', 'JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono', Menlo, monospace";
+async function readNativeClipboard(): Promise<string> {
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const text = await invoke<string>("clipboard_read_text");
+      if (typeof text === "string" && text.length > 0) return text;
+    } catch { /* fallback navigator.clipboard */ }
+  }
+  if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+    return navigator.clipboard.readText();
+  }
+  return "";
+}
+
+async function writeNativeClipboard(text: string): Promise<void> {
+  if (!text) return;
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("clipboard_write_text", { text });
+      return;
+    } catch { /* fallback navigator.clipboard */ }
+  }
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+  }
+}
+// repli sur les Nerd Fonts système, les polices mono Linux/macOS puis monospace.
+// Les glyphes powerline/icônes sont dans Monaspace même (variante NF).
+const TERM_FONT = "'Monaspace Neon', 'JetBrainsMono Nerd Font', 'Symbols Nerd Font Mono', 'Ubuntu Mono', 'DejaVu Sans Mono', 'Liberation Mono', Menlo, monospace";
 const TERM_FONT_SIZE = 13;
 const TERM_FONT_SIZE_MIN = 9;
 const TERM_FONT_SIZE_MAX = 28;
@@ -29,22 +55,26 @@ export default function Terminal(p: {
   const ref = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const mounted = useRef(false);   // term.open() effectué (après préchargement police)
+  const mounted = useRef(false);   // term.open() effectué
   const opened = useRef(false);    // PTY ouvert côté sidecar
+  const exited = useRef(false);    // processus terminé (Entrée relance un shell neuf)
   const shortcutRef = useRef(p.onShortcut);
   const readyRef = useRef(p.onReady);
+  const cwdRef = useRef(p.cwd);
   useEffect(() => { shortcutRef.current = p.onShortcut; }, [p.onShortcut]);
   useEffect(() => { readyRef.current = p.onReady; }, [p.onReady]);
+  useEffect(() => { cwdRef.current = p.cwd; }, [p.cwd]);
   function tryOpen() {
     const term = xtermRef.current;
     if (opened.current || !term || !mounted.current || !wsReady()) return;
     opened.current = true;
-    if (!wsSend({ type: "termOpen", termId: p.termId, cwd: p.cwd, cols: term.cols, rows: term.rows })) {
+    exited.current = false;
+    if (!wsSend({ type: "termOpen", termId: p.termId, cwd: cwdRef.current, cols: term.cols, rows: term.rows })) {
       opened.current = false;
       return;
     }
     readyRef.current?.(p.termId);
-    setTimeout(() => term.focus(), 100);
+    setTimeout(() => term.focus(), 80);
   }
 
   useEffect(() => {
@@ -78,6 +108,31 @@ export default function Terminal(p: {
       webgl?.clearTextureAtlas();
     };
     term.attachCustomKeyEventHandler((event) => {
+      // Sur Linux/Windows (et Parallels qui traduit ⌘C/⌘V du Mac en Ctrl+C/Ctrl+V) :
+      // - Ctrl+V sans Shift colle depuis le presse-papiers natif ;
+      // - Ctrl+C copie si une sélection existe, sinon laisse passer SIGINT (^C).
+      const isNonMac = typeof navigator !== "undefined" && !/Mac/i.test(navigator.platform);
+      if (isNonMac && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+        if (event.code === "KeyV") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.type === "keydown") {
+            void readNativeClipboard().then((text) => { if (text) term.paste(text); }).catch(() => {});
+          }
+          return false;
+        }
+        if (event.code === "KeyC" && term.hasSelection()) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.type === "keydown") {
+            const sel = term.getSelection();
+            term.clearSelection();
+            void writeNativeClipboard(sel).catch(() => {});
+          }
+          return false;
+        }
+      }
+
       const shortcut = terminalShortcutFor(event);
       if (!shortcut) return true;
 
@@ -88,11 +143,11 @@ export default function Terminal(p: {
       switch (shortcut.kind) {
         case "copy": {
           const selection = term.getSelection();
-          if (selection) void navigator.clipboard.writeText(selection).catch(() => {});
+          if (selection) void writeNativeClipboard(selection).catch(() => {});
           break;
         }
         case "paste":
-          void navigator.clipboard.readText().then((text) => term.paste(text)).catch(() => {});
+          void readNativeClipboard().then((text) => { if (text) term.paste(text); }).catch(() => {});
           break;
         case "select-all": term.selectAll(); break;
         case "clear": term.clear(); break;
@@ -104,42 +159,95 @@ export default function Terminal(p: {
       return false;
     });
 
-    term.onData((data) => wsSend({ type: "termInput", termId: p.termId, data }));
-    term.onResize(({ cols, rows }) => wsSend({ type: "termResize", termId: p.termId, cols, rows }));
+    term.onData((data) => {
+      if (exited.current) {
+        if (data.includes("\r") || data.includes("\n")) {
+          term.write("\r\n");
+          tryOpen();
+        }
+        return;
+      }
+      wsSend({ type: "termInput", termId: p.termId, data });
+    });
+    term.onResize(({ cols, rows }) => {
+      if (opened.current) wsSend({ type: "termResize", termId: p.termId, cols, rows });
+    });
 
-    // flux de données routé par App via CustomEvent
-    const onData = (e: Event) => term.write((e as CustomEvent).detail);
-    const onExit = () => term.write("\r\n\x1b[90m[processus terminé]\x1b[0m\r\n");
+    // flux de données routé par App via CustomEvent (tamponné tant que term.open n'a pas fini)
+    const pendingChunks: string[] = [];
+    const onData = (e: Event) => {
+      const chunk = String((e as CustomEvent).detail ?? "");
+      if (!mounted.current) pendingChunks.push(chunk);
+      else term.write(chunk);
+    };
+    const onExit = () => {
+      opened.current = false;
+      exited.current = true;
+      term.write("\r\n\x1b[90m[processus terminé — Entrée pour relancer]\x1b[0m\r\n");
+    };
     window.addEventListener(`term-data:${p.termId}`, onData);
     window.addEventListener(`term-exit:${p.termId}`, onExit);
 
-    // Précharger Monaspace Neon (4 faces) AVANT term.open() : xterm mesure la
-    // taille de cellule de façon synchrone et la met en cache ; si la police
-    // n'est pas prête, il mesure une police de repli → tout est décalé.
+    // Précharger Monaspace Neon (4 faces) AVANT term.open() avec plafond 500 ms :
+    // sur Linux/WebKitGTK, WebglAddon produit un canvas transparent sous
+    // WEBKIT_DISABLE_DMABUF_RENDERER=1 — le moteur DOM natif d'xterm v6 y est
+    // net, fluide et sans artefact WebGL.
     let cancelled = false;
+    let rafId = 0;
+    const safeFit = () => {
+      if (!mounted.current || !ref.current) return;
+      if (ref.current.clientWidth < 20 || ref.current.clientHeight < 20) return;
+      try { fit.fit(); } catch {}
+    };
+    const scheduleFit = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        safeFit();
+      });
+    };
     (async () => {
       try {
-        await Promise.all([
+        const fontLoad = Promise.all([
           document.fonts.load('13px "Monaspace Neon"'),
           document.fonts.load('700 13px "Monaspace Neon"'),
           document.fonts.load('italic 13px "Monaspace Neon"'),
           document.fonts.load('italic 700 13px "Monaspace Neon"'),
+        ]).then(() => document.fonts.ready);
+        await Promise.race([
+          fontLoad,
+          new Promise<void>((resolve) => setTimeout(resolve, 500)),
         ]);
-        await document.fonts.ready;
       } catch { /* la police de repli prendra le relais */ }
       if (cancelled || !ref.current) return;
       term.open(ref.current);
-      try { webgl = new WebglAddon(); term.loadAddon(webgl); } catch {} // fallback canvas
+      const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+      if (isMac) {
+        try {
+          webgl = new WebglAddon();
+          webgl.onContextLoss(() => {
+            webgl?.dispose();
+            webgl = null;
+          });
+          term.loadAddon(webgl);
+        } catch {
+          webgl = null;
+        }
+      }
       mounted.current = true;
-      fit.fit();
-      webgl?.clearTextureAtlas();   // l'atlas WebGL est clé sur la police mesurée
+      if (pendingChunks.length > 0) {
+        term.write(pendingChunks.splice(0).join(""));
+      }
+      safeFit();
+      webgl?.clearTextureAtlas();
       term.focus();
       tryOpen();
+      scheduleFit();
     })();
 
     // ouvrir le PTY (retry si le WS n'est pas encore prêt ; garde-fou mounted)
     const retry = setInterval(() => {
-      if (opened.current) { clearInterval(retry); return; }
+      if (opened.current || exited.current) { clearInterval(retry); return; }
       tryOpen();
     }, 500);
 
@@ -148,19 +256,24 @@ export default function Terminal(p: {
       webgl?.clearTextureAtlas();
     };
     window.addEventListener("app-theme-changed", onTheme);
-    const onWinResize = () => { if (mounted.current) fit.fit(); };
+    const onWinResize = () => scheduleFit();
     window.addEventListener("resize", onWinResize);
     // le drag des séparateurs ne déclenche pas window.resize : observer le conteneur
-    const ro = new ResizeObserver(() => { if (mounted.current) fit.fit(); });
+    const ro = new ResizeObserver(() => scheduleFit());
     ro.observe(ref.current);
     return () => {
       cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
       clearInterval(retry);
       ro.disconnect();
       window.removeEventListener(`term-data:${p.termId}`, onData);
       window.removeEventListener(`term-exit:${p.termId}`, onExit);
       window.removeEventListener("resize", onWinResize);
       window.removeEventListener("app-theme-changed", onTheme);
+      try { webgl?.dispose(); } catch {}
+      try { term.dispose(); } catch {}
+      xtermRef.current = null;
+      mounted.current = false;
     };
   }, []);
 
@@ -168,9 +281,12 @@ export default function Terminal(p: {
   useEffect(() => {
     if (!p.visible) return;
     const focusTimer = setTimeout(() => {
-      if (mounted.current) { fitRef.current?.fit(); xtermRef.current?.focus(); }
+      if (mounted.current && ref.current && ref.current.clientWidth >= 20 && ref.current.clientHeight >= 20) {
+        try { fitRef.current?.fit(); } catch {}
+        xtermRef.current?.focus();
+      }
     }, 30);
-    tryOpen();
+    if (!exited.current) tryOpen();
     return () => clearTimeout(focusTimer);
   }, [p.visible]);
 
@@ -186,6 +302,28 @@ export default function Terminal(p: {
       className="term-host"
       style={{ display: p.visible ? "block" : "none" }}
       onMouseDown={() => setTimeout(() => xtermRef.current?.focus(), 0)}
+      onAuxClick={(e) => {
+        // Clic molette Linux : collage rapide dans le terminal.
+        if (e.button !== 1) return;
+        if (typeof navigator === "undefined" || /Mac/i.test(navigator.platform)) return;
+        const term = xtermRef.current;
+        if (!term) return;
+        e.preventDefault();
+        void readNativeClipboard().then((text) => { if (text) term.paste(text); }).catch(() => {});
+      }}
+      onContextMenu={(e) => {
+        if (typeof navigator === "undefined" || /Mac/i.test(navigator.platform)) return;
+        const term = xtermRef.current;
+        if (!term) return;
+        e.preventDefault();
+        if (term.hasSelection()) {
+          const sel = term.getSelection();
+          term.clearSelection();
+          void writeNativeClipboard(sel).catch(() => {});
+        } else {
+          void readNativeClipboard().then((text) => { if (text) term.paste(text); }).catch(() => {});
+        }
+      }}
     />
   );
 }
