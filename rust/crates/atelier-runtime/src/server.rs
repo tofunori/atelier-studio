@@ -192,6 +192,8 @@ pub async fn serve_once(
         config.bundle_hash.clone(),
         config.server_dir.clone(),
     );
+    // Machine sans pixi : l'env Python d'Atelier le télécharge au besoin.
+    state.kernels().pixi().allow_download();
 
     let listener = TcpListener::bind(config.bind).await?;
     let port = listener.local_addr()?.port();

@@ -1711,6 +1711,9 @@ pub struct NotebookManager {
     runtime_dir: PathBuf,
     atelier_kernel_dir: PathBuf,
     home_dir: PathBuf,
+    /// Envs Python d'Atelier (env « atelier » géré par pixi) : liste des
+    /// noyaux, et env créé ou remis d'accord avant d'y démarrer un noyau.
+    python: Mutex<Option<Arc<atelier_kernel::KernelManager>>>,
     workspaces: AsyncMutex<HashMap<PathBuf, Arc<NotebookWorkspace>>>,
     listener: Mutex<Option<NotebookEventListener>>,
 }
@@ -1721,6 +1724,7 @@ impl NotebookManager {
             runtime_dir,
             atelier_kernel_dir,
             home_dir,
+            python: Mutex::new(None),
             workspaces: AsyncMutex::new(HashMap::new()),
             listener: Mutex::new(None),
         }
@@ -1741,8 +1745,64 @@ impl NotebookManager {
         }
     }
 
+    /// Branche les envs Python d'Atelier : sans eux (tests), les noyaux se
+    /// cherchent seuls et l'env « atelier » n'est pris que s'il existe.
+    pub fn set_python_envs(&self, kernels: Arc<atelier_kernel::KernelManager>) {
+        *self.python.lock().unwrap_or_else(|e| e.into_inner()) = Some(kernels);
+    }
+
+    fn python(&self) -> Option<Arc<atelier_kernel::KernelManager>> {
+        self.python
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub fn list_kernels(&self, project_root: Option<&Path>) -> Vec<DiscoveredKernel> {
-        discover_kernels(&self.home_dir, project_root, Some(&self.atelier_kernel_dir))
+        match self.python() {
+            Some(kernels) => {
+                crate::kernelspec::discover_kernels_from(&self.home_dir, kernels.envs(project_root))
+            }
+            None => discover_kernels(&self.home_dir, project_root, Some(&self.atelier_kernel_dir)),
+        }
+    }
+
+    /// Env pixi (celui d'Atelier ou celui du projet) : créé au premier
+    /// usage, pixi téléchargé au besoin, puis le noyau est relu pour prendre
+    /// ipykernel tout juste installé. Les autres envs passent tels quels.
+    async fn prepare_env(
+        &self,
+        spec: DiscoveredKernel,
+        project_root: Option<&Path>,
+        nb_path: &str,
+    ) -> Result<DiscoveredKernel, String> {
+        let (Some(kernels), Some(prefix)) = (self.python(), spec.prefix.clone()) else {
+            return Ok(spec);
+        };
+        let Some(env) = kernels
+            .envs(project_root)
+            .into_iter()
+            .find(|e| e.prefix == prefix && atelier_kernel::pixi::managed_project(e).is_some())
+        else {
+            return Ok(spec);
+        };
+        if !env.python.is_file() {
+            self.emit(NotebookPushEvent::KernelStatus {
+                path: nb_path.to_string(),
+                status: NotebookKernelStatus {
+                    state: "starting".into(),
+                    kernel_id: Some(spec.id.clone()),
+                    display_name: Some(spec.display_name.clone()),
+                    language: Some(spec.language.clone()),
+                    backend: Some(spec.backend.clone()),
+                    // Code lu par l'onglet, qui affiche son libellé traduit.
+                    message: Some("installing-env".into()),
+                    ..Default::default()
+                },
+            });
+        }
+        kernels.pixi().prepare(&env).await?;
+        Ok(crate::kernelspec::pyenv_to_kernel(env))
     }
 
     pub async fn get_or_open(&self, path: &Path) -> Result<Arc<NotebookWorkspace>, NotebookError> {
@@ -2057,6 +2117,23 @@ impl NotebookManager {
         .ok_or_else(|| "aucun noyau Python ou Jupyter détecté sur cette machine".to_string())?;
 
         let nb_path_str = ws.path.display().to_string();
+        // Un env « atelier » qui ne se crée pas (pas de réseau, pixi
+        // introuvable) ne doit pas laisser l'onglet sur « démarrage » :
+        // l'erreur est publiée avec sa raison, comme un échec de lancement.
+        let spec = match self.prepare_env(spec, project_root, &nb_path_str).await {
+            Ok(spec) => spec,
+            Err(error) => {
+                self.emit(NotebookPushEvent::KernelStatus {
+                    path: nb_path_str.clone(),
+                    status: NotebookKernelStatus {
+                        state: "error".into(),
+                        message: Some(error.clone()),
+                        ..Default::default()
+                    },
+                });
+                return Err(error);
+            }
+        };
         self.emit(NotebookPushEvent::KernelStatus {
             path: nb_path_str.clone(),
             status: NotebookKernelStatus {
@@ -2910,6 +2987,110 @@ mod tests {
         assert!(!accepted.unsaved);
         assert!(accepted.variables.iter().any(|v| v.name == "result_val"));
         mgr.shutdown_all().await;
+    }
+
+    /// Machine sans env Python d'Atelier : le cahier propose l'env
+    /// « atelier » avant qu'il existe, et le premier « Tout exécuter » le
+    /// crée par pixi (ici un faux pixi qui pointe vers python3) puis y tourne.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn le_premier_noyau_cree_l_env_atelier_par_pixi() {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(python) = std::env::var_os("PATH").and_then(|p| {
+            std::env::split_paths(&p)
+                .map(|d| d.join("python3"))
+                .find(|p| p.is_file())
+        }) else {
+            return;
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let pixi = tmp.path().join("faux-pixi");
+        std::fs::write(
+            &pixi,
+            format!(
+                "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --manifest-path ] && projet=\"$2\"; shift; done\n\
+                 mkdir -p \"$projet/.pixi/envs/default/bin\" \"$projet/.pixi/envs/default/conda-meta\"\n\
+                 ln -sf {} \"$projet/.pixi/envs/default/bin/python\"\n: > \"$projet/pixi.lock\"\n",
+                python.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&pixi, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let app = tmp.path().join("app");
+        let kernels = Arc::new(atelier_kernel::KernelManager::new(&app, tmp.path()));
+        kernels.pixi().set_binary(Some(pixi));
+        let mgr =
+            NotebookManager::new(tmp.path().join("rt"), app.clone(), tmp.path().to_path_buf());
+        mgr.set_python_envs(Arc::clone(&kernels));
+
+        let listed = mgr.list_kernels(None);
+        let atelier = listed
+            .iter()
+            .find(|k| k.id == "pyenv:atelier")
+            .expect("env atelier proposé");
+        assert_eq!(
+            atelier.prefix.as_deref(),
+            Some(app.join("python/.pixi/envs/default").as_path())
+        );
+        assert!(
+            !app.join("python/.pixi").exists(),
+            "rien n'est créé avant le premier noyau"
+        );
+
+        let nb = tiny_notebook(tmp.path(), "essai.ipynb", "6 * 7\n");
+        let ws = mgr.get_or_open(&nb).await.unwrap();
+        mgr.ensure_kernel(&ws, None, Some("pyenv:atelier"))
+            .await
+            .unwrap();
+        assert!(app.join("python/.pixi/envs/default/bin/python").exists());
+        assert!(app.join("python/pixi.toml").is_file());
+        let snap = mgr.run_all(&nb, None).await.unwrap();
+        assert_eq!(
+            snap.cells[0].execution_count,
+            Some(1),
+            "{:?}",
+            snap.cells[0]
+        );
+        mgr.shutdown_all().await;
+    }
+
+    /// Si pixi échoue, l'onglet reçoit « error » avec la raison au lieu de
+    /// rester bloqué sur « Installation de Python… ».
+    #[tokio::test]
+    async fn un_env_atelier_qui_echoue_publie_l_erreur() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let pixi = tmp.path().join("faux-pixi");
+        std::fs::write(&pixi, "#!/bin/sh\necho 'pas de réseau' >&2\nexit 1\n").unwrap();
+        std::fs::set_permissions(&pixi, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (mgr, seen) = collecting_manager(tmp.path());
+        let kernels = Arc::new(atelier_kernel::KernelManager::new(
+            &tmp.path().join("ak"),
+            tmp.path(),
+        ));
+        kernels.pixi().set_binary(Some(pixi));
+        mgr.set_python_envs(Arc::clone(&kernels));
+
+        let nb = tiny_notebook(tmp.path(), "essai.ipynb", "1\n");
+        let ws = mgr.get_or_open(&nb).await.unwrap();
+        let err = mgr
+            .ensure_kernel(&ws, None, Some("pyenv:atelier"))
+            .await
+            .unwrap_err();
+        let states: Vec<Value> = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "kernelStatus" || e.get("status").is_some())
+            .map(|e| e["status"].clone())
+            .collect();
+        let last = states.last().expect("un statut publié");
+        assert_eq!(last["state"], "error", "{states:?}");
+        assert_eq!(last["message"].as_str(), Some(err.as_str()));
+        assert!(
+            states.iter().any(|s| s["message"] == "installing-env"),
+            "{states:?}"
+        );
     }
 
     fn tiny_notebook(dir: &Path, name: &str, source: &str) -> PathBuf {

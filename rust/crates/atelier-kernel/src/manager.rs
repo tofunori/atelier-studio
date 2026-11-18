@@ -411,7 +411,7 @@ impl KernelManager {
             &self.home,
             project_root,
             Some(self.pixi.atelier_dir()),
-            self.pixi.binary().is_some(),
+            self.pixi.available(),
         )
     }
 

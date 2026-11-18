@@ -133,3 +133,36 @@ async fn le_vrai_pixi_cree_l_env_atelier_y_lance_une_cellule_et_y_ajoute_un_paqu
     assert_eq!(trace[1].lock_before, trace[1].lock_after, "un échec ne touche pas au verrou");
     m.shutdown_all().await;
 }
+
+/// Machine neuve, sans pixi ni Python scientifique : Atelier télécharge pixi
+/// 0.84.2 (archive officielle, sha256 vérifié), crée l'env « atelier » et la
+/// première cellule importe numpy, pandas, matplotlib, scipy et ipykernel.
+/// Réseau requis : lancé seulement avec `ATELIER_TEST_PIXI_DOWNLOAD=1`.
+#[tokio::test]
+async fn sans_pixi_atelier_le_telecharge_et_la_premiere_cellule_a_numpy() {
+    if std::env::var("ATELIER_TEST_PIXI_DOWNLOAD").as_deref() != Ok("1") {
+        eprintln!("ATELIER_TEST_PIXI_DOWNLOAD absent : test sauté");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let projet = tempfile::tempdir().unwrap();
+    if find_pixi(dir.path()).is_some() || std::env::var_os("ATELIER_PIXI").is_some() {
+        eprintln!("pixi déjà sur la machine : rien à télécharger, test sauté");
+        return;
+    }
+    let app = dir.path().join("atelier-studio");
+    std::fs::create_dir_all(&app).unwrap();
+    let m = KernelManager::new(&app, dir.path());
+    m.pixi().allow_download();
+    assert!(m.pixi().binary().is_none() && m.pixi().available());
+
+    let mut first = req(projet.path(), "import numpy, pandas, matplotlib, scipy, ipykernel\nnumpy.arange(4).sum()");
+    first.wait = Duration::from_secs(900);
+    let r = m.run(first).await.unwrap();
+    assert_eq!(r.cell["status"], "ok", "{}", r.cell);
+    assert_eq!(r.cell["result"], "np.int64(6)", "{}", r.cell);
+    let pixi = m.pixi().binary().expect("pixi téléchargé");
+    assert!(pixi.starts_with(app.join("tools")), "{}", pixi.display());
+    let info = m.status("fil").kernel.unwrap();
+    assert_eq!(info.env.source, SOURCE_ATELIER);
+}

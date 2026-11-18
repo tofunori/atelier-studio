@@ -307,8 +307,16 @@ dependencies = [
 name = "atelier-integrations"
 version = "0.1.0"
 dependencies = [
+ "flate2",
+ "fs2",
+ "hex",
+ "rustls",
  "serde_json",
+ "sha2",
+ "tar",
  "tempfile",
+ "ureq",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -338,12 +346,15 @@ name = "atelier-kernel"
 version = "0.1.0"
 dependencies = [
  "atelier-core",
+ "atelier-integrations",
  "chrono",
+ "flate2",
  "hex",
  "libc",
  "serde",
  "serde_json",
  "sha2",
+ "tar",
  "tempfile",
  "tokio",
  "tracing",

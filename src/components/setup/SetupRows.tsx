@@ -95,12 +95,14 @@ export function SetupInlineTerminal(p: { command: string; onClose: () => void })
   useEffect(() => { onCloseRef.current = p.onClose; }, [p.onClose]);
 
   useEffect(() => {
+    let closeTimer: number | undefined;
     const onExit = () => {
       recheckAll();
-      window.setTimeout(() => onCloseRef.current(), 600);
+      closeTimer = window.setTimeout(() => onCloseRef.current(), 600);
     };
     window.addEventListener(`term-exit:${termId}`, onExit);
     return () => {
+      window.clearTimeout(closeTimer);
       window.removeEventListener(`term-exit:${termId}`, onExit);
       wsSend({ type: "termClose", termId });
     };
@@ -110,7 +112,9 @@ export function SetupInlineTerminal(p: { command: string; onClose: () => void })
     if (sent.current) return;
     sent.current = true;
     window.setTimeout(() => {
-      wsSend({ type: "termInput", termId: id, data: `{ ${p.command}; } && exit\r` });
+      // pipefail : `curl … | bash` dont curl échoue rendrait sinon 0, le
+      // terminal se fermerait comme après un succès et l'erreur disparaîtrait.
+      wsSend({ type: "termInput", termId: id, data: `{ set -o pipefail 2>/dev/null; ${p.command}; } && exit\r` });
     }, 150);
   };
 
