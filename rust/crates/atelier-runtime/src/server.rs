@@ -246,6 +246,7 @@ pub async fn serve_once(
     // Noyaux Python : arrêtés après 30 min sans cellule ; mémoire et
     // processeur relevés pour le panneau tant qu'ils vivent.
     crate::kernel::spawn_idle_reaper(state.clone());
+    crate::notebook_tool::spawn_notebook_watch(state.clone());
     crate::kernel::spawn_usage_ticker(state.clone());
 
     // Rafraîchissement auto de la bibliothèque Zotero (non fatal si absente).

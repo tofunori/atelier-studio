@@ -5,6 +5,9 @@ import NotebookTab, { NOTEBOOK_DOC_LIVE_CONTEXT_EVENT } from "./NotebookTab";
 import { relFromTabUrl } from "./AtelierPane";
 import { setLanguage } from "../lib/i18n";
 import {
+  applyNotebookEvent,
+  formatBytes,
+  kernelExitDetail,
   notebookPathFromTabUrl,
   sanitizeNotebookHtml,
   sanitizeNotebookSvg,
@@ -286,9 +289,9 @@ describe("NotebookTab et utilitaires Jupyter", () => {
       fireEvent.click(screen.getByText("Variables"));
       expect(screen.getByText("df_m80")).toBeTruthy();
 
-      // Bascule en mode Lecture seule : affiche « Lecture seule · 0 Mo ».
+      // Bascule en mode Lecture seule.
       fireEvent.click(screen.getByText("Lecture"));
-      expect(screen.getByText("Lecture seule · 0 Mo")).toBeTruthy();
+      expect(screen.getByText("Lecture seule")).toBeTruthy();
 
       // Bascule en mode Diff Git cellule par cellule.
       await act(async () => {
@@ -300,5 +303,121 @@ describe("NotebookTab et utilitaires Jupyter", () => {
     } finally {
       window.removeEventListener(NOTEBOOK_DOC_LIVE_CONTEXT_EVENT, onLive);
     }
+  });
+
+  it("applique les événements du moteur et lit l'arrêt du noyau", () => {
+    const base = { ...SAMPLE_SNAPSHOT, proposals: [] };
+    const asked = applyNotebookEvent(base, {
+      event: "inputRequested",
+      path: base.path,
+      cellId: "cell-code-3",
+      prompt: "Nom ? ",
+      password: false,
+    });
+    expect(asked.pendingInput).toEqual({ cellId: "cell-code-3", prompt: "Nom ? ", password: false });
+    expect(applyNotebookEvent(asked, { event: "inputCleared", path: base.path }).pendingInput).toBeNull();
+    expect(applyNotebookEvent(base, { event: "diskChanged", path: base.path, changed: true }).diskChanged).toBe(true);
+    const fresh = { ...base, revision: "disque" };
+    expect(applyNotebookEvent(base, { event: "snapshotReplaced", path: base.path, snapshot: fresh })).toBe(fresh);
+    // Un échec n'altère pas l'état (il s'affiche en message).
+    expect(applyNotebookEvent(base, { event: "runFailed", path: base.path, message: "x" })).toBe(base);
+
+    expect(kernelExitDetail({ exitSignal: 9 })).toEqual({ code: "signal 9", likelyOom: true });
+    expect(kernelExitDetail({ exitCode: 3 })).toEqual({ code: "code 3", likelyOom: false });
+    expect(kernelExitDetail({})).toEqual({ code: null, likelyOom: false });
+    expect(formatBytes(3 * 1024 * 1024, "en")).toBe("3.0 MB");
+    expect(formatBytes(3 * 1024 * 1024)).toBe("3,0 Mo");
+  });
+
+  it("bandeaux de solidité, case input() et sorties raccourcies", async () => {
+    const snapshot: NotebookSnapshot = {
+      ...SAMPLE_SNAPSHOT,
+      proposals: [],
+      unsaved: true,
+      diskChanged: true,
+      recovery: { savedAtMs: Date.UTC(2026, 10, 18, 14, 5) },
+      status: { state: "dead", exitSignal: 9, displayName: "Python 3.12 (albedo-env)" },
+      cells: SAMPLE_SNAPSHOT.cells.map((c) =>
+        c.id === "cell-code-3"
+          ? {
+              ...c,
+              outputs: [
+                { kind: "stream", name: "stdout", text: "2999\n", omittedLines: 1200 },
+                {
+                  kind: "data",
+                  textPlain: "<Figure>",
+                  omitted: [{ mime: "image/png", bytes: 20 * 1024 * 1024 }],
+                },
+              ],
+            }
+          : c,
+      ),
+    };
+    wsSendMock.mockImplementation((payload) => {
+      queueMicrotask(() => {
+        if (payload.op === "open") replyWs(payload.requestId, { snapshot, kernels: [] });
+        else if (payload.op === "runCell" || payload.op === "restart") replyWs(payload.requestId, { started: true });
+        else if (payload.op === "sendInput") replyWs(payload.requestId, { ok: true });
+        else if (payload.op === "save") replyWs(payload.requestId, { snapshot: { ...snapshot, diskChanged: false, unsaved: false } });
+        else if (payload.op === "discardRecovery") replyWs(payload.requestId, { snapshot: { ...snapshot, recovery: null } });
+      });
+      return true;
+    });
+
+    render(
+      <NotebookTab
+        tabId="doc-nb2"
+        url="http://127.0.0.1:19992/.fig_thumbs/ipynb_studio.html?path=%2Ftmp%2Fprojet%2Fanalyse_albedo.ipynb"
+        title="analyse_albedo.ipynb"
+        path="/tmp/projet/analyse_albedo.ipynb"
+        projectRoot="/tmp/projet"
+        visible={true}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText(/modifié hors d'Atelier/)).toBeTruthy());
+    expect(screen.getByText(/changements non enregistrés du/)).toBeTruthy();
+    expect(screen.getByText(/Le noyau s'est arrêté \(signal 9\)\. Mémoire probablement épuisée\./)).toBeTruthy();
+    expect(screen.getByText(/lignes précédentes masquées/)).toBeTruthy();
+    expect(screen.getByText(/image\/png \(20,0 Mo\) trop lourde/)).toBeTruthy();
+
+    // « Garder ma version » force l'enregistrement.
+    fireEvent.click(screen.getByText("Garder ma version"));
+    await waitFor(() =>
+      expect(wsSendMock).toHaveBeenCalledWith(expect.objectContaining({ op: "save", force: true })),
+    );
+    await waitFor(() => expect(screen.queryByText(/modifié hors d'Atelier/)).toBeNull());
+
+    fireEvent.click(screen.getByText("Ignorer"));
+    await waitFor(() => expect(screen.queryByText(/changements non enregistrés du/)).toBeNull());
+
+    // Exécuter : la réponse { started } ne remplace pas l'état ; les sorties
+    // arrivent par événements, puis input() ouvre une case sous la cellule.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("notebook-event", {
+          detail: { data: { event: "kernelStatus", path: snapshot.path, status: { state: "busy", busyCellId: "cell-code-3" } } },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("notebook-event", {
+          detail: {
+            data: { event: "inputRequested", path: snapshot.path, cellId: "cell-code-3", prompt: "Seuil ? ", password: false },
+          },
+        }),
+      );
+    });
+    expect(screen.queryByText(/Le noyau s'est arrêté/)).toBeNull();
+    const field = await screen.findByLabelText("Seuil ?");
+    fireEvent.change(field, { target: { value: "0.4" } });
+    fireEvent.submit(field.closest("form")!);
+    await waitFor(() =>
+      expect(wsSendMock).toHaveBeenCalledWith(expect.objectContaining({ op: "sendInput", value: "0.4" })),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("notebook-event", { detail: { data: { event: "inputCleared", path: snapshot.path } } }),
+      );
+    });
+    expect(screen.queryByLabelText("Seuil ?")).toBeNull();
   });
 });

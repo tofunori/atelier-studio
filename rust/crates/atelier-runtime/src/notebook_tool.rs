@@ -133,11 +133,19 @@ pub async fn mcp_action(
                 obj.insert("kernelStatus".into(), json!(ws.status()));
                 obj.insert(
                     "liveVariables".into(),
-                    json!(ws.variables.lock().unwrap_or_else(|e| e.into_inner()).clone()),
+                    json!(ws
+                        .variables
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()),
                 );
                 obj.insert(
                     "pendingProposals".into(),
-                    json!(ws.proposals.lock().unwrap_or_else(|e| e.into_inner()).clone()),
+                    json!(ws
+                        .proposals
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()),
                 );
             }
             Ok(proj)
@@ -164,7 +172,9 @@ pub async fn mcp_action(
                 .and_then(Value::as_str)
                 .ok_or("code manquant")?
                 .to_string();
-            let purpose = str_arg(req, "purpose").unwrap_or("Modification proposée").to_string();
+            let purpose = str_arg(req, "purpose")
+                .unwrap_or("Modification proposée")
+                .to_string();
             let expected_rev = str_arg(req, "revision");
 
             let proposal = {
@@ -208,7 +218,9 @@ pub async fn mcp_action(
                 .and_then(Value::as_str)
                 .ok_or("code manquant")?
                 .to_string();
-            let purpose = str_arg(req, "purpose").unwrap_or("Nouvelle cellule").to_string();
+            let purpose = str_arg(req, "purpose")
+                .unwrap_or("Nouvelle cellule")
+                .to_string();
 
             let proposal = {
                 let doc = ws.doc.lock().await;
@@ -331,36 +343,60 @@ pub async fn handle_ws_command(state: &AppState, msg: &Value) -> Vec<String> {
             }
             Err(e) => Err(e.to_string()),
         },
-        "save" => state
+        "save" => {
+            let force = msg.get("force").and_then(Value::as_bool).unwrap_or(false);
+            state
+                .notebooks()
+                .save(&path, force)
+                .await
+                .map(|snap| json!({ "snapshot": snap }))
+                .map_err(|e| e.to_string())
+        }
+        "reload" => state
             .notebooks()
-            .save(&path)
+            .reload(&path)
             .await
             .map(|snap| json!({ "snapshot": snap }))
             .map_err(|e| e.to_string()),
-        "runCell" => {
-            let cell_id = str_arg(msg, "cellId").unwrap_or("");
-            let source = msg
-                .get("source")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            state
-                .notebooks()
-                .run_cell(&path, project_root_path, cell_id, source)
-                .await
-                .map(|snap| json!({ "snapshot": snap }))
-        }
-        "runAll" => state
+        "restoreRecovery" => state
             .notebooks()
-            .run_all(&path, project_root_path)
+            .restore_recovery(&path)
             .await
-            .map(|snap| json!({ "snapshot": snap })),
-        "restart" => {
-            let kernel_id = str_arg(msg, "kernelId");
+            .map(|snap| json!({ "snapshot": snap }))
+            .map_err(|e| e.to_string()),
+        "discardRecovery" => state
+            .notebooks()
+            .discard_recovery(&path)
+            .await
+            .map(|snap| json!({ "snapshot": snap }))
+            .map_err(|e| e.to_string()),
+        "sendInput" => {
+            let value = msg.get("value").and_then(Value::as_str).unwrap_or("");
             state
                 .notebooks()
-                .restart_kernel(&path, project_root_path, kernel_id)
+                .send_input(&path, value)
                 .await
-                .map(|snap| json!({ "snapshot": snap }))
+                .map(|()| json!({ "ok": true }))
+        }
+        // Exécutions et (re)démarrages : lancés en arrière-plan, la réponse
+        // part tout de suite. Attendus ici, ils dépassaient le délai des
+        // requêtes WebSocket (15 s) : la cellule était coupée en plein calcul
+        // et l'onglet affichait une erreur. La suite arrive par les
+        // événements `notebookEvent` (sorties, état du noyau, échec).
+        "runCell" | "runAll" | "restart" => {
+            let job = BackgroundRun {
+                op: op.to_string(),
+                path: path.clone(),
+                project_root: project_root_path.map(Path::to_path_buf),
+                cell_id: str_arg(msg, "cellId").map(str::to_string),
+                source: msg
+                    .get("source")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                kernel_id: str_arg(msg, "kernelId").map(str::to_string),
+            };
+            spawn_background_run(state.clone(), job);
+            Ok(json!({ "started": true }))
         }
         "stopKernel" => state
             .notebooks()
@@ -417,11 +453,26 @@ pub async fn handle_ws_command(state: &AppState, msg: &Value) -> Vec<String> {
                 .get("runAfter")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            state
+            // Accepter écrit tout de suite ; l'exécution éventuelle part en
+            // arrière-plan comme « Exécuter », puis enregistre.
+            let accepted = state
                 .notebooks()
-                .accept_proposal(&path, project_root_path, proposal_id, run_after)
-                .await
-                .map(|snap| json!({ "snapshot": snap }))
+                .accept_proposal_cell(&path, proposal_id)
+                .await;
+            if let (Ok((Some(cell_id), _)), true) = (&accepted, run_after) {
+                spawn_background_run(
+                    state.clone(),
+                    BackgroundRun {
+                        op: "saveAfterRun".into(),
+                        path: path.clone(),
+                        project_root: project_root_path.map(Path::to_path_buf),
+                        cell_id: Some(cell_id.clone()),
+                        source: None,
+                        kernel_id: None,
+                    },
+                );
+            }
+            accepted.map(|(_, snap)| json!({ "snapshot": snap }))
         }
         "discardProposal" => {
             let proposal_id = str_arg(msg, "proposalId").unwrap_or("");
@@ -582,8 +633,11 @@ mod tests {
         let proj = tmp.path().join("projet");
         let outside = tmp.path().join("outside.ipynb");
         std::fs::create_dir_all(&proj).unwrap();
-        std::fs::write(&outside, r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#)
-            .unwrap();
+        std::fs::write(
+            &outside,
+            r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#,
+        )
+        .unwrap();
         let nb = proj.join("albedo.ipynb");
         std::fs::write(
             &nb,
@@ -629,9 +683,14 @@ mod tests {
         assert!(err.contains("dans le projet"), "{err}");
 
         // Lecture complète
-        let read = mcp_action(&state, "t-1", "notebook_read", &json!({"path": "albedo.ipynb"}))
-            .await
-            .unwrap();
+        let read = mcp_action(
+            &state,
+            "t-1",
+            "notebook_read",
+            &json!({"path": "albedo.ipynb"}),
+        )
+        .await
+        .unwrap();
         assert_eq!(read["cellCount"], 3);
         let rev = read["revision"].as_str().unwrap().to_string();
 
@@ -662,6 +721,75 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(prop["diagnostics"]["redundantImports"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            prop["diagnostics"]["redundantImports"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
+}
+
+struct BackgroundRun {
+    op: String,
+    path: PathBuf,
+    project_root: Option<PathBuf>,
+    cell_id: Option<String>,
+    source: Option<String>,
+    kernel_id: Option<String>,
+}
+
+fn spawn_background_run(state: AppState, job: BackgroundRun) {
+    tokio::spawn(async move {
+        let nb = state.notebooks();
+        let root = job.project_root.as_deref();
+        let result = match job.op.as_str() {
+            "runCell" => nb
+                .run_cell(
+                    &job.path,
+                    root,
+                    job.cell_id.as_deref().unwrap_or(""),
+                    job.source,
+                )
+                .await
+                .map(|_| ()),
+            "runAll" => nb.run_all(&job.path, root).await.map(|_| ()),
+            "restart" => nb
+                .restart_kernel(&job.path, root, job.kernel_id.as_deref())
+                .await
+                .map(|_| ()),
+            "saveAfterRun" => {
+                let r = nb
+                    .run_cell(&job.path, root, job.cell_id.as_deref().unwrap_or(""), None)
+                    .await;
+                match r {
+                    Ok(_) => nb
+                        .save(&job.path, false)
+                        .await
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                    Err(e) => Err(e),
+                }
+            }
+            _ => Ok(()),
+        };
+        if let Err(message) = result {
+            nb.report_failure(&job.path, &message);
+        }
+    });
+}
+
+/// Veille des cahiers ouverts : noyau mort, fichier modifié ailleurs, copie
+/// de secours. Une seconde suffit : chaque passage ne fait qu'un `stat` par
+/// cahier tant que rien ne change.
+pub fn spawn_notebook_watch(state: AppState) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            state.notebooks().tick().await;
+        }
+    });
 }

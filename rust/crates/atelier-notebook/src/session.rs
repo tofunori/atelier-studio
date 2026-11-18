@@ -15,9 +15,7 @@ use crate::nbformat::{
     UiCell,
 };
 use crate::proposals::CellProposal;
-use crate::wire::{
-    ConnectionFile, JupyterMessage, LiveVariable, PYTHON_VARIABLES_EXPR,
-};
+use crate::wire::{ConnectionFile, JupyterMessage, LiveVariable, PYTHON_VARIABLES_EXPR};
 use crate::zmtp::{ZmqSocketType, ZmtpSocket, ZmtpWriter};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -27,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::process::{Child, ChildStdin, Command};
@@ -35,7 +33,11 @@ use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 /// Événement poussé vers le frontend WebSocket lorsqu'un cahier évolue en direct.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "event", rename_all = "camelCase")]
+#[serde(
+    tag = "event",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum NotebookPushEvent {
     KernelStatus {
         path: String,
@@ -55,6 +57,34 @@ pub enum NotebookPushEvent {
         path: String,
         variables: Vec<LiveVariable>,
     },
+    /// Une exécution lancée en arrière-plan a échoué (aucun noyau, démarrage
+    /// impossible, noyau mort…).
+    RunFailed {
+        path: String,
+        message: String,
+    },
+    /// Le code a appelé `input()` : l'onglet affiche une case de saisie.
+    InputRequested {
+        path: String,
+        cell_id: String,
+        prompt: String,
+        password: bool,
+    },
+    InputCleared {
+        path: String,
+    },
+    /// Le fichier a été modifié hors d'Atelier alors que l'onglet a des
+    /// changements non enregistrés (sinon il est rechargé tout seul).
+    DiskChanged {
+        path: String,
+        changed: bool,
+    },
+    /// Le cahier a été relu depuis le disque (modification externe sans
+    /// changement local, ou rechargement demandé).
+    SnapshotReplaced {
+        path: String,
+        snapshot: Box<NotebookSnapshot>,
+    },
 }
 
 pub type NotebookEventListener = Arc<dyn Fn(NotebookPushEvent) + Send + Sync>;
@@ -72,6 +102,12 @@ pub struct NotebookKernelStatus {
     pub rss_bytes: Option<u64>,
     pub busy_cell_id: Option<String>,
     pub message: Option<String>,
+    /// Noyau mort sans qu'on l'ait arrêté (`state == "dead"`) : code de
+    /// sortie, ou signal (9 = tué, souvent par manque de mémoire).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_signal: Option<i32>,
 }
 
 impl Default for NotebookKernelStatus {
@@ -86,8 +122,26 @@ impl Default for NotebookKernelStatus {
             rss_bytes: None,
             busy_cell_id: None,
             message: None,
+            exit_code: None,
+            exit_signal: None,
         }
     }
+}
+
+/// Copie de secours trouvée à l'ouverture (changements non enregistrés d'une
+/// session précédente, plantage ou fermeture forcée).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryInfo {
+    pub saved_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputRequest {
+    pub cell_id: String,
+    pub prompt: String,
+    pub password: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +156,11 @@ pub struct NotebookSnapshot {
     pub proposals: Vec<CellProposal>,
     pub status: NotebookKernelStatus,
     pub variables: Vec<LiveVariable>,
+    /// Le fichier a changé sur le disque depuis l'ouverture alors que
+    /// l'onglet a des changements à lui : Enregistrer l'écraserait.
+    pub disk_changed: bool,
+    pub recovery: Option<RecoveryInfo>,
+    pub pending_input: Option<InputRequest>,
 }
 
 // ============================================================================
@@ -119,6 +178,8 @@ struct ZmqShared {
     active_exec: Mutex<Option<PendingZmqExec>>,
     shell_waiters: Mutex<HashMap<String, oneshot::Sender<JupyterMessage>>>,
     busy: Mutex<bool>,
+    /// En-tête du dernier `input_request` (la réponse doit le citer).
+    input_parent: Mutex<Option<Value>>,
 }
 
 pub struct ZmqKernelHandle {
@@ -129,6 +190,7 @@ pub struct ZmqKernelHandle {
     conn_path: Option<PathBuf>,
     shell_tx: AsyncMutex<ZmtpWriter<OwnedWriteHalf>>,
     control_tx: AsyncMutex<ZmtpWriter<OwnedWriteHalf>>,
+    stdin_tx: AsyncMutex<ZmtpWriter<OwnedWriteHalf>>,
     shared: Arc<ZmqShared>,
     child: AsyncMutex<Option<Child>>,
 }
@@ -155,8 +217,7 @@ impl ZmqKernelHandle {
         workspace: WeakWorkspace,
         listener: Option<NotebookEventListener>,
     ) -> Result<Arc<Self>, String> {
-        std::fs::create_dir_all(runtime_dir)
-            .map_err(|e| format!("dossier runtime ZMQ : {e}"))?;
+        std::fs::create_dir_all(runtime_dir).map_err(|e| format!("dossier runtime ZMQ : {e}"))?;
         let ports = pick_ephemeral_ports().map_err(|e| format!("allocation ports ZMQ : {e}"))?;
         // Clé HMAC aléatoire (uuid v4, comme jupyter_client) : dérivée du pid
         // et du chemin, elle se devinait, et tout processus local pouvait
@@ -175,7 +236,8 @@ impl ZmqKernelHandle {
             kernel_name: Some(spec.name.clone()),
         };
 
-        let conn_path = runtime_dir.join(format!("kernel-{}.json", &sha256_hex(key.as_bytes())[..12]));
+        let conn_path =
+            runtime_dir.join(format!("kernel-{}.json", &sha256_hex(key.as_bytes())[..12]));
         let conn_bytes = serde_json::to_vec_pretty(&conn).map_err(|e| e.to_string())?;
         write_private_file(&conn_path, &conn_bytes)
             .map_err(|e| format!("écriture connection_file : {e}"))?;
@@ -296,13 +358,73 @@ impl ZmqKernelHandle {
         // plus aucune sortie avec un vrai ipykernel.
         let (mut iopub_rx, iopub_tx) = iopub.into_split();
         let (mut control_rx, control_tx) = control.into_split();
+        let (mut stdin_rx, stdin_tx) = stdin.into_split();
 
         let hmac_key = conn.key.as_bytes().to_vec();
         let shared = Arc::new(ZmqShared {
             active_exec: Mutex::new(None),
             shell_waiters: Mutex::new(HashMap::new()),
             busy: Mutex::new(false),
+            input_parent: Mutex::new(None),
         });
+
+        // Tâche de lecture `stdin` : `input()` dans une cellule envoie un
+        // `input_request` ; l'onglet affiche une case et répond par
+        // `input_reply` (sans elle, la cellule attendait sans fin).
+        {
+            let shared_stdin = Arc::clone(&shared);
+            let key_stdin = hmac_key.clone();
+            let ws_stdin = workspace.clone();
+            let cb_stdin = listener.clone();
+            let nb_path_stdin = notebook_path.to_string();
+            tokio::spawn(async move {
+                while let Ok(frames) = stdin_rx.recv_multipart().await {
+                    let Ok(msg) = JupyterMessage::decode(&frames, &key_stdin) else {
+                        continue;
+                    };
+                    if msg.msg_type() != "input_request" {
+                        continue;
+                    }
+                    let cell_id = shared_stdin
+                        .active_exec
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .map(|p| p.cell_id.clone())
+                        .unwrap_or_default();
+                    *shared_stdin
+                        .input_parent
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()) = Some(msg.header.clone());
+                    let req = InputRequest {
+                        cell_id,
+                        prompt: msg
+                            .content
+                            .get("prompt")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                        password: msg
+                            .content
+                            .get("password")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    };
+                    if let Some(ws) = ws_stdin.upgrade() {
+                        *ws.pending_input.lock().unwrap_or_else(|e| e.into_inner()) =
+                            Some(req.clone());
+                    }
+                    if let Some(cb) = &cb_stdin {
+                        cb(NotebookPushEvent::InputRequested {
+                            path: nb_path_stdin.clone(),
+                            cell_id: req.cell_id,
+                            prompt: req.prompt,
+                            password: req.password,
+                        });
+                    }
+                }
+            });
+        }
 
         // Tâche de lecture `shell`
         {
@@ -379,7 +501,7 @@ impl ZmqKernelHandle {
             let ws_weak = workspace;
             let cb = listener;
             tokio::spawn(async move {
-                let _garde_connexions = (iopub_tx, stdin);
+                let _garde_connexion = iopub_tx;
                 while let Ok(frames) = iopub_rx.recv_multipart().await {
                     // En ZMTP 3.x PUB/SUB, l'émetteur peut préfixer un topic avant `<IDS|MSG>` :
                     // `JupyterMessage::decode` cherche `<IDS|MSG>` à n'importe quel indice !
@@ -434,7 +556,7 @@ impl ZmqKernelHandle {
                         continue;
                     };
 
-                    let updated_ui = {
+                    let found = {
                         let mut doc = ws_arc.doc.lock().await;
                         if let Some(idx) = doc.cells.iter().position(|c| c.id == cell_id) {
                             if msg_type == "execute_input" {
@@ -450,19 +572,16 @@ impl ZmqKernelHandle {
                                     msg.content.get("transient"),
                                 );
                             }
-                            *ws_arc.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
-                            Some(doc.cells[idx].to_ui(idx + 1))
+                            true
                         } else {
-                            None
+                            false
                         }
                     };
-
-                    if let (Some(ui_cell), Some(emit)) = (updated_ui, &cb) {
-                        emit(NotebookPushEvent::CellUpdated {
-                            path: nb_path.clone(),
-                            cell: ui_cell,
-                            running: true,
-                        });
+                    if found {
+                        ws_arc.mark_dirty();
+                        // Regroupé : une boucle de `print` envoyait toute la
+                        // cellule à l'écran à chaque ligne.
+                        ws_arc.queue_cell_push(&nb_path, &cell_id, cb.clone());
                     }
                 }
             });
@@ -476,19 +595,27 @@ impl ZmqKernelHandle {
             conn_path,
             shell_tx: AsyncMutex::new(shell_tx),
             control_tx: AsyncMutex::new(control_tx),
+            stdin_tx: AsyncMutex::new(stdin_tx),
             shared,
             child: AsyncMutex::new(child),
         });
 
         // Vérification `kernel_info_request` (confirme que le noyau répond sur `shell`).
-        let _ = tokio::time::timeout(Duration::from_secs(15), handle.request_shell("kernel_info_request", json!({})))
-            .await
-            .map_err(|_| "délai dépassé en attente de kernel_info_reply".to_string())??;
+        let _ = tokio::time::timeout(
+            Duration::from_secs(15),
+            handle.request_shell("kernel_info_request", json!({})),
+        )
+        .await
+        .map_err(|_| "délai dépassé en attente de kernel_info_reply".to_string())??;
 
         Ok(handle)
     }
 
-    pub async fn request_shell(&self, msg_type: &str, content: Value) -> Result<JupyterMessage, String> {
+    pub async fn request_shell(
+        &self,
+        msg_type: &str,
+        content: Value,
+    ) -> Result<JupyterMessage, String> {
         let req = JupyterMessage::new_request(&self.session_id, msg_type, content);
         let msg_id = req.msg_id().to_string();
         let (tx, rx) = oneshot::channel();
@@ -520,7 +647,7 @@ impl ZmqKernelHandle {
                 "silent": false,
                 "store_history": true,
                 "user_expressions": {},
-                "allow_stdin": false,
+                "allow_stdin": true,
                 "stop_on_error": true,
             }),
         );
@@ -645,6 +772,27 @@ impl ZmqKernelHandle {
             .and_then(Value::as_str)
             .unwrap_or("");
         parse_python_repr_json_vars(raw_str)
+    }
+
+    /// Répond au dernier `input()` de la cellule en cours.
+    pub async fn reply_input(&self, value: &str) -> Result<(), String> {
+        let parent = self
+            .shared
+            .input_parent
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .ok_or_else(|| "aucune saisie demandée".to_string())?;
+        let mut reply =
+            JupyterMessage::new_request(&self.session_id, "input_reply", json!({ "value": value }));
+        reply.parent_header = parent;
+        let frames = reply.encode(&self.hmac_key);
+        self.stdin_tx
+            .lock()
+            .await
+            .send_multipart(&frames)
+            .await
+            .map_err(|e| format!("envoi input_reply : {e}"))
     }
 
     pub async fn interrupt(&self) -> Result<(), String> {
@@ -829,7 +977,7 @@ impl FallbackPythonHandle {
                         if let (Some(cid), Some(ws)) = (cell_id, workspace.upgrade()) {
                             let name = val.get("name").and_then(Value::as_str).unwrap_or("stdout");
                             let text = val.get("text").and_then(Value::as_str).unwrap_or("");
-                            let ui = {
+                            let found = {
                                 let mut doc = ws.doc.lock().await;
                                 if let Some(idx) = doc.cells.iter().position(|c| c.id == cid) {
                                     doc.cells[idx].apply_iopub_output(
@@ -837,54 +985,65 @@ impl FallbackPythonHandle {
                                         &json!({ "name": name, "text": text }),
                                         None,
                                     );
-                                    Some(doc.cells[idx].to_ui(idx + 1))
+                                    true
                                 } else {
-                                    None
+                                    false
                                 }
                             };
-                            if let (Some(cell), Some(cb)) = (ui, &listener) {
-                                cb(NotebookPushEvent::CellUpdated {
-                                    path: nb_path.clone(),
-                                    cell,
-                                    running: true,
-                                });
+                            if found {
+                                ws.mark_dirty();
+                                ws.queue_cell_push(&nb_path, &cid, listener.clone());
                             }
                         }
                     }
                     "done" => {
-                        let finished = pending_loop.lock().unwrap_or_else(|e| e.into_inner()).take();
+                        let finished = pending_loop
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .take();
                         if let Some(fin) = finished {
                             if let Some(ws) = workspace.upgrade() {
                                 let mut doc = ws.doc.lock().await;
-                                if let Some(idx) = doc.cells.iter().position(|c| c.id == fin.cell_id)
+                                if let Some(idx) =
+                                    doc.cells.iter().position(|c| c.id == fin.cell_id)
                                 {
                                     doc.cells[idx].execution_count = Some(fin.seq);
-                                    if let Some(res) =
-                                        val.get("result").and_then(Value::as_str).filter(|s| !s.is_empty())
+                                    if let Some(res) = val
+                                        .get("result")
+                                        .and_then(Value::as_str)
+                                        .filter(|s| !s.is_empty())
                                     {
                                         let mut data = Map::new();
-                                        data.insert("text/plain".into(), Value::String(res.to_string()));
+                                        data.insert(
+                                            "text/plain".into(),
+                                            Value::String(res.to_string()),
+                                        );
                                         doc.cells[idx].outputs.push(CellOutput::ExecuteResult {
                                             execution_count: Some(fin.seq),
                                             data,
                                             metadata: Map::new(),
                                         });
                                     }
-                                    if let Some(figs) = val.get("figures").and_then(Value::as_array) {
+                                    if let Some(figs) = val.get("figures").and_then(Value::as_array)
+                                    {
                                         for fp in figs.iter().filter_map(Value::as_str) {
                                             if let Ok(bytes) = std::fs::read(fp) {
                                                 let b64 = base64_encode(&bytes);
                                                 let mut data = Map::new();
                                                 data.insert("image/png".into(), Value::String(b64));
-                                                doc.cells[idx].outputs.push(CellOutput::DisplayData {
-                                                    data,
-                                                    metadata: Map::new(),
-                                                    display_id: None,
-                                                });
+                                                doc.cells[idx].outputs.push(
+                                                    CellOutput::DisplayData {
+                                                        data,
+                                                        metadata: Map::new(),
+                                                        display_id: None,
+                                                    },
+                                                );
                                             }
                                         }
                                     }
-                                    if let Some(err_obj) = val.get("error").filter(|v| v.is_object()) {
+                                    if let Some(err_obj) =
+                                        val.get("error").filter(|v| v.is_object())
+                                    {
                                         let ename = err_obj
                                             .get("ename")
                                             .and_then(Value::as_str)
@@ -906,7 +1065,7 @@ impl FallbackPythonHandle {
                                             traceback: tb,
                                         });
                                     }
-                                    *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                                    ws.mark_dirty();
                                 }
                             }
                             if let Some(tx) = fin.done_tx {
@@ -1153,7 +1312,64 @@ impl RunningBackend {
             Self::Fallback(h) => h.shutdown().await,
         }
     }
+
+    pub async fn reply_input(&self, value: &str) -> Result<(), String> {
+        match self {
+            Self::Zmq(h) => h.reply_input(value).await,
+            Self::Fallback(_) => Err("input() demande un noyau ipykernel".into()),
+        }
+    }
+
+    /// Même noyau (même processus) que `other`.
+    pub fn same(&self, other: &RunningBackend) -> bool {
+        match (self, other) {
+            (Self::Zmq(a), Self::Zmq(b)) => Arc::ptr_eq(a, b),
+            (Self::Fallback(a), Self::Fallback(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+
+    /// Statut de sortie si le processus du noyau s'est terminé tout seul
+    /// (plantage, `os._exit`, tué par le système faute de mémoire).
+    pub fn exit_status(&self) -> Option<std::process::ExitStatus> {
+        let child = match self {
+            Self::Zmq(h) => &h.child,
+            Self::Fallback(h) => &h.child,
+        };
+        let mut guard = child.try_lock().ok()?;
+        guard.as_mut()?.try_wait().ok().flatten()
+    }
 }
+
+/// Empreinte du fichier sur le disque, prise à l'ouverture et à chaque
+/// enregistrement, pour repérer une modification faite hors d'Atelier.
+#[derive(Debug, Clone)]
+struct DiskSig {
+    len: u64,
+    mtime: Option<SystemTime>,
+    sha: String,
+}
+
+fn read_disk_sig(path: &Path) -> Option<DiskSig> {
+    let meta = std::fs::metadata(path).ok()?;
+    let bytes = std::fs::read(path).ok()?;
+    Some(DiskSig {
+        len: meta.len(),
+        mtime: meta.modified().ok(),
+        sha: sha256_hex(&bytes),
+    })
+}
+
+#[derive(Default)]
+struct UiPush {
+    dirty: Vec<String>,
+    scheduled: bool,
+}
+
+/// Les sorties d'une cellule partent à l'écran au plus toutes les 80 ms.
+const UI_PUSH_INTERVAL: Duration = Duration::from_millis(80);
+/// Copie de secours écrite au plus toutes les 10 s.
+const RECOVERY_INTERVAL: Duration = Duration::from_secs(10);
 
 pub struct NotebookWorkspace {
     pub path: PathBuf,
@@ -1168,27 +1384,169 @@ pub struct NotebookWorkspace {
     /// Dernière activité (ouverture du noyau, exécution) : sert à arrêter
     /// les noyaux inactifs, comme le noyau Python des fils.
     pub last_activity: Mutex<Instant>,
+    /// Compteur de modifications (chaque `mark_dirty`) : la copie de secours
+    /// n'est réécrite que s'il a bougé.
+    edit_seq: AtomicU64,
+    backup: Mutex<(u64, Option<Instant>)>,
+    disk_sig: Mutex<Option<DiskSig>>,
+    disk_changed: Mutex<bool>,
+    recovery: Mutex<Option<RecoveryInfo>>,
+    pub pending_input: Mutex<Option<InputRequest>>,
+    /// (code de sortie, signal) du noyau mort tout seul.
+    kernel_death: Mutex<Option<(Option<i32>, Option<i32>)>>,
+    ui_push: Mutex<UiPush>,
 }
 
 type WeakWorkspace = std::sync::Weak<NotebookWorkspace>;
 
 impl NotebookWorkspace {
+    pub fn new(path: PathBuf, doc: NotebookDocument) -> Self {
+        let disk_sig = read_disk_sig(&path);
+        Self {
+            path,
+            doc: AsyncMutex::new(doc),
+            unsaved: Mutex::new(false),
+            proposals: Mutex::new(Vec::new()),
+            kernel: AsyncMutex::new(None),
+            exec_gate: AsyncMutex::new(()),
+            busy_cell: Mutex::new(None),
+            variables: Mutex::new(Vec::new()),
+            selected_kernel_id: Mutex::new(None),
+            last_activity: Mutex::new(Instant::now()),
+            edit_seq: AtomicU64::new(0),
+            backup: Mutex::new((0, None)),
+            disk_sig: Mutex::new(disk_sig),
+            disk_changed: Mutex::new(false),
+            recovery: Mutex::new(None),
+            pending_input: Mutex::new(None),
+            kernel_death: Mutex::new(None),
+            ui_push: Mutex::new(UiPush::default()),
+        }
+    }
+
+    /// Le document en mémoire diffère maintenant du fichier.
+    pub fn mark_dirty(&self) {
+        *self.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+        self.edit_seq.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn is_unsaved(&self) -> bool {
+        *self.unsaved.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn record_disk_sig(&self) {
+        *self.disk_sig.lock().unwrap_or_else(|e| e.into_inner()) = read_disk_sig(&self.path);
+        *self.disk_changed.lock().unwrap_or_else(|e| e.into_inner()) = false;
+    }
+
+    /// Le fichier a-t-il changé sur le disque depuis la dernière lecture ou
+    /// écriture d'Atelier ? Un simple `stat` suffit tant que la taille et la
+    /// date n'ont pas bougé ; sinon on compare le contenu (un `touch` ou un
+    /// `git checkout` du même contenu n'est pas un changement).
+    pub fn check_disk(&self) -> bool {
+        let Some(sig) = self
+            .disk_sig
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        else {
+            return false;
+        };
+        let Ok(meta) = std::fs::metadata(&self.path) else {
+            // Fichier supprimé ou déplacé : rien à écraser.
+            return false;
+        };
+        if meta.len() == sig.len && meta.modified().ok() == sig.mtime {
+            return false;
+        }
+        let Ok(bytes) = std::fs::read(&self.path) else {
+            return false;
+        };
+        if sha256_hex(&bytes) == sig.sha {
+            *self.disk_sig.lock().unwrap_or_else(|e| e.into_inner()) = Some(DiskSig {
+                len: meta.len(),
+                mtime: meta.modified().ok(),
+                sha: sig.sha,
+            });
+            return false;
+        }
+        true
+    }
+
+    /// Programme l'envoi à l'écran de la cellule `cell_id` (regroupé).
+    pub fn queue_cell_push(
+        self: &Arc<Self>,
+        nb_path: &str,
+        cell_id: &str,
+        listener: Option<NotebookEventListener>,
+    ) {
+        let Some(cb) = listener else {
+            return;
+        };
+        let schedule = {
+            let mut push = self.ui_push.lock().unwrap_or_else(|e| e.into_inner());
+            if !push.dirty.iter().any(|c| c == cell_id) {
+                push.dirty.push(cell_id.to_string());
+            }
+            !std::mem::replace(&mut push.scheduled, true)
+        };
+        if !schedule {
+            return;
+        }
+        let ws = Arc::clone(self);
+        let path = nb_path.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(UI_PUSH_INTERVAL).await;
+            let dirty = {
+                let mut push = ws.ui_push.lock().unwrap_or_else(|e| e.into_inner());
+                push.scheduled = false;
+                std::mem::take(&mut push.dirty)
+            };
+            let cells: Vec<UiCell> = {
+                let doc = ws.doc.lock().await;
+                dirty
+                    .iter()
+                    .filter_map(|id| {
+                        let idx = doc.cells.iter().position(|c| &c.id == id)?;
+                        Some(doc.cells[idx].to_ui(idx + 1))
+                    })
+                    .collect()
+            };
+            for cell in cells {
+                cb(NotebookPushEvent::CellUpdated {
+                    path: path.clone(),
+                    cell,
+                    running: true,
+                });
+            }
+        });
+    }
+
+    fn take_pending_input(&self) -> bool {
+        self.pending_input
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .is_some()
+    }
+
     pub fn touch(&self) {
         *self.last_activity.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
     }
 
-    pub fn status(&self) -> NotebookKernelStatus {
+    fn status_for(&self, kernel: Option<&RunningBackend>) -> NotebookKernelStatus {
         let busy_cell_id = self
             .busy_cell
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        if let Ok(guard) = self.kernel.try_lock() {
-            if let Some(k) = guard.as_ref() {
+        match kernel {
+            Some(k) => {
                 let pid = k.pid();
-                let rss_bytes = pid.and_then(|p| atelier_kernel::usage::read(p).map(|u| u.rss_bytes));
+                let rss_bytes =
+                    pid.and_then(|p| atelier_kernel::usage::read(p).map(|u| u.rss_bytes));
                 let spec = k.spec();
-                return NotebookKernelStatus {
+                NotebookKernelStatus {
                     state: if busy_cell_id.is_some() {
                         "busy".into()
                     } else {
@@ -1201,10 +1559,31 @@ impl NotebookWorkspace {
                     pid,
                     rss_bytes,
                     busy_cell_id,
-                    message: None,
-                };
+                    ..Default::default()
+                }
             }
-        } else if busy_cell_id.is_some() {
+            None => match *self.kernel_death.lock().unwrap_or_else(|e| e.into_inner()) {
+                Some((exit_code, exit_signal)) => NotebookKernelStatus {
+                    state: "dead".into(),
+                    exit_code,
+                    exit_signal,
+                    ..Default::default()
+                },
+                None => NotebookKernelStatus::default(),
+            },
+        }
+    }
+
+    pub fn status(&self) -> NotebookKernelStatus {
+        if let Ok(guard) = self.kernel.try_lock() {
+            return self.status_for(guard.as_ref());
+        }
+        let busy_cell_id = self
+            .busy_cell
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if busy_cell_id.is_some() {
             return NotebookKernelStatus {
                 state: "busy".into(),
                 busy_cell_id,
@@ -1229,41 +1608,13 @@ impl NotebookWorkspace {
 
         let status = {
             let guard = self.kernel.lock().await;
-            let busy_cell_id = self
-                .busy_cell
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .clone();
-            match guard.as_ref() {
-                Some(k) => {
-                    let pid = k.pid();
-                    let rss_bytes =
-                        pid.and_then(|p| atelier_kernel::usage::read(p).map(|u| u.rss_bytes));
-                    let spec = k.spec();
-                    NotebookKernelStatus {
-                        state: if busy_cell_id.is_some() {
-                            "busy".into()
-                        } else {
-                            "idle".into()
-                        },
-                        kernel_id: Some(spec.id.clone()),
-                        display_name: Some(spec.display_name.clone()),
-                        language: Some(spec.language.clone()),
-                        backend: Some(spec.backend.clone()),
-                        pid,
-                        rss_bytes,
-                        busy_cell_id,
-                        message: None,
-                    }
-                }
-                None => NotebookKernelStatus::default(),
-            }
+            self.status_for(guard.as_ref())
         };
 
         NotebookSnapshot {
             path: self.path.display().to_string(),
             revision,
-            unsaved: *self.unsaved.lock().unwrap_or_else(|e| e.into_inner()),
+            unsaved: self.is_unsaved(),
             language,
             preferred_kernelspec,
             cells,
@@ -1275,6 +1626,17 @@ impl NotebookWorkspace {
             status,
             variables: self
                 .variables
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+            disk_changed: *self.disk_changed.lock().unwrap_or_else(|e| e.into_inner()),
+            recovery: self
+                .recovery
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone(),
+            pending_input: self
+                .pending_input
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone(),
@@ -1324,49 +1686,249 @@ impl NotebookManager {
         let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let mut map = self.workspaces.lock().await;
         if let Some(existing) = map.get(&canonical) {
-            // Si le cahier n'a pas de modifications en attente, on relit depuis le disque s'il a changé.
-            if !*existing.unsaved.lock().unwrap_or_else(|e| e.into_inner())
-                && existing
-                    .proposals
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .is_empty()
-            {
-                if let Ok(fresh) = NotebookDocument::open(&canonical) {
-                    let mut doc = existing.doc.lock().await;
-                    if doc.revision() != fresh.revision() {
-                        *doc = fresh;
-                    }
-                }
-            }
-            return Ok(Arc::clone(existing));
+            let existing = Arc::clone(existing);
+            drop(map);
+            // Sans changement local, un fichier modifié ailleurs est relu.
+            self.reload_if_clean(&existing).await;
+            return Ok(existing);
         }
 
         let doc = NotebookDocument::open(&canonical)?;
-        let ws = Arc::new(NotebookWorkspace {
-            path: canonical.clone(),
-            doc: AsyncMutex::new(doc),
-            unsaved: Mutex::new(false),
-            proposals: Mutex::new(Vec::new()),
-            kernel: AsyncMutex::new(None),
-            exec_gate: AsyncMutex::new(()),
-            busy_cell: Mutex::new(None),
-            variables: Mutex::new(Vec::new()),
-            selected_kernel_id: Mutex::new(None),
-            last_activity: Mutex::new(Instant::now()),
-        });
+        let ws = Arc::new(NotebookWorkspace::new(canonical.clone(), doc));
+        *ws.recovery.lock().unwrap_or_else(|e| e.into_inner()) = self.find_recovery(&ws).await;
         map.insert(canonical, Arc::clone(&ws));
         Ok(ws)
     }
 
-    pub async fn save(&self, path: &Path) -> Result<NotebookSnapshot, NotebookError> {
+    // ------------------------------------------------------------------
+    // Modification externe, copie de secours
+    // ------------------------------------------------------------------
+
+    fn recovery_path(&self, notebook: &Path) -> PathBuf {
+        let key = sha256_hex(notebook.display().to_string().as_bytes());
+        self.runtime_dir
+            .join("recovery")
+            .join(format!("{}.ipynb", &key[..24]))
+    }
+
+    fn remove_recovery(&self, ws: &NotebookWorkspace) {
+        let _ = std::fs::remove_file(self.recovery_path(&ws.path));
+        *ws.recovery.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *ws.backup.lock().unwrap_or_else(|e| e.into_inner()) = (0, None);
+    }
+
+    /// Copie de secours d'une session précédente, si elle diffère du fichier.
+    async fn find_recovery(&self, ws: &NotebookWorkspace) -> Option<RecoveryInfo> {
+        let rp = self.recovery_path(&ws.path);
+        let meta = std::fs::metadata(&rp).ok()?;
+        let copy = NotebookDocument::open(&rp).ok();
+        let same = match &copy {
+            Some(c) => c.revision() == ws.doc.lock().await.revision(),
+            None => true,
+        };
+        if same {
+            let _ = std::fs::remove_file(&rp);
+            return None;
+        }
+        let saved_at_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        Some(RecoveryInfo { saved_at_ms })
+    }
+
+    fn write_recovery(&self, ws: &NotebookWorkspace, doc: &NotebookDocument) {
+        let rp = self.recovery_path(&ws.path);
+        if let Some(dir) = rp.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if doc.save_atomic(&rp).is_ok() {
+            *ws.backup.lock().unwrap_or_else(|e| e.into_inner()) =
+                (ws.edit_seq.load(Ordering::Relaxed), Some(Instant::now()));
+        }
+    }
+
+    /// Relit le fichier si l'onglet n'a aucun changement à lui. Rend `true`
+    /// si le document a été remplacé.
+    async fn reload_if_clean(&self, ws: &Arc<NotebookWorkspace>) -> bool {
+        let clean = !ws.is_unsaved()
+            && ws
+                .proposals
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_empty()
+            && ws
+                .busy_cell
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_none();
+        if !clean || !ws.check_disk() {
+            return false;
+        }
+        let Ok(fresh) = NotebookDocument::open(&ws.path) else {
+            return false;
+        };
+        *ws.doc.lock().await = fresh;
+        ws.record_disk_sig();
+        true
+    }
+
+    /// Enregistre. Si le fichier a changé ailleurs depuis l'ouverture,
+    /// n'écrit rien (sauf `force`) : le cliché revient avec `diskChanged`
+    /// et l'onglet propose de recharger ou de garder sa version.
+    pub async fn save(&self, path: &Path, force: bool) -> Result<NotebookSnapshot, NotebookError> {
         let ws = self.get_or_open(path).await?;
+        if !force && ws.check_disk() {
+            *ws.disk_changed.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            return Ok(ws.snapshot().await);
+        }
         {
             let doc = ws.doc.lock().await;
             doc.save_atomic(&ws.path)?;
             *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = false;
         }
+        ws.record_disk_sig();
+        self.remove_recovery(&ws);
         Ok(ws.snapshot().await)
+    }
+
+    /// Abandonne la version en mémoire et relit le fichier (le noyau et ses
+    /// variables restent).
+    pub async fn reload(&self, path: &Path) -> Result<NotebookSnapshot, NotebookError> {
+        let ws = self.get_or_open(path).await?;
+        let fresh = NotebookDocument::open(&ws.path)?;
+        *ws.doc.lock().await = fresh;
+        *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = false;
+        ws.record_disk_sig();
+        self.remove_recovery(&ws);
+        Ok(ws.snapshot().await)
+    }
+
+    /// Reprend les changements de la copie de secours (non enregistrés).
+    pub async fn restore_recovery(&self, path: &Path) -> Result<NotebookSnapshot, NotebookError> {
+        let ws = self.get_or_open(path).await?;
+        let copy = NotebookDocument::open(&self.recovery_path(&ws.path))?;
+        *ws.doc.lock().await = copy;
+        *ws.recovery.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        ws.mark_dirty();
+        Ok(ws.snapshot().await)
+    }
+
+    pub async fn discard_recovery(&self, path: &Path) -> Result<NotebookSnapshot, NotebookError> {
+        let ws = self.get_or_open(path).await?;
+        self.remove_recovery(&ws);
+        Ok(ws.snapshot().await)
+    }
+
+    /// Répond à l'`input()` de la cellule en cours.
+    pub async fn send_input(&self, path: &Path, value: &str) -> Result<(), String> {
+        let ws = self.get_or_open(path).await.map_err(|e| e.to_string())?;
+        let running = ws.kernel.lock().await.clone();
+        let k = running.ok_or_else(|| "noyau arrêté".to_string())?;
+        k.reply_input(value).await?;
+        if ws.take_pending_input() {
+            self.emit(NotebookPushEvent::InputCleared {
+                path: ws.path.display().to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Signale à l'onglet l'échec d'une exécution lancée en arrière-plan.
+    pub fn report_failure(&self, path: &Path, message: &str) {
+        self.emit(NotebookPushEvent::RunFailed {
+            path: std::fs::canonicalize(path)
+                .unwrap_or_else(|_| path.to_path_buf())
+                .display()
+                .to_string(),
+            message: message.to_string(),
+        });
+    }
+
+    /// Veille périodique (chaque seconde) : noyau mort tout seul, fichier
+    /// modifié ailleurs, copie de secours des changements non enregistrés.
+    pub async fn tick(&self) {
+        let list: Vec<Arc<NotebookWorkspace>> =
+            self.workspaces.lock().await.values().cloned().collect();
+        for ws in list {
+            self.check_kernel_alive(&ws).await;
+            let path = ws.path.display().to_string();
+
+            if self.reload_if_clean(&ws).await {
+                self.remove_recovery(&ws);
+                let snapshot = ws.snapshot().await;
+                self.emit(NotebookPushEvent::SnapshotReplaced {
+                    path,
+                    snapshot: Box::new(snapshot),
+                });
+                continue;
+            }
+            if ws.is_unsaved() {
+                let changed = ws.check_disk();
+                let flipped = {
+                    let mut flag = ws.disk_changed.lock().unwrap_or_else(|e| e.into_inner());
+                    std::mem::replace(&mut *flag, changed) != changed
+                };
+                if flipped {
+                    self.emit(NotebookPushEvent::DiskChanged {
+                        path: path.clone(),
+                        changed,
+                    });
+                }
+                // Copie de secours, sauf si une copie d'une session
+                // précédente attend encore la décision de l'utilisateur.
+                let pending_choice = ws
+                    .recovery
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_some();
+                let (seq_done, last) = *ws.backup.lock().unwrap_or_else(|e| e.into_inner());
+                let seq = ws.edit_seq.load(Ordering::Relaxed);
+                let due = last.is_none_or(|t| t.elapsed() >= RECOVERY_INTERVAL);
+                if !pending_choice && seq != seq_done && due {
+                    let doc = ws.doc.lock().await.clone();
+                    self.write_recovery(&ws, &doc);
+                }
+            }
+        }
+    }
+
+    async fn check_kernel_alive(&self, ws: &Arc<NotebookWorkspace>) {
+        let dead = {
+            let guard = ws.kernel.lock().await;
+            guard
+                .as_ref()
+                .and_then(|k| k.exit_status().map(|st| (k.clone(), st)))
+        };
+        let Some((k, status)) = dead else {
+            return;
+        };
+        {
+            let mut guard = ws.kernel.lock().await;
+            if guard.as_ref().is_some_and(|g| g.same(&k)) {
+                guard.take();
+            }
+        }
+        k.shutdown().await;
+        #[cfg(unix)]
+        let signal = std::os::unix::process::ExitStatusExt::signal(&status);
+        #[cfg(not(unix))]
+        let signal = None;
+        *ws.kernel_death.lock().unwrap_or_else(|e| e.into_inner()) = Some((status.code(), signal));
+        ws.variables
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        let path = ws.path.display().to_string();
+        if ws.take_pending_input() {
+            self.emit(NotebookPushEvent::InputCleared { path: path.clone() });
+        }
+        self.emit(NotebookPushEvent::KernelStatus {
+            path,
+            status: ws.status(),
+        });
     }
 
     pub async fn ensure_kernel(
@@ -1469,6 +2031,7 @@ impl NotebookManager {
         }
         *guard = Some(started);
         drop(guard);
+        *ws.kernel_death.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         self.emit(NotebookPushEvent::KernelStatus {
             path: nb_path_str,
@@ -1490,7 +2053,11 @@ impl NotebookManager {
                 old.shutdown().await;
             }
         }
-        ws.variables.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        ws.variables
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        *ws.kernel_death.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.ensure_kernel(&ws, project_root, kernel_id).await?;
         Ok(ws.snapshot().await)
     }
@@ -1504,7 +2071,11 @@ impl NotebookManager {
             }
         }
         *ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        ws.variables.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        ws.variables
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        *ws.kernel_death.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.emit(NotebookPushEvent::KernelStatus {
             path: ws.path.display().to_string(),
             status: NotebookKernelStatus::default(),
@@ -1545,7 +2116,7 @@ impl NotebookManager {
                 doc.cells[idx].source = src;
             }
             doc.cells[idx].outputs.clear();
-            *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            ws.mark_dirty();
             let cid = doc.cells[idx].id.clone();
             let src = doc.cells[idx].source.clone();
             let ui = doc.cells[idx].to_ui(idx + 1);
@@ -1574,6 +2145,11 @@ impl NotebookManager {
         ws.touch();
 
         *ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        if ws.take_pending_input() {
+            self.emit(NotebookPushEvent::InputCleared {
+                path: ws.path.display().to_string(),
+            });
+        }
 
         if let Ok(Some(count)) = exec_res {
             let mut doc = ws.doc.lock().await;
@@ -1639,11 +2215,11 @@ impl NotebookManager {
         for cid in code_ids {
             let snap = self.run_cell(path, project_root, &cid, None).await?;
             // Arrêt à la première cellule en erreur, comme « Run All » standard de Jupyter.
-            let had_error = snap
-                .cells
-                .iter()
-                .find(|c| c.id == cid)
-                .is_some_and(|c| c.outputs.iter().any(|o| matches!(o, crate::nbformat::UiOutput::Error { .. })));
+            let had_error = snap.cells.iter().find(|c| c.id == cid).is_some_and(|c| {
+                c.outputs
+                    .iter()
+                    .any(|o| matches!(o, crate::nbformat::UiOutput::Error { .. }))
+            });
             if had_error {
                 return Ok(snap);
             }
@@ -1672,7 +2248,7 @@ impl NotebookManager {
                     doc.cells[idx].execution_count = None;
                 }
             }
-            *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            ws.mark_dirty();
         }
         Ok(ws.snapshot().await)
     }
@@ -1695,7 +2271,12 @@ impl NotebookManager {
                 _ => doc.cells.len(),
             };
             let id = make_cell_id(
-                &format!("{}:{}:{}", doc.cells.len(), Instant::now().elapsed().as_nanos(), source),
+                &format!(
+                    "{}:{}:{}",
+                    doc.cells.len(),
+                    Instant::now().elapsed().as_nanos(),
+                    source
+                ),
                 pos,
             );
             doc.cells.insert(
@@ -1710,13 +2291,17 @@ impl NotebookManager {
                     extra: Map::new(),
                 },
             );
-            *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            ws.mark_dirty();
             id
         };
         Ok((new_id, ws.snapshot().await))
     }
 
-    pub async fn delete_cell(&self, path: &Path, cell_id: &str) -> Result<NotebookSnapshot, String> {
+    pub async fn delete_cell(
+        &self,
+        path: &Path,
+        cell_id: &str,
+    ) -> Result<NotebookSnapshot, String> {
         let ws = self.get_or_open(path).await.map_err(|e| e.to_string())?;
         {
             let mut doc = ws.doc.lock().await;
@@ -1731,7 +2316,7 @@ impl NotebookManager {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .retain(|p| p.target_cell_id != removed.id);
-            *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            ws.mark_dirty();
         }
         Ok(ws.snapshot().await)
     }
@@ -1770,6 +2355,21 @@ impl NotebookManager {
         proposal_id: &str,
         run_after: bool,
     ) -> Result<NotebookSnapshot, String> {
+        let (code_cell, snapshot) = self.accept_proposal_cell(path, proposal_id).await?;
+        if let (true, Some(cell_id)) = (run_after, code_cell) {
+            self.run_cell(path, project_root, &cell_id, None).await?;
+            return self.save(path, false).await.map_err(|e| e.to_string());
+        }
+        Ok(snapshot)
+    }
+
+    /// Applique une proposition et l'écrit sur le disque. Rend la cellule de
+    /// code touchée (pour l'exécuter ensuite) et le cliché.
+    pub async fn accept_proposal_cell(
+        &self,
+        path: &Path,
+        proposal_id: &str,
+    ) -> Result<(Option<String>, NotebookSnapshot), String> {
         let ws = self.get_or_open(path).await.map_err(|e| e.to_string())?;
         let proposal = {
             let mut list = ws.proposals.lock().unwrap_or_else(|e| e.into_inner());
@@ -1780,6 +2380,17 @@ impl NotebookManager {
             list.remove(pos)
         };
 
+        if ws.check_disk() {
+            ws.proposals
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(0, proposal);
+            *ws.disk_changed.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            return Err(
+                "le fichier a changé hors d'Atelier : rechargez-le ou gardez votre version d'abord"
+                    .into(),
+            );
+        }
         let affected_cell_id = {
             let mut doc = ws.doc.lock().await;
             let cid = proposal
@@ -1789,6 +2400,8 @@ impl NotebookManager {
             *ws.unsaved.lock().unwrap_or_else(|e| e.into_inner()) = false;
             cid
         };
+        ws.record_disk_sig();
+        self.remove_recovery(&ws);
 
         let revision = ws.doc.lock().await.revision();
         let remaining = ws
@@ -1802,12 +2415,8 @@ impl NotebookManager {
             revision,
         });
 
-        if run_after && proposal.cell_type == CellKind::Code {
-            self.run_cell(path, project_root, &affected_cell_id, None)
-                .await?;
-            return self.save(path).await.map_err(|e| e.to_string());
-        }
-        Ok(ws.snapshot().await)
+        let code_cell = (proposal.cell_type == CellKind::Code).then_some(affected_cell_id);
+        Ok((code_cell, ws.snapshot().await))
     }
 
     pub async fn discard_proposal(
@@ -1883,8 +2492,19 @@ impl NotebookManager {
             self.workspaces.lock().await.values().cloned().collect();
         let mut stopped = Vec::new();
         for ws in list {
-            let quiet = ws.last_activity.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
-            if !quiet || ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+            let quiet = ws
+                .last_activity
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .elapsed()
+                >= idle;
+            if !quiet
+                || ws
+                    .busy_cell
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .is_some()
+            {
                 continue;
             }
             // Une exécution en cours tient la barrière : on n'y touche pas.
@@ -1895,7 +2515,10 @@ impl NotebookManager {
                 continue;
             };
             k.shutdown().await;
-            ws.variables.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            ws.variables
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
             let path = ws.path.display().to_string();
             self.emit(NotebookPushEvent::KernelStatus {
                 path: path.clone(),
@@ -1910,6 +2533,16 @@ impl NotebookManager {
         let list: Vec<Arc<NotebookWorkspace>> =
             self.workspaces.lock().await.values().cloned().collect();
         for ws in list {
+            // Dernière copie de secours des changements non enregistrés.
+            let pending_choice = ws
+                .recovery
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .is_some();
+            if ws.is_unsaved() && !pending_choice {
+                let doc = ws.doc.lock().await.clone();
+                self.write_recovery(&ws, &doc);
+            }
             if let Some(k) = ws.kernel.lock().await.take() {
                 k.shutdown().await;
             }
@@ -2058,18 +2691,7 @@ mod tests {
         .unwrap();
 
         let doc = NotebookDocument::open(&nb_file).unwrap();
-        let ws = Arc::new(NotebookWorkspace {
-            path: nb_file.clone(),
-            doc: AsyncMutex::new(doc),
-            unsaved: Mutex::new(false),
-            proposals: Mutex::new(Vec::new()),
-            kernel: AsyncMutex::new(None),
-            exec_gate: AsyncMutex::new(()),
-            busy_cell: Mutex::new(None),
-            variables: Mutex::new(Vec::new()),
-            selected_kernel_id: Mutex::new(None),
-            last_activity: Mutex::new(Instant::now()),
-        });
+        let ws = Arc::new(NotebookWorkspace::new(nb_file.clone(), doc));
 
         let spec = DiscoveredKernel {
             id: "zmq:test".into(),
@@ -2173,5 +2795,171 @@ mod tests {
         assert!(!accepted.unsaved);
         assert!(accepted.variables.iter().any(|v| v.name == "result_val"));
         mgr.shutdown_all().await;
+    }
+
+    fn tiny_notebook(dir: &Path, name: &str, source: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            json!({
+                "nbformat": 4, "nbformat_minor": 5, "metadata": {},
+                "cells": [{"id": "c1", "cell_type": "code", "source": source, "outputs": [], "metadata": {}, "execution_count": null}]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        path
+    }
+
+    fn collecting_manager(dir: &Path) -> (NotebookManager, Arc<Mutex<Vec<Value>>>) {
+        let mgr = NotebookManager::new(dir.join("rt"), dir.join("ak"), dir.to_path_buf());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        mgr.set_listener(Arc::new(move |ev| {
+            sink.lock()
+                .unwrap()
+                .push(serde_json::to_value(&ev).unwrap());
+        }));
+        (mgr, seen)
+    }
+
+    /// Sans changement local, un cahier modifié ailleurs (agent, git, autre
+    /// éditeur) est relu tout seul et l'onglet reçoit le nouveau contenu.
+    #[tokio::test]
+    async fn external_edit_reloads_a_clean_notebook() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = tiny_notebook(tmp.path(), "a.ipynb", "x = 1");
+        let (mgr, seen) = collecting_manager(tmp.path());
+        mgr.get_or_open(&nb).await.unwrap();
+        tiny_notebook(tmp.path(), "a.ipynb", "x = 2  # modifié par un agent");
+        mgr.tick().await;
+        let events = seen.lock().unwrap().clone();
+        let replaced = events
+            .iter()
+            .find(|e| e["event"] == "snapshotReplaced")
+            .expect("snapshotReplaced attendu");
+        assert_eq!(
+            replaced["snapshot"]["cells"][0]["source"],
+            "x = 2  # modifié par un agent"
+        );
+        assert_eq!(replaced["snapshot"]["diskChanged"], false);
+    }
+
+    /// Avec des changements locaux, Enregistrer n'écrase PAS une version
+    /// modifiée ailleurs : l'onglet est prévenu, et seul « garder ma
+    /// version » (force) écrit.
+    #[tokio::test]
+    async fn save_never_overwrites_an_external_edit_silently() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = tiny_notebook(tmp.path(), "b.ipynb", "x = 1");
+        let (mgr, seen) = collecting_manager(tmp.path());
+        mgr.get_or_open(&nb).await.unwrap();
+        mgr.update_cell_source(&nb, "c1", "x = 10  # local".into(), None)
+            .await
+            .unwrap();
+        tiny_notebook(tmp.path(), "b.ipynb", "x = 2  # externe, plus long");
+        let external = std::fs::read_to_string(&nb).unwrap();
+
+        mgr.tick().await;
+        assert!(seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e["event"] == "diskChanged" && e["changed"] == true));
+
+        let snap = mgr.save(&nb, false).await.unwrap();
+        assert!(snap.disk_changed);
+        assert!(snap.unsaved);
+        assert_eq!(
+            std::fs::read_to_string(&nb).unwrap(),
+            external,
+            "fichier externe écrasé"
+        );
+
+        let snap = mgr.save(&nb, true).await.unwrap();
+        assert!(!snap.disk_changed && !snap.unsaved);
+        assert!(std::fs::read_to_string(&nb)
+            .unwrap()
+            .contains("x = 10  # local"));
+
+        // Recharger rend la version du disque.
+        tiny_notebook(tmp.path(), "b.ipynb", "x = 3  # encore ailleurs");
+        mgr.update_cell_source(&nb, "c1", "x = 11".into(), None)
+            .await
+            .unwrap();
+        let snap = mgr.reload(&nb).await.unwrap();
+        assert_eq!(snap.cells[0].source, "x = 3  # encore ailleurs");
+        assert!(!snap.unsaved && !snap.disk_changed);
+    }
+
+    /// Les changements non enregistrés survivent à un arrêt brutal : copie de
+    /// secours, proposée à la réouverture, reprise puis effacée à
+    /// l'enregistrement.
+    #[tokio::test]
+    async fn unsaved_changes_survive_a_crash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = tiny_notebook(tmp.path(), "c.ipynb", "x = 1");
+        {
+            let (mgr, _) = collecting_manager(tmp.path());
+            mgr.get_or_open(&nb).await.unwrap();
+            mgr.update_cell_source(&nb, "c1", "x = 42  # travail en cours".into(), None)
+                .await
+                .unwrap();
+            mgr.tick().await;
+            // « Plantage » : le gestionnaire disparaît sans enregistrer.
+        }
+        let (mgr, _) = collecting_manager(tmp.path());
+        let snap = mgr.get_or_open(&nb).await.unwrap().snapshot().await;
+        assert_eq!(snap.cells[0].source, "x = 1");
+        assert!(snap.recovery.is_some(), "copie de secours non proposée");
+
+        let snap = mgr.restore_recovery(&nb).await.unwrap();
+        assert_eq!(snap.cells[0].source, "x = 42  # travail en cours");
+        assert!(snap.unsaved && snap.recovery.is_none());
+
+        mgr.save(&nb, false).await.unwrap();
+        let (again, _) = collecting_manager(tmp.path());
+        let snap = again.get_or_open(&nb).await.unwrap().snapshot().await;
+        assert!(
+            snap.recovery.is_none(),
+            "copie effacée après enregistrement"
+        );
+        assert_eq!(snap.cells[0].source, "x = 42  # travail en cours");
+    }
+
+    /// Une copie identique au fichier n'est pas proposée ; « Ignorer »
+    /// l'efface.
+    #[tokio::test]
+    async fn recovery_can_be_discarded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = tiny_notebook(tmp.path(), "d.ipynb", "x = 1");
+        {
+            let (mgr, _) = collecting_manager(tmp.path());
+            mgr.get_or_open(&nb).await.unwrap();
+            mgr.update_cell_source(&nb, "c1", "x = 5".into(), None)
+                .await
+                .unwrap();
+            mgr.shutdown_all().await;
+        }
+        let (mgr, _) = collecting_manager(tmp.path());
+        assert!(mgr
+            .get_or_open(&nb)
+            .await
+            .unwrap()
+            .snapshot()
+            .await
+            .recovery
+            .is_some());
+        let snap = mgr.discard_recovery(&nb).await.unwrap();
+        assert!(snap.recovery.is_none());
+        let (again, _) = collecting_manager(tmp.path());
+        assert!(again
+            .get_or_open(&nb)
+            .await
+            .unwrap()
+            .snapshot()
+            .await
+            .recovery
+            .is_none());
     }
 }

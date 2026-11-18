@@ -22,7 +22,7 @@ pub use nbformat::{
 };
 pub use proposals::{CellProposal, ProposalKind};
 pub use session::{
-    base64_decode, base64_encode, NotebookEventListener, NotebookKernelStatus, NotebookManager,
-    NotebookPushEvent, NotebookSnapshot, NotebookWorkspace,
+    base64_decode, base64_encode, InputRequest, NotebookEventListener, NotebookKernelStatus,
+    NotebookManager, NotebookPushEvent, NotebookSnapshot, NotebookWorkspace, RecoveryInfo,
 };
 pub use wire::LiveVariable;

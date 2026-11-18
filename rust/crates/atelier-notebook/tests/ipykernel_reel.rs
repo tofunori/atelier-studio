@@ -85,7 +85,7 @@ async fn vrai_ipykernel_sorties_interruption_arret() {
     assert!(snap.cells[4].execution_count.is_none(), "la cellule après l'erreur ne doit pas tourner");
 
     // 2. Les sorties sont écrites dans le fichier.
-    mgr.save(&nb).await.unwrap();
+    mgr.save(&nb, false).await.unwrap();
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&nb).unwrap()).unwrap();
     assert_eq!(saved["cells"][2]["outputs"][0]["data"]["text/plain"], json!(["42"]));
 

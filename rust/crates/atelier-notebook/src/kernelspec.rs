@@ -50,11 +50,23 @@ pub fn standard_jupyter_kernel_dirs(home: &Path) -> Vec<PathBuf> {
             dirs.push(Path::new(part).join("kernels"));
         }
     }
+    // Dossier de données de l'utilisateur : forcé, puis macOS, puis Linux
+    // (XDG_DATA_HOME, `~/.local/share` par défaut), comme `jupyter --paths`.
+    if let Some(data) = std::env::var_os("JUPYTER_DATA_DIR").filter(|v| !v.is_empty()) {
+        dirs.push(PathBuf::from(data).join("kernels"));
+    }
     dirs.push(home.join("Library/Jupyter/kernels"));
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
+        dirs.push(PathBuf::from(xdg).join("jupyter/kernels"));
+    }
     dirs.push(home.join(".local/share/jupyter/kernels"));
     dirs.push(PathBuf::from("/opt/homebrew/share/jupyter/kernels"));
     dirs.push(PathBuf::from("/usr/local/share/jupyter/kernels"));
     dirs.push(PathBuf::from("/usr/share/jupyter/kernels"));
+    // XDG_DATA_HOME vaut souvent `~/.local/share` : un dossier vu deux fois
+    // listerait ses noyaux en double.
+    let mut seen = HashSet::new();
+    dirs.retain(|d| seen.insert(d.clone()));
     dirs
 }
 
@@ -306,5 +318,22 @@ mod tests {
         assert_eq!(spec.language, "r");
         assert_eq!(spec.display_name, "R 4.4 (brms)");
         assert_eq!(spec.backend, KernelBackendKind::ZmqKernelspec);
+    }
+}
+
+#[cfg(test)]
+mod linux_dirs_tests {
+    use super::standard_jupyter_kernel_dirs;
+    use std::path::Path;
+
+    /// Linux : les noyaux installés par `python -m ipykernel install --user`
+    /// vont dans `~/.local/share/jupyter/kernels` ; listés une seule fois.
+    #[test]
+    fn linux_user_kernel_dir_is_listed_once() {
+        let home = Path::new("/home/thierry");
+        let dirs = standard_jupyter_kernel_dirs(home);
+        let local = home.join(".local/share/jupyter/kernels");
+        assert_eq!(dirs.iter().filter(|d| **d == local).count(), 1);
+        assert!(dirs.contains(&Path::new("/usr/share/jupyter/kernels").to_path_buf()));
     }
 }

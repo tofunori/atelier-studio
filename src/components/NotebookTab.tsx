@@ -29,10 +29,12 @@ import {
   XIcon,
 } from "lucide-react";
 import { createSelectionActions } from "../../gallery/src/studio/features/annotation_ui";
-import { t } from "../lib/i18n";
+import { getResolvedLanguage, t } from "../lib/i18n";
 import {
+  applyNotebookEvent,
   formatBytes,
   formatNotebookSelectionCitation,
+  kernelExitDetail,
   notebookCommand,
   notebookInterrupt,
   sanitizeNotebookHtml,
@@ -41,6 +43,7 @@ import {
   type CellKind,
   type CellProposal,
   type DiscoveredKernel,
+  type InputRequest,
   type NotebookPushEvent,
   type NotebookSnapshot,
   type UiCell,
@@ -57,6 +60,7 @@ import {
   SegmentedControl,
   Spinner,
   showError,
+  showInfo,
   showSuccess,
 } from "./ui";
 import { LazyDropdownMenu } from "./ui/LazyDropdownMenu";
@@ -265,6 +269,125 @@ const ProposalDiffCard = memo(function ProposalDiffCard({
   );
 });
 
+/** Bandeaux d'état du cahier : fichier modifié ailleurs, copie de secours,
+ *  noyau arrêté tout seul. Chacun propose l'action qui le résout. */
+function NotebookBanners({
+  snapshot,
+  onReload,
+  onKeepMine,
+  onRestore,
+  onDiscardRecovery,
+  onRestart,
+}: {
+  snapshot: NotebookSnapshot;
+  onReload: () => void;
+  onKeepMine: () => void;
+  onRestore: () => void;
+  onDiscardRecovery: () => void;
+  onRestart: () => void;
+}) {
+  const { status } = snapshot;
+  const exit = status.state === "dead" ? kernelExitDetail(status) : null;
+  return (
+    <>
+      {snapshot.diskChanged ? (
+        <InlineNotice tone="warning" className="nb-banner">
+          <span className="nb-banner-text">{t("notebook.disk-changed")}</span>
+          <span className="nb-banner-actions">
+            <Button variant="secondary" size="xs" onClick={onReload}>
+              {t("notebook.disk-reload")}
+            </Button>
+            <Button variant="ghost" size="xs" onClick={onKeepMine}>
+              {t("notebook.disk-keep-mine")}
+            </Button>
+          </span>
+        </InlineNotice>
+      ) : null}
+
+      {snapshot.recovery ? (
+        <InlineNotice tone="info" className="nb-banner">
+          <span className="nb-banner-text">
+            {t("notebook.recovery-found", {
+              time: new Date(snapshot.recovery.savedAtMs).toLocaleString(getResolvedLanguage(), {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }),
+            })}
+          </span>
+          <span className="nb-banner-actions">
+            <Button variant="secondary" size="xs" onClick={onRestore}>
+              {t("notebook.recovery-restore")}
+            </Button>
+            <Button variant="ghost" size="xs" onClick={onDiscardRecovery}>
+              {t("notebook.recovery-discard")}
+            </Button>
+          </span>
+        </InlineNotice>
+      ) : null}
+
+      {exit ? (
+        <InlineNotice tone="error" className="nb-banner">
+          <span className="nb-banner-text">
+            {exit.code
+              ? t("notebook.kernel-dead-code", { code: exit.code })
+              : t("notebook.kernel-dead")}
+            {exit.likelyOom ? ` ${t("notebook.kernel-dead-oom")}` : ""}
+          </span>
+          <span className="nb-banner-actions">
+            <Button variant="secondary" size="xs" onClick={onRestart}>
+              <RotateCwIcon size={12} />
+              <span>{t("notebook.restart")}</span>
+            </Button>
+          </span>
+        </InlineNotice>
+      ) : null}
+    </>
+  );
+}
+
+/** Case de saisie pour `input()` / `getpass()` : Entrée envoie la réponse. */
+function InputPrompt({
+  request,
+  onSubmit,
+}: {
+  request: InputRequest;
+  onSubmit: (value: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [sent, setSent] = useState(false);
+  const submit = () => {
+    if (sent) return;
+    setSent(true);
+    onSubmit(value);
+  };
+  return (
+    <form
+      className="nb-input-prompt"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <label className="nb-input-label">
+        <span className="nb-input-prompt-text">{request.prompt || t("notebook.input-default")}</span>
+        <input
+          className="nb-input-field"
+          type={request.password ? "password" : "text"}
+          value={value}
+          disabled={sent}
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </label>
+      <Button variant="secondary" size="xs" type="submit" disabled={sent}>
+        {t("notebook.input-send")}
+      </Button>
+    </form>
+  );
+}
+
 const OutputBlock = memo(function OutputBlock({
   output,
   cellIndex,
@@ -293,9 +416,16 @@ const OutputBlock = memo(function OutputBlock({
   if (output.kind === "stream") {
     if (!output.text) return null;
     return (
-      <pre className="nb-stream" data-stream={output.name} data-part="output">
-        {output.text}
-      </pre>
+      <>
+        {output.omittedLines ? (
+          <p className="nb-output-note">
+            {t("notebook.output-lines-hidden", { n: output.omittedLines.toLocaleString() })}
+          </p>
+        ) : null}
+        <pre className="nb-stream" data-stream={output.name} data-part="output">
+          {output.text}
+        </pre>
+      </>
     );
   }
 
@@ -336,6 +466,14 @@ const OutputBlock = memo(function OutputBlock({
 
   return (
     <>
+      {output.omitted?.map((om) => (
+        <p key={om.mime} className="nb-output-note">
+          {t("notebook.output-format-hidden", {
+            mime: om.mime,
+            size: formatBytes(om.bytes, getResolvedLanguage()),
+          })}
+        </p>
+      ))}
       {safeHtml ? (
         <div
           className="nb-html-out"
@@ -518,23 +656,14 @@ export default function NotebookTab({
       const currentPath = snapshotRef.current?.path;
       if (payload.path !== path && (!currentPath || payload.path !== currentPath)) return;
 
-      setSnapshot((prev) => {
-        if (!prev) return prev;
-        if (payload.event === "kernelStatus") {
-          return { ...prev, status: payload.status };
-        }
-        if (payload.event === "cellUpdated") {
-          const cells = prev.cells.map((c) => (c.id === payload.cell.id ? payload.cell : c));
-          return { ...prev, cells, unsaved: true };
-        }
-        if (payload.event === "proposalsUpdated") {
-          return { ...prev, proposals: payload.proposals, revision: payload.revision };
-        }
-        if (payload.event === "variablesUpdated") {
-          return { ...prev, variables: payload.variables };
-        }
-        return prev;
-      });
+      if (payload.event === "runFailed") {
+        void showError(payload.message);
+        return;
+      }
+      if (payload.event === "snapshotReplaced") {
+        void showInfo(t("notebook.reloaded-from-disk"));
+      }
+      setSnapshot((prev) => (prev ? applyNotebookEvent(prev, payload) : prev));
     };
     window.addEventListener("notebook-event", onPush);
     return () => window.removeEventListener("notebook-event", onPush);
@@ -688,13 +817,44 @@ export default function NotebookTab({
         projectRoot,
       });
       setSnapshot(res.snapshot);
-      void showSuccess(t("notebook.saved"));
+      // Fichier modifié ailleurs : rien n'est écrit, le bandeau propose le choix.
+      if (res.snapshot.diskChanged) void showError(t("notebook.save-conflict"));
+      else void showSuccess(t("notebook.saved"));
     } catch (err) {
       void showError((err as Error).message);
     } finally {
       setSaving(false);
     }
   }, [commitActiveEdit, path, projectRoot]);
+
+  /** Commandes sans argument qui renvoient l'état complet (bandeaux). */
+  const runSnapshotOp = useCallback(
+    async (op: "reload" | "restoreRecovery" | "discardRecovery" | "save", extra?: Record<string, unknown>) => {
+      try {
+        const res = await notebookCommand<{ snapshot: NotebookSnapshot }>(op, {
+          path,
+          projectRoot,
+          ...extra,
+        });
+        setSnapshot(res.snapshot);
+        if (op === "save") void showSuccess(t("notebook.saved"));
+      } catch (err) {
+        void showError((err as Error).message);
+      }
+    },
+    [path, projectRoot],
+  );
+
+  const handleSendInput = useCallback(
+    async (value: string) => {
+      try {
+        await notebookCommand("sendInput", { path, projectRoot, value });
+      } catch (err) {
+        void showError((err as Error).message);
+      }
+    },
+    [path, projectRoot],
+  );
 
   // Raccourci clavier ⌘S / Ctrl+S lorsque l'onglet est visible.
   useEffect(() => {
@@ -724,13 +884,13 @@ export default function NotebookTab({
         setCompletions(null);
       }
       try {
-        const res = await notebookCommand<{ snapshot: NotebookSnapshot }>("runCell", {
+        // Réponse immédiate ({ started }) : la suite arrive par les événements.
+        await notebookCommand<{ started: boolean }>("runCell", {
           path,
           projectRoot,
           cellId: cell.id,
           ...(overrideSource !== undefined ? { source: overrideSource } : {}),
         });
-        setSnapshot(res.snapshot);
       } catch (err) {
         void showError((err as Error).message);
       }
@@ -741,11 +901,7 @@ export default function NotebookTab({
   const handleRunAll = useCallback(async () => {
     try {
       await commitActiveEdit();
-      const res = await notebookCommand<{ snapshot: NotebookSnapshot }>("runAll", {
-        path,
-        projectRoot,
-      });
-      setSnapshot(res.snapshot);
+      await notebookCommand<{ started: boolean }>("runAll", { path, projectRoot });
     } catch (err) {
       void showError((err as Error).message);
     }
@@ -758,12 +914,11 @@ export default function NotebookTab({
   const handleRestart = useCallback(
     async (kernelId?: string) => {
       try {
-        const res = await notebookCommand<{ snapshot: NotebookSnapshot }>("restart", {
+        await notebookCommand<{ started: boolean }>("restart", {
           path,
           projectRoot,
           ...(kernelId ? { kernelId } : {}),
         });
-        setSnapshot(res.snapshot);
       } catch (err) {
         void showError((err as Error).message);
       }
@@ -999,7 +1154,7 @@ export default function NotebookTab({
 
   const status = snapshot?.status ?? { state: "off" as const };
   const isBusy = status.state === "busy" || status.state === "starting";
-  const rssLabel = formatBytes(status.rssBytes);
+  const rssLabel = formatBytes(status.rssBytes, getResolvedLanguage());
   const kernelLabel =
     status.state === "starting"
       ? t("notebook.kernel-starting")
@@ -1201,7 +1356,7 @@ export default function NotebookTab({
                       <td>{v.name}</td>
                       <td>{v.type}</td>
                       <td>{v.shape || "—"}</td>
-                      <td>{formatBytes(v.sizeBytes) || "—"}</td>
+                      <td>{formatBytes(v.sizeBytes, getResolvedLanguage()) || "—"}</td>
                       <td>{v.preview}</td>
                     </tr>
                   ))}
@@ -1291,6 +1446,15 @@ export default function NotebookTab({
               {status.state === "error" && status.message ? (
                 <InlineNotice tone="error">{status.message}</InlineNotice>
               ) : null}
+
+              <NotebookBanners
+                snapshot={snapshot}
+                onReload={() => void runSnapshotOp("reload")}
+                onKeepMine={() => void runSnapshotOp("save", { force: true })}
+                onRestore={() => void runSnapshotOp("restoreRecovery")}
+                onDiscardRecovery={() => void runSnapshotOp("discardRecovery")}
+                onRestart={() => void handleRestart()}
+              />
 
               {(proposalsByTarget.get("") ?? []).map((prop) => (
                 <ProposalDiffCard
@@ -1600,6 +1764,14 @@ export default function NotebookTab({
                               </div>
                             ) : null}
                           </>
+                        ) : null}
+
+                        {snapshot.pendingInput?.cellId === cell.id ? (
+                          <InputPrompt
+                            key={`${cell.id}:${snapshot.pendingInput.prompt}`}
+                            request={snapshot.pendingInput}
+                            onSubmit={(value) => void handleSendInput(value)}
+                          />
                         ) : null}
                       </div>
                     </article>

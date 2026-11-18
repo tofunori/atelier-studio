@@ -68,7 +68,8 @@
   background: var(--text-secondary);
 }
 
-.nb-status-dot[data-state="error"] {
+.nb-status-dot[data-state="error"],
+.nb-status-dot[data-state="dead"] {
   background: var(--status-error);
 }
 
@@ -678,4 +679,72 @@
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+}
+
+/* Bandeaux d'état (fichier modifié ailleurs, copie de secours, noyau arrêté) */
+.nb-banner .ui-notice-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.nb-banner-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.nb-banner-actions {
+  display: inline-flex;
+  gap: var(--sp-2);
+  flex: none;
+}
+
+/* Note discrète au-dessus d'une sortie raccourcie pour l'écran */
+.nb-output-note {
+  margin: 0;
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* input() : case de saisie sous la cellule qui attend */
+.nb-input-prompt {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.nb-input-label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.nb-input-prompt-text {
+  font-family: var(--font-code);
+  font-size: var(--fs-body-s);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.nb-input-field {
+  height: var(--control-height-s);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-ctl);
+  color: var(--fg);
+  font-family: var(--font-code);
+  font-size: var(--fs-body-s);
+  outline: none;
+}
+
+.nb-input-field:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
 }

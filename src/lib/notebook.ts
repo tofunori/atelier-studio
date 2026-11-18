@@ -4,7 +4,8 @@ import { wsSend } from "./wsBus";
 export type CellKind = "code" | "markdown" | "raw";
 
 export type UiOutput =
-  | { kind: "stream"; name: string; text: string }
+  /** `omittedLines` : lignes du début non envoyées à l'écran (le fichier garde tout). */
+  | { kind: "stream"; name: string; text: string; omittedLines?: number }
   | {
       kind: "data";
       executionCount?: number | null;
@@ -17,8 +18,12 @@ export type UiOutput =
       imageJpeg?: string | null;
       applicationJson?: unknown;
       displayId?: string | null;
+      /** Formats trop lourds pour l'écran, gardés dans le fichier. */
+      omitted?: OmittedMime[];
     }
   | { kind: "error"; ename: string; evalue: string; traceback: string };
+
+export type OmittedMime = { mime: string; bytes: number };
 
 export type UiCell = {
   index: number;
@@ -81,7 +86,8 @@ export type LiveVariable = {
 };
 
 export type NotebookKernelStatus = {
-  state: "off" | "starting" | "idle" | "busy" | "error";
+  /** `dead` : le noyau s'est arrêté tout seul (plantage, mémoire épuisée). */
+  state: "off" | "starting" | "idle" | "busy" | "error" | "dead";
   kernelId?: string | null;
   displayName?: string | null;
   language?: string | null;
@@ -90,7 +96,11 @@ export type NotebookKernelStatus = {
   rssBytes?: number | null;
   busyCellId?: string | null;
   message?: string | null;
+  exitCode?: number | null;
+  exitSignal?: number | null;
 };
+
+export type InputRequest = { cellId: string; prompt: string; password: boolean };
 
 export type NotebookSnapshot = {
   path: string;
@@ -102,6 +112,12 @@ export type NotebookSnapshot = {
   proposals: CellProposal[];
   status: NotebookKernelStatus;
   variables: LiveVariable[];
+  /** Le fichier a changé sur le disque alors que l'onglet a des changements non enregistrés. */
+  diskChanged?: boolean;
+  /** Copie de secours plus récente que le fichier (session précédente interrompue). */
+  recovery?: { savedAtMs: number } | null;
+  /** Le code attend une réponse à `input()`. */
+  pendingInput?: InputRequest | null;
 };
 
 export type CellDiffEntry = {
@@ -121,7 +137,48 @@ export type NotebookPushEvent =
   | { event: "kernelStatus"; path: string; status: NotebookKernelStatus }
   | { event: "cellUpdated"; path: string; cell: UiCell; running: boolean }
   | { event: "proposalsUpdated"; path: string; proposals: CellProposal[]; revision: string }
-  | { event: "variablesUpdated"; path: string; variables: LiveVariable[] };
+  | { event: "variablesUpdated"; path: string; variables: LiveVariable[] }
+  | { event: "runFailed"; path: string; message: string }
+  | ({ event: "inputRequested"; path: string } & InputRequest)
+  | { event: "inputCleared"; path: string }
+  | { event: "diskChanged"; path: string; changed: boolean }
+  | { event: "snapshotReplaced"; path: string; snapshot: NotebookSnapshot };
+
+/** Applique un événement poussé par le moteur à l'état de l'onglet (pur, testé). */
+export function applyNotebookEvent(prev: NotebookSnapshot, ev: NotebookPushEvent): NotebookSnapshot {
+  switch (ev.event) {
+    case "kernelStatus":
+      return { ...prev, status: ev.status };
+    case "cellUpdated":
+      return { ...prev, cells: prev.cells.map((c) => (c.id === ev.cell.id ? ev.cell : c)), unsaved: true };
+    case "proposalsUpdated":
+      return { ...prev, proposals: ev.proposals, revision: ev.revision };
+    case "variablesUpdated":
+      return { ...prev, variables: ev.variables };
+    case "inputRequested":
+      return { ...prev, pendingInput: { cellId: ev.cellId, prompt: ev.prompt, password: ev.password } };
+    case "inputCleared":
+      return prev.pendingInput ? { ...prev, pendingInput: null } : prev;
+    case "diskChanged":
+      return { ...prev, diskChanged: ev.changed };
+    case "snapshotReplaced":
+      return ev.snapshot;
+    default:
+      return prev;
+  }
+}
+
+/** Arrêt du noyau : code de sortie lisible, et piste « mémoire » pour SIGKILL (9). */
+export function kernelExitDetail(status: Pick<NotebookKernelStatus, "exitCode" | "exitSignal">): {
+  code: string | null;
+  likelyOom: boolean;
+} {
+  if (status.exitSignal != null) {
+    return { code: `signal ${status.exitSignal}`, likelyOom: status.exitSignal === 9 };
+  }
+  if (status.exitCode != null) return { code: `code ${status.exitCode}`, likelyOom: false };
+  return { code: null, likelyOom: false };
+}
 
 let nextReqSeq = 1;
 
@@ -188,15 +245,17 @@ export function notebookInterrupt(path: string, projectRoot?: string): Promise<v
   });
 }
 
-export function formatBytes(bytes?: number | null): string {
+export function formatBytes(bytes?: number | null, lang: "fr" | "en" = "fr"): string {
   if (!bytes || bytes <= 0) return "";
   const ko = 1024;
   const mo = ko * 1024;
   const go = mo * 1024;
-  if (bytes >= go) return `${(bytes / go).toFixed(1).replace(".", ",")} Go`;
-  if (bytes >= mo) return `${(bytes / mo).toFixed(1).replace(".", ",")} Mo`;
-  if (bytes >= ko) return `${Math.round(bytes / ko)} Ko`;
-  return `${bytes} o`;
+  const [b, k, m, g] = lang === "en" ? ["B", "KB", "MB", "GB"] : ["o", "Ko", "Mo", "Go"];
+  const dec = (n: number) => (lang === "en" ? n.toFixed(1) : n.toFixed(1).replace(".", ","));
+  if (bytes >= go) return `${dec(bytes / go)} ${g}`;
+  if (bytes >= mo) return `${dec(bytes / mo)} ${m}`;
+  if (bytes >= ko) return `${Math.round(bytes / ko)} ${k}`;
+  return `${bytes} ${b}`;
 }
 
 /** Extrait le chemin `.ipynb` d'une URL d'onglet `ipynb_studio.html?path=…`. */
