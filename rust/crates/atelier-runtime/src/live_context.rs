@@ -107,6 +107,15 @@ pub fn block(ctx: Option<&Value>, project_root: &str) -> Option<String> {
                 out.push(format!("Page title: {title}"));
             }
         }
+        "notebook" => {
+            out.push(format!("Open Jupyter notebook: {}", display_path(path, project_root)));
+            if let Some(cell) = positive(ctx.get("cell")) {
+                match positive(ctx.get("cellCount")) {
+                    Some(total) => out.push(format!("Focused cell: [{cell}] of {total}.")),
+                    None => out.push(format!("Focused cell: [{cell}].")),
+                }
+            }
+        }
         _ => out.push(format!("Open file: {}", display_path(path, project_root))),
     }
     if let Some(paragraph) = positive(ctx.get("paragraph")) {
@@ -218,6 +227,9 @@ pub fn trace(ctx: Option<&Value>) -> Option<Value> {
     }
     if let Some(paragraph) = positive(ctx.get("paragraph")) {
         trace["paragraph"] = json!(paragraph);
+    }
+    if let Some(cell) = positive(ctx.get("cell")) {
+        trace["cell"] = json!(cell);
     }
     let comments = ctx.get("comments").and_then(Value::as_array).map_or(0, |c| c.len().min(COMMENTS_MAX));
     if comments > 0 {

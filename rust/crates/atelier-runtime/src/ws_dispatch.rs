@@ -25,7 +25,9 @@ pub(crate) enum Class {
 
 pub(crate) fn classify(kind: &str) -> Class {
     match kind {
-        "interrupt" | "permissionResponse" | "interactionResponse" => Class::Control,
+        "interrupt" | "notebookInterrupt" | "permissionResponse" | "interactionResponse" => {
+            Class::Control
+        }
         "termOpen" | "termInput" | "termResize" | "termClose" => Class::Terminal,
         "providerStatus" | "status" | "receiptStatus" | "setupStatus" | "listThreads"
         | "getSettings" | "listHighlights" | "listAutomations" => Class::FastRead,
@@ -97,6 +99,10 @@ pub(crate) fn classify(kind: &str) -> Class {
         | "integrations"
         | "environmentStatus"
         | "kernelCells"
+        // Cahiers .ipynb : chaque NotebookWorkspace sérialise ses exécutions
+        // via son propre verrou (`exec_gate`), afin qu'une cellule MCMC longue
+        // ne bloque jamais la barrière globale du chat ni `notebookInterrupt`.
+        | "notebookCommand"
         // Historique du projet : lectures seules (journal, Git, versions).
         | "projectHistory"
         | "projectHistoryDiff"
@@ -406,6 +412,7 @@ pub(crate) fn failure(request: &Value, code: &str, message: &str) -> String {
         "computeReadLog" => Some("computeLog"),
         "kernelCells" => Some("kernelCells"),
         "kernelCommand" => Some("kernelCommand"),
+        "notebookCommand" | "notebookInterrupt" => Some("notebookCommand"),
         "projectHistory" | "projectHistoryDiff" | "projectHistoryCompare" => request["type"].as_str(),
         "projectHistoryRestore" => Some("projectHistoryRestored"),
         "projectHistorySaveVersion" => Some("projectHistoryVersionSaved"),

@@ -130,6 +130,9 @@ const RELAYS: Record<string, Relay> = {
   kernelCommand: forward("kernel-command"),
   kernelReplay: forward("kernel-replay"),
   kernelResume: forward("kernel-resume"),
+  // cahiers Jupyter .ipynb et moteur ZeroMQ
+  notebookCommand: forward("notebook-command"),
+  notebookEvent: forward("notebook-event"),
   // calculs lancés par l'agent (chantier 4) : réponse au clic de la carte,
   // fiches d'hôte de Calculs › Hôtes
   computeJobDecision: forward("compute-job-decision"),

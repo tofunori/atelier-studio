@@ -370,6 +370,49 @@ pub fn annotate_tool_definition() -> Value {
     })
 }
 
+pub const NOTEBOOK_TOOL_NAME: &str = "atelier_notebook";
+const NOTEBOOK_ACTIONS: [&str; 6] = [
+    "read",
+    "neighborhood",
+    "propose_edit",
+    "propose_insert",
+    "withdraw_proposal",
+    "kernels",
+];
+
+/// Cahiers Jupyter `.ipynb` du projet : lecture intégrale sans base64, analyse
+/// amont/aval des imports et variables, et propositions de révision inline par
+/// cellule (l'utilisateur accepte et exécute lui-même dans le panneau).
+pub fn notebook_tool_definition() -> Value {
+    json!({
+        "name": NOTEBOOK_TOOL_NAME,
+        "description": "Read and propose cell edits on a project Jupyter .ipynb notebook WITHOUT reading or rewriting raw .ipynb JSON yourself. \
+    read: base64-stripped full notebook (all cells 1..N, importsInNotebook, outOfOrderCells, live kernel variables). \
+    neighborhood: upstream imports/definitions before cell and downstream consumers after cell. \
+    propose_edit / propose_insert: show an inline cell diff in Atelier (never re-import libraries already imported upstream; preserve symbols read by downstream cells); only the user accepts/runs. \
+    withdraw_proposal: remove your own unaccepted proposal. kernels: available ZMQ kernelspecs and Python envs.",
+        "inputSchema": {
+            "type": "object",
+            "required": ["action", "path"],
+            "properties": {
+                "action": { "type": "string", "enum": NOTEBOOK_ACTIONS },
+                "path": { "type": "string", "description": "Path of the .ipynb, relative to the project or absolute" },
+                "from": { "type": "integer", "description": "read: first cell number (1-based, omit to read from 1)" },
+                "to": { "type": "integer", "description": "read: last cell number (1-based, omit to read all cells)" },
+                "includeOutputs": { "type": "boolean", "description": "read: include compact outputs summary (default true)" },
+                "cell": { "type": "string", "description": "neighborhood / propose_edit: 1-based cell number (e.g. \"2\") or cell id" },
+                "after": { "type": "string", "description": "propose_insert: 1-based cell number or cell id to insert after (empty/\"0\" = top of notebook)" },
+                "cellType": { "type": "string", "enum": ["code", "markdown"], "description": "propose_insert: cell type (default code)" },
+                "code": { "type": "string", "description": "propose_edit / propose_insert: full source of the cell" },
+                "purpose": { "type": "string", "description": "propose_edit / propose_insert: short 1-sentence summary in the user's language" },
+                "proposalId": { "type": "string", "description": "withdraw_proposal: id returned by propose_edit / propose_insert" },
+                "revision": { "type": "string", "description": "From read: refuse if the notebook changed since" }
+            },
+            "additionalProperties": false
+        }
+    })
+}
+
 /// Ce que `tools/list` sert, dans l'ordre.
 pub fn all_tool_definitions() -> Vec<Value> {
     vec![
@@ -379,6 +422,7 @@ pub fn all_tool_definitions() -> Vec<Value> {
         python_tool_definition(),
         compute_tool_definition(),
         docx_tool_definition(),
+        notebook_tool_definition(),
         revision_tool_definition(),
         annotate_tool_definition(),
     ]
@@ -427,6 +471,12 @@ pub fn bridge_call_for(tool_name: &str, args: &Value) -> Option<(String, Value)>
         DOCX_TOOL_NAME => {
             let action = args.get("action").and_then(|v| v.as_str())?;
             DOCX_ACTIONS.contains(&action).then(|| (format!("docx_{action}"), args.clone()))
+        }
+        NOTEBOOK_TOOL_NAME => {
+            let action = args.get("action").and_then(|v| v.as_str())?;
+            NOTEBOOK_ACTIONS
+                .contains(&action)
+                .then(|| (format!("notebook_{action}"), args.clone()))
         }
         REVISION_TOOL_NAME => {
             let action = args.get("action").and_then(|v| v.as_str())?;
@@ -630,10 +680,29 @@ mod tests {
                 PYTHON_TOOL_NAME,
                 COMPUTE_TOOL_NAME,
                 DOCX_TOOL_NAME,
+                NOTEBOOK_TOOL_NAME,
                 REVISION_TOOL_NAME,
                 ANNOTATE_TOOL_NAME
             ]
         );
+    }
+
+    #[test]
+    fn notebook_actions_route_to_bridge_and_expose_no_user_decision() {
+        for action in NOTEBOOK_ACTIONS {
+            let (bridge, _) =
+                bridge_call_for(NOTEBOOK_TOOL_NAME, &json!({"action": action, "path": "a.ipynb"}))
+                    .unwrap();
+            assert_eq!(bridge, format!("notebook_{action}"));
+        }
+        for forbidden in ["accept", "discard", "run", "overwrite", ""] {
+            assert!(
+                bridge_call_for(NOTEBOOK_TOOL_NAME, &json!({"action": forbidden})).is_none(),
+                "{forbidden}"
+            );
+        }
+        let d = notebook_tool_definition()["description"].as_str().unwrap().len();
+        assert!(d < 800, "{d}");
     }
 
     #[test]

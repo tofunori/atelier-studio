@@ -109,6 +109,8 @@ struct Inner {
     mailbox_drain_lock: Mutex<()>,
     /// Noyau Python persistant par fil (chantier 5).
     kernels: Arc<atelier_kernel::KernelManager>,
+    /// Cahiers Jupyter `.ipynb` et sessions ZeroMQ.
+    notebooks: Arc<atelier_notebook::NotebookManager>,
 }
 
 impl AppState {
@@ -139,6 +141,18 @@ impl AppState {
         let kernel_bus = bus.clone();
         kernels.set_listener(Arc::new(move |event| {
             let _ = kernel_bus.send(crate::kernel::cell_message(&event));
+        }));
+        let home_dir = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let notebooks = Arc::new(atelier_notebook::NotebookManager::new(
+            paths.app_dir.join("notebooks-zmq"),
+            paths.app_dir.clone(),
+            home_dir,
+        ));
+        let notebook_bus = bus.clone();
+        notebooks.set_listener(Arc::new(move |event| {
+            let _ = notebook_bus.send(crate::notebook_tool::push_event_message(&event));
         }));
         let (terminal_bus, _) = broadcast::channel(512);
         let terminal_sink = terminal_bus.clone();
@@ -215,6 +229,7 @@ impl AppState {
                 delivery_rx: Mutex::new(Some(delivery_rx)),
                 mailbox_drain_lock: Mutex::new(()),
                 kernels,
+                notebooks,
             }),
         };
 
@@ -378,6 +393,10 @@ impl AppState {
 
     pub fn kernels(&self) -> &atelier_kernel::KernelManager {
         &self.inner.kernels
+    }
+
+    pub fn notebooks(&self) -> &atelier_notebook::NotebookManager {
+        &self.inner.notebooks
     }
 
     pub fn app_dir(&self) -> &std::path::Path {

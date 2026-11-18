@@ -549,6 +549,10 @@ async fn handle_action(
         }
         // Outil atelier_docx : lire un .docx et y proposer des retouches en suivi.
         a if a.starts_with("docx_") => crate::docx_tool::action(state, caller_id, a, req).await,
+        // Outil atelier_notebook : lecture complète sans base64, voisinage amont/aval et révisions inline.
+        a if a.starts_with("notebook_") => {
+            crate::notebook_tool::mcp_action(state, caller_id, a, req).await
+        }
         // Outil atelier_revision : réponses aux rondes d'annotations LaTeX.
         a if a.starts_with("revision_") => crate::revision_tool::action(state, caller_id, a, req).await,
         // Outil atelier_annotate : l'agent pose ses propres notes (texte, PDF).

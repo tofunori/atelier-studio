@@ -12,7 +12,7 @@ export type LiveContextComment = { line?: number; quote?: string; text: string }
 /** Sources (2026-11-09) : éditeurs LaTeX et code, lecteur PDF, puis figure
  *  (galerie ou onglet image), .docx, fiche d'article de la bibliothèque et
  *  page web du navigateur. */
-export type LiveContextKind = "tex" | "code" | "pdf" | "figure" | "docx" | "article" | "web";
+export type LiveContextKind = "tex" | "code" | "pdf" | "figure" | "docx" | "article" | "web" | "notebook";
 
 export type LiveContext = {
   /** chemin absolu ; route `zotero/…` pour un PDF ou un article de la
@@ -25,6 +25,9 @@ export type LiveContext = {
   pageCount?: number;
   /** paragraphe du curseur (.docx), 1-based */
   paragraph?: number;
+  /** cellule focalisée (.ipynb), 1-based */
+  cell?: number;
+  cellCount?: number;
   /** titre complet (article, page web) */
   title?: string;
   /** lien http(s) : page web, DOI d'un article */
@@ -45,6 +48,7 @@ export type LiveContextTrace = {
   line?: number;
   page?: number;
   paragraph?: number;
+  cell?: number;
   comments?: number;
 };
 
@@ -88,7 +92,7 @@ export function articleLiveContext(item: { key: string; title: string; creators:
 /** Événement fenêtre AtelierPane → App : contexte de l'onglet focalisé. */
 export const LIVE_CONTEXT_EVENT = "workspace-live-context";
 
-const KINDS = new Set<string>(["tex", "code", "pdf", "figure", "docx", "article", "web"]);
+const KINDS = new Set<string>(["tex", "code", "pdf", "figure", "docx", "article", "web", "notebook"]);
 const HTTP_URL = /^https?:\/\/[^\s]+$/i;
 
 function httpUrl(value: unknown): string | undefined {
@@ -125,12 +129,16 @@ export function parseLiveContext(raw: unknown): LiveContext | null {
   const page = positive(r.page);
   const pageCount = positive(r.pageCount);
   const paragraph = positive(r.paragraph);
+  const cell = positive(r.cell);
+  const cellCount = positive(r.cellCount);
   const title = text(r.title, 300);
   const url = httpUrl(r.url);
   if (line) ctx.line = line;
   if (page) ctx.page = page;
   if (pageCount) ctx.pageCount = pageCount;
   if (paragraph) ctx.paragraph = paragraph;
+  if (cell) ctx.cell = cell;
+  if (cellCount) ctx.cellCount = cellCount;
   if (title) ctx.title = title;
   if (url) ctx.url = url;
   if (Array.isArray(r.comments)) {
