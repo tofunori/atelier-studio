@@ -32,9 +32,7 @@ fn gallery_url(port: u16) -> String {
 /// (notamment les annotations Zotero) appartiennent a l'application. Tous les
 /// serveurs doivent donc recevoir exactement le meme Application Support.
 fn atelier_app_dir() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|home| home.join("Library/Application Support/atelier-studio"))
-        .ok_or_else(|| "dossier utilisateur introuvable".to_string())
+    crate::atelier_data_dir().ok_or_else(|| "dossier utilisateur introuvable".to_string())
 }
 
 fn gallery_health(port: u16) -> Result<ProcessHealth, String> {
@@ -386,7 +384,12 @@ mod tests {
     #[test]
     fn app_dir_is_shared_across_project_servers() {
         let app_dir = atelier_app_dir().unwrap();
-        assert!(app_dir.ends_with("Library/Application Support/atelier-studio"));
+        let expected = if cfg!(target_os = "macos") {
+            "Library/Application Support/atelier-studio"
+        } else {
+            ".local/share/atelier-studio"
+        };
+        assert!(app_dir.ends_with(expected));
     }
 
     #[test]

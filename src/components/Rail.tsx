@@ -18,7 +18,7 @@ import type { RailSignal } from "../lib/railSignals";
 import { LazyBoundary, lazyWithRetry } from "./LazyBoundary";
 import { articleImportSnapshot, subscribeArticleImport } from "../lib/articleImports";
 import { useIntegrations } from "../lib/integrations";
-import { readUsageSnapshot, subscribeUsage, worstOf } from "../lib/usageSummary";
+import { readUsageSnapshot, subscribeUsage, worstDetailOf } from "../lib/usageSummary";
 import type { Thread } from "../lib/ws";
 import { RailProjectThreads } from "./sidebar/RailProjectThreads";
 import { railProjectThreads } from "../lib/railProjectThreads";
@@ -199,10 +199,10 @@ function RailDiscussions({ active, count, onOpen }: { active: boolean; count: nu
  * menu de l'engrenage. Un trait vertical qui se remplit, plus ambre passé
  * 80 % ; rien tant qu'aucun fournisseur n'a donné de limite. */
 function RailUsage() {
-  const worst = worstOf(useSyncExternalStore(subscribeUsage, readUsageSnapshot));
-  if (worst == null) return null;
-  const pct = Math.max(0, Math.min(100, worst));
-  const label = `${t("usage.title")} ${Math.round(pct)} %`;
+  const detail = worstDetailOf(useSyncExternalStore(subscribeUsage, readUsageSnapshot));
+  if (!detail) return null;
+  const pct = Math.max(0, Math.min(100, detail.pct));
+  const label = `${t("usage.title")} · ${detail.name} ${Math.round(pct)} %`;
   return (
     <Tooltip label={label} placement="right">
       <RowButton className={`rail-usage ${pct >= 80 ? "high" : ""}`} aria-label={label}

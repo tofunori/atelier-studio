@@ -438,6 +438,10 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Invalide le cache interne de modèles du provider (ex. après un `auth login`
+    /// ou une demande explicite d'actualisation du catalogue distant).
+    async fn invalidate_models(&self) {}
+
     /// Historique natif d'une session (import/reprise), events Atelier
     /// `user/thinking/text/tool_update`. `None` = pas de source native.
     async fn native_history(&self, _session_id: &str, _project_root: &str) -> Option<Vec<Value>> {

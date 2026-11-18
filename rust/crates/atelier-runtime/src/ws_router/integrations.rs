@@ -78,7 +78,7 @@ pub(super) async fn handle_refresh_providers(state: &AppState) -> Vec<String> {
     if !added.is_empty() {
         tracing::info!(?added, "providers détectés après le lancement");
     }
-    let mut out = crate::send::handle_provider_status(state).await;
+    let mut out = crate::send::handle_provider_status_opts(state, true, None).await;
     out.extend(handle_setup_status(state, None).await);
     out
 }

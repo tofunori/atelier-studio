@@ -75,7 +75,7 @@ struct GatewayLock {
 }
 
 fn app_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join("Library/Application Support/atelier-studio"))
+    crate::atelier_data_dir()
 }
 
 fn lock_path() -> Option<PathBuf> {
@@ -313,7 +313,14 @@ fn parse_listener_pids(output: &str, bind: &str) -> Vec<u32> {
 }
 pub(crate) fn listener_pids(bind: &str) -> Result<Vec<u32>, String> {
     let addr: SocketAddr = bind.parse().map_err(|_| "Adresse de passerelle invalide")?;
-    let output = Command::new("/usr/sbin/lsof")
+    let lsof_bin = if Path::new("/usr/sbin/lsof").is_file() {
+        "/usr/sbin/lsof"
+    } else if Path::new("/usr/bin/lsof").is_file() {
+        "/usr/bin/lsof"
+    } else {
+        "lsof"
+    };
+    let output = Command::new(lsof_bin)
         .args(["-nP", "-a", &format!("-iTCP:{}", addr.port()), "-sTCP:LISTEN", "-Fpn"])
         .output().map_err(|_| "Impossible d’identifier la passerelle sur le port iPhone")?;
     // lsof returns 1 with empty output when no socket matches.
@@ -323,14 +330,28 @@ pub(crate) fn listener_pids(bind: &str) -> Result<Vec<u32>, String> {
     Ok(parse_listener_pids(&String::from_utf8_lossy(&output.stdout), bind))
 }
 fn managed_gateway(pid: u32) -> bool {
-    let output = Command::new("/bin/ps").args(["-p", &pid.to_string(), "-o", "uid=,comm="]).output();
-    let Ok(output) = output else { return false };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut parts = text.trim().splitn(2, char::is_whitespace);
-    let uid = parts.next().and_then(|s| s.parse::<u32>().ok());
-    let path = parts.next().unwrap_or("").trim();
-    uid == Some(unsafe { libc::geteuid() }) && Path::new(path).is_absolute()
-        && Path::new(path).file_name().is_some_and(|s| s == "atelier-remote-gateway")
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(meta) = std::fs::metadata(format!("/proc/{pid}")) else { return false };
+        let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else { return false };
+        return meta.uid() == unsafe { libc::geteuid() }
+            && exe.file_name().is_some_and(|s| {
+                let name = s.to_string_lossy();
+                name == "atelier-remote-gateway" || name == "atelier-remote-gateway (deleted)"
+            });
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = Command::new("/bin/ps").args(["-p", &pid.to_string(), "-o", "uid=,comm="]).output();
+        let Ok(output) = output else { return false };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut parts = text.trim().splitn(2, char::is_whitespace);
+        let uid = parts.next().and_then(|s| s.parse::<u32>().ok());
+        let path = parts.next().unwrap_or("").trim();
+        uid == Some(unsafe { libc::geteuid() }) && Path::new(path).is_absolute()
+            && Path::new(path).file_name().is_some_and(|s| s == "atelier-remote-gateway")
+    }
 }
 fn terminate(info: &GatewayLock) {
     // A stale lock may point to a reused PID. Never signal an unrelated process.

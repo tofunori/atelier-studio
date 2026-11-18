@@ -33,7 +33,9 @@ function KernelGlyph() {
 import type { Consigne, ConsigneDuFil } from "../../lib/consignes";
 import type { Specialiste } from "../../lib/specialistes";
 import { codexSupportsFastMode, groupAntigravityModels, modelDisplayLabel } from "../../lib/modelCatalog";
-import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, EllipsisIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
+import { OPENCODE_GO_LOGIN_COMMAND, launchAgentSetupCommand } from "../../lib/setupEnvironment";
+import { wsSend } from "../../lib/wsBus";
+import { ArrowUpIcon, BracketsIcon, ChevronDownIcon, CircleQuestionMarkIcon, EllipsisIcon, FileTextIcon, ListIcon, LockOpenIcon, MicIcon, PaperclipIcon, PencilIcon, RotateCcwIcon, RotateCwIcon, SearchIcon, ShieldCheckIcon, SquareIcon, TargetIcon } from "lucide-react";
 import type { DictationPhase } from "./useComposerDictation";
 import { modeApresPlan } from "./modeApresPlan";
 import { MenuChevron, MenuRadio, MenuStar, MenuSwitch, MenuTitle } from "./composerMenuParts";
@@ -264,6 +266,16 @@ export function ComposerControls(p: {
   useEffect(() => { effortPrevIndex.current = effortIndex; }, [effortIndex]);
   // Remis à zéro dans les gestes qui ferment le panneau ou quittent la jauge.
   const [effortHover, setEffortHover] = useState<number | null>(null);
+  const [scanningOpenCode, setScanningOpenCode] = useState(false);
+  const openCodeModelsSig = (providerInfo("opencode")?.models ?? []).join("\n");
+  useEffect(() => {
+    setScanningOpenCode(false);
+  }, [openCodeModelsSig]);
+  useEffect(() => {
+    if (!scanningOpenCode) return;
+    const timer = window.setTimeout(() => setScanningOpenCode(false), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [scanningOpenCode]);
   const effortLitUpTo = effortIsUltra ? effortLevels.length - 2 : effortIndex;
   const effortSegDelay = (index: number) => {
     const prev = effortPrevIndex.current;
@@ -721,67 +733,113 @@ export function ComposerControls(p: {
                     )}
                     <div className="model-options">
                     <div className="cm-card">
-                    {(menuProvider === "antigravity"
-                      ? groupAntigravityModels(menuModels, (m) => modelLabel(m, menuProvider))
-                      : [{ group: null, models: menuModels }]
-                    ).map((section, index, sections) => (
-                    <Fragment key={section.group ?? "all"}>
-                    {sections.length > 1 && (
-                      <div className={`mp-hd${index > 0 ? " mp-hd-next" : ""}`}>
-                        <MenuTitle>{t(section.group === "claude-gpt" ? "chat.model-group-claude-gpt" : "chat.model-group-gemini")}</MenuTitle>
-                      </div>
-                    )}
-                    {section.models.map((m) => {
-                      const key = menuProvider + ":" + m.id;
-                      // Claude : chaque nouveau choix part en contexte 1M. Le
-                      // bouton 200k plus bas reste disponible comme exception
-                      // explicite après la sélection.
-                      const baseModelId = resolvedModelId(menuProvider, m.id)
-                        || (menuProvider === "claude" ? "claude-sonnet-5-5" : "");
-                      const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
-                        ? `${baseModelId}[1m]`
-                        : baseModelId;
-                      // 200k et 1M sont le MÊME modèle : la rangée reste marquée
-                      // quelle que soit la fenêtre choisie plus bas.
-                      const sansFenetre = (id: string) => id.replace(/\[1m\]$/, "");
-                      const active = provider === menuProvider && sansFenetre(activeModelId) === sansFenetre(selectedModelId);
-                      const fav = favModels.includes(key);
-                      return (
-                        // interactifs JAMAIS imbriqués (contrat ThreadRow) :
-                        // rangée = wrapper, sélection et favori = boutons frères
-                        <div key={key} className={`mp-item model-row ${active ? "active" : ""}`}>
-                          <RowButton
-                            role="menuitemradio"
-                            aria-checked={active}
-                            className="mp-row-main"
-                            onClick={() => {
-                              setModel(selectedModelId);
-                              setEffort(effortFor(menuProvider, selectedModelId));
-                              setMenuOpen(false);
-                            }}
-                          >
-                            <MenuRadio on={active} />
-                            <span title={m.id || undefined}>{modelLabel(m, menuProvider)}</span>
-                          </RowButton>
-                          <span className="mp-end">
-                            {m.id && (
-                              <Toggle
-                                className={`mp-star ${fav ? "on" : ""}`}
-                                pressed={fav}
-                                aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                                title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
-                                onClick={(e) => e.stopPropagation()}
-                                onPressedChange={() => toggleFavModel(key)}
-                              >
-                                <MenuStar on={fav} />
-                              </Toggle>
+                    {menuProvider === "antigravity"
+                      ? groupAntigravityModels(menuModels, (m) => modelLabel(m, menuProvider)).map((section, index, sections) => (
+                          <Fragment key={section.group}>
+                            {sections.length > 1 && (
+                              <div className={`mp-hd${index > 0 ? " mp-hd-next" : ""}`}>
+                                <MenuTitle>{t(section.group === "claude-gpt" ? "chat.model-group-claude-gpt" : "chat.model-group-gemini")}</MenuTitle>
+                              </div>
                             )}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    </Fragment>
-                    ))}
+                            {section.models.map((m) => {
+                              const key = menuProvider + ":" + m.id;
+                              const baseModelId = resolvedModelId(menuProvider, m.id);
+                              const active = provider === menuProvider && activeModelId === baseModelId;
+                              const fav = favModels.includes(key);
+                              return (
+                                <div key={key} className={`mp-item model-row ${active ? "active" : ""}`}>
+                                  <RowButton
+                                    role="menuitemradio"
+                                    aria-checked={active}
+                                    className="mp-row-main"
+                                    onClick={() => {
+                                      setModel(baseModelId);
+                                      setEffort(effortFor(menuProvider, baseModelId));
+                                      setMenuOpen(false);
+                                    }}
+                                  >
+                                    <MenuRadio on={active} />
+                                    <span title={m.id || undefined}>{modelLabel(m, menuProvider)}</span>
+                                  </RowButton>
+                                  <span className="mp-end">
+                                    {m.id && (
+                                      <Toggle
+                                        className={`mp-star ${fav ? "on" : ""}`}
+                                        pressed={fav}
+                                        aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                        title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onPressedChange={() => toggleFavModel(key)}
+                                      >
+                                        <MenuStar on={fav} />
+                                      </Toggle>
+                                    )}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </Fragment>
+                        ))
+                      : (() => {
+                          const favCount = !normalizedQuery
+                            ? menuModels.filter((m) => favModels.includes(`${menuProvider}:${m.id}`)).length
+                            : 0;
+                          const showFavHeaders = favCount > 0 && favCount < menuModels.length;
+                          return menuModels.map((m, idx) => {
+                            const key = menuProvider + ":" + m.id;
+                            const baseModelId = resolvedModelId(menuProvider, m.id)
+                              || (menuProvider === "claude" ? "claude-sonnet-5-5" : "");
+                            const selectedModelId = menuProvider === "claude" && !baseModelId.endsWith("[1m]")
+                              ? `${baseModelId}[1m]`
+                              : baseModelId;
+                            const sansFenetre = (id: string) => id.replace(/\[1m\]$/, "");
+                            const active = provider === menuProvider && sansFenetre(activeModelId) === sansFenetre(selectedModelId);
+                            const fav = favModels.includes(key);
+                            return (
+                              <Fragment key={key}>
+                                {showFavHeaders && idx === 0 && (
+                                  <div className="mp-hd">
+                                    <MenuTitle>{t("chat.model-group-favorites")}</MenuTitle>
+                                  </div>
+                                )}
+                                {showFavHeaders && idx === favCount && (
+                                  <div className="mp-hd mp-hd-next">
+                                    <MenuTitle>{t("chat.model-group-other")}</MenuTitle>
+                                  </div>
+                                )}
+                                <div className={`mp-item model-row ${active ? "active" : ""}`}>
+                                  <RowButton
+                                    role="menuitemradio"
+                                    aria-checked={active}
+                                    className="mp-row-main"
+                                    onClick={() => {
+                                      setModel(selectedModelId);
+                                      setEffort(effortFor(menuProvider, selectedModelId));
+                                      setMenuOpen(false);
+                                    }}
+                                  >
+                                    <MenuRadio on={active} />
+                                    <span title={m.id || undefined}>{modelLabel(m, menuProvider)}</span>
+                                  </RowButton>
+                                  <span className="mp-end">
+                                    {m.id && (
+                                      <Toggle
+                                        className={`mp-star ${fav ? "on" : ""}`}
+                                        pressed={fav}
+                                        aria-label={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                        title={fav ? t("action.remove-favorite") : t("action.add-favorite")}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onPressedChange={() => toggleFavModel(key)}
+                                      >
+                                        <MenuStar on={fav} />
+                                      </Toggle>
+                                    )}
+                                  </span>
+                                </div>
+                              </Fragment>
+                            );
+                          });
+                        })()}
                     {!menuModels.length && (
                       <p className="model-no-match">{t("settings.model-no-match")}</p>
                     )}
@@ -809,18 +867,44 @@ export function ComposerControls(p: {
                         </div>
                       </>
                     )}
-                    {menuProvider === "opencode" && p.onOpenModelSettings && (
+                    {menuProvider === "opencode" && (
                       <>
                         <RowButton
                           className="mp-item model-row model-manage-row cm-foot"
+                          disabled={scanningOpenCode}
                           onClick={() => {
-                            setMenuOpen(false);
-                            p.onOpenModelSettings?.();
+                            if (wsSend({ type: "providerStatus", refresh: true, provider: "opencode" })) {
+                              setScanningOpenCode(true);
+                            }
                           }}
                         >
-                          <span>{t("chat.manage-models")}</span>
-                          <MenuChevron />
+                          <span>{scanningOpenCode ? t("chat.scanning-models") : t("chat.scan-models")}</span>
+                          <RotateCwIcon size={12} aria-hidden="true" />
                         </RowButton>
+                        {!menuInfo.models.some((id) => id.startsWith("opencode-go/")) && (
+                          <RowButton
+                            className="mp-item model-row model-manage-row cm-foot"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              launchAgentSetupCommand("opencode", OPENCODE_GO_LOGIN_COMMAND, "login", "models");
+                            }}
+                          >
+                            <span>{t("chat.connect-opencode-go")}</span>
+                            <MenuChevron />
+                          </RowButton>
+                        )}
+                        {p.onOpenModelSettings && (
+                          <RowButton
+                            className="mp-item model-row model-manage-row cm-foot"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              p.onOpenModelSettings?.();
+                            }}
+                          >
+                            <span>{t("chat.manage-models")}</span>
+                            <MenuChevron />
+                          </RowButton>
+                        )}
                       </>
                     )}
                     </div>

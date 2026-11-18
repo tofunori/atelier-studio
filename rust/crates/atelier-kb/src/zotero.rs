@@ -20,7 +20,12 @@ fn home_dir() -> PathBuf {
 }
 
 pub fn default_cache_dir() -> PathBuf {
-    home_dir().join("Library").join("Application Support").join("atelier-studio").join("zotero-passages")
+    let base = if cfg!(target_os = "macos") {
+        home_dir().join("Library").join("Application Support").join("atelier-studio")
+    } else {
+        home_dir().join(".local").join("share").join("atelier-studio")
+    };
+    base.join("zotero-passages")
 }
 
 pub fn default_storage_root() -> PathBuf {

@@ -848,7 +848,8 @@ pub async fn zotero(
         Ok(Err(message)) => return json_error(StatusCode::SERVICE_UNAVAILABLE, message),
         Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     };
-    let mut command = tokio::process::Command::new("open");
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut command = tokio::process::Command::new(opener);
     command.arg(&link);
     match tokio::time::timeout(Duration::from_secs(10), command.output()).await {
         Ok(Ok(output)) if output.status.success() => {

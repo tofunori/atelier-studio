@@ -794,13 +794,27 @@ pub async fn export(
         }
     };
 
-    // Reveal in Finder (best-effort, same as Python).
-    let mut open_cmd = Command::new("open");
-    if out.is_file() {
-        open_cmd.args(["-R"]).arg(&out);
-    } else {
-        open_cmd.arg(&out);
-    }
+    // Reveal in Finder / file manager (best-effort, same as Python).
+    #[cfg(target_os = "macos")]
+    let mut open_cmd = {
+        let mut cmd = Command::new("open");
+        if out.is_file() {
+            cmd.args(["-R"]).arg(&out);
+        } else {
+            cmd.arg(&out);
+        }
+        cmd
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut open_cmd = {
+        let mut cmd = Command::new("xdg-open");
+        if out.is_file() {
+            cmd.arg(out.parent().unwrap_or(&out));
+        } else {
+            cmd.arg(&out);
+        }
+        cmd
+    };
     let _ = tokio::time::timeout(Duration::from_secs(10), open_cmd.output()).await;
 
     let rel = project_rel(&state.root, &out);
@@ -967,7 +981,8 @@ pub async fn open_path(
         Ok(full) => full,
         Err((status, message)) => return json_error(status, message),
     };
-    let mut cmd = Command::new("open");
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut cmd = Command::new(opener);
     cmd.arg(&full);
     match tokio::time::timeout(Duration::from_secs(10), cmd.output()).await {
         Ok(Ok(_)) => (StatusCode::OK, Json(json!({"ok": true}))).into_response(),

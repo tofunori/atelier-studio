@@ -1,6 +1,6 @@
 /** Managed workspaces use the existing projectRoot transport, but never belong
  * to the user's project list. Match the complete reserved path, not a basename. */
-const DISCUSSION_ROOT_RE = /^\/.*\/Library\/Application Support\/atelier-studio\/discussions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const DISCUSSION_ROOT_RE = /^\/.*\/(?:Library\/Application Support|\.local\/share)\/atelier-studio\/discussions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 export function discussionWorkspaceId(root: string | null | undefined): string | null {
   if (typeof root !== "string") return null;

@@ -10,7 +10,7 @@ import { isDiscussionContext } from "../../lib/discussions";
 import type { ViewId } from "../../lib/settings";
 import { articleImportSnapshot, subscribeArticleImport } from "../../lib/articleImports";
 import { useIntegrations } from "../../lib/integrations";
-import { readUsageSnapshot, subscribeUsage, worstOf } from "../../lib/usageSummary";
+import { openCodeSummaryOf, readUsageSnapshot, subscribeUsage, worstDetailOf } from "../../lib/usageSummary";
 import { ChatsIcon, HighlighterIcon, PlusIcon, SettingsIcon } from "../icons";
 import { IconButton } from "../ui/IconButton";
 import { RowButton } from "../ui/RowButton";
@@ -101,7 +101,20 @@ export function SideBottom(p: SideBottomProps) {
   const [menu, setMenu] = useState<{ root: string; anchor: ProjectStyleAnchor } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const usage = useSyncExternalStore(subscribeUsage, readUsageSnapshot);
-  const worst = worstOf(usage);
+  const detail = worstDetailOf(usage);
+  const ocUsage = openCodeSummaryOf(usage);
+  const fmtCompactTok = (n: number) =>
+    n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : n >= 1000 ? `${Math.round(n / 1000)} k` : `${n}`;
+  const usageLabel = detail
+    ? `${detail.name} · ${Math.round(detail.pct)} %`
+    : ocUsage
+      ? `OpenCode · ${fmtCompactTok(ocUsage.tokens)} tok`
+      : t("usage.title");
+  const usageTip = [
+    t("usage.title"),
+    detail ? `${detail.name} ${Math.round(detail.pct)} %` : null,
+    ocUsage ? `OpenCode ${fmtCompactTok(ocUsage.tokens)} tok (${ocUsage.turns})` : null,
+  ].filter(Boolean).join(" — ");
   const articleJobs = useSyncExternalStore(subscribeArticleImport, articleImportSnapshot).jobs.length;
   const ragdocOn = useIntegrations().effective.ragdoc;
   const discussions = p.signals?.discussions ?? 0;
@@ -191,14 +204,14 @@ export function SideBottom(p: SideBottomProps) {
             { key: "settings", label: t("action.settings"), onSelect: p.onSettings },
             { key: "usage", label: t("usage.title"), onSelect: () => window.dispatchEvent(new CustomEvent("usage-toggle")) },
           ]} />
-        <RowButton className="scol-usage" title={t("usage.title")}
+        <RowButton className="scol-usage" title={usageTip}
           onClick={() => window.dispatchEvent(new CustomEvent("usage-toggle"))}>
-          {worst != null && (
+          {detail != null && (
             <span className="scol-usage-bar" aria-hidden="true">
-              <i style={{ width: `${Math.max(2, Math.min(100, worst))}%` }} />
+              <i style={{ width: `${Math.max(2, Math.min(100, detail.pct))}%` }} />
             </span>
           )}
-          <span>{t("usage.title")}{worst != null ? ` ${Math.round(worst)} %` : ""}</span>
+          <span>{usageLabel}</span>
         </RowButton>
         {ragdocOn && articleJobs > 0 && (
           <RailActivity running={NO_AGENTS} meta={p.meta} onSelectProject={p.onSelectProject} />

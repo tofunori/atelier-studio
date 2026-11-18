@@ -24,8 +24,13 @@ impl Config {
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
         };
-        let app_dir = var("ATELIER_APP_DIR")
-            .unwrap_or_else(|| home.join("Library/Application Support/atelier-studio"));
+        let app_dir = var("ATELIER_APP_DIR").unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                home.join("Library/Application Support/atelier-studio")
+            } else {
+                home.join(".local/share/atelier-studio")
+            }
+        });
         Self {
             zotero_dir: atelier_integrations::Integrations::load_from(&app_dir).zotero_dir(),
             app_dir,

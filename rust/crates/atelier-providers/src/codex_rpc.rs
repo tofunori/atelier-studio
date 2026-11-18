@@ -428,22 +428,34 @@ impl CodexAppServer {
         self.current().unwrap().fail("simulated transport failure");
     }
 
-    pub(crate) fn resolve_bin() -> PathBuf {
+    pub(crate) fn find_bin() -> Option<PathBuf> {
         if let Ok(p) = std::env::var("ATELIER_CODEX_BIN") {
             let pb = PathBuf::from(&p);
             if pb.is_file() {
-                return pb;
+                return Some(pb);
             }
         }
         if let Ok(out) = std::process::Command::new("which").arg("codex").output() {
             if out.status.success() {
                 let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !p.is_empty() {
-                    return PathBuf::from(p);
+                    return Some(PathBuf::from(p));
                 }
             }
         }
-        PathBuf::from("codex")
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            for rel in [".local/bin/codex", ".npm-global/bin/codex"] {
+                let p = home.join(rel);
+                if p.is_file() {
+                    return Some(p);
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn resolve_bin() -> PathBuf {
+        Self::find_bin().unwrap_or_else(|| PathBuf::from("codex"))
     }
 
     fn current(&self) -> Option<Arc<Connection>> {

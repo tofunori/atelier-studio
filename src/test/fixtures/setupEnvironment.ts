@@ -14,6 +14,13 @@ export const CODEX_READY = {
 export const CLAUDE_MISSING = { ...CLAUDE_READY, installed: false, version: null, binPath: null, auth: "not_installed" };
 export const CODEX_MISSING = { ...CODEX_READY, installed: false, version: null, binPath: null, auth: "not_installed" };
 export const CODEX_LOGGED_OUT = { ...CODEX_READY, auth: "login_needed" };
+export const OPENCODE_READY = {
+  id: "opencode", label: "OpenCode", kind: "cli", installed: true, version: "1.19.6",
+  binPath: "/home/t/.opencode/bin/opencode", auth: "ready", models: 5, loginCommand: "opencode auth login",
+  installCommand: "curl -fsSL https://opencode.ai/install | bash",
+};
+export const OPENCODE_MISSING = { ...OPENCODE_READY, installed: false, version: null, binPath: null, auth: "not_installed" };
+export const OPENCODE_LOGGED_OUT = { ...OPENCODE_READY, auth: "login_needed" };
 
 export function setupStatus(providers: unknown[]) {
   return {

@@ -78,10 +78,14 @@ fn zotero_src() -> PathBuf {
 }
 
 pub(crate) fn zotero_cache_dir() -> PathBuf {
-    home()
-        .join("Library")
-        .join("Application Support")
-        .join("cmux-gallery")
+    if cfg!(target_os = "macos") {
+        home()
+            .join("Library")
+            .join("Application Support")
+            .join("cmux-gallery")
+    } else {
+        home().join(".local").join("share").join("cmux-gallery")
+    }
 }
 
 fn zotero_copy() -> PathBuf {
@@ -671,7 +675,14 @@ pub async fn kb_pdf(
     }
     let app_dir = std::env::var("ATELIER_APP_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| home().join("Library/Application Support/atelier-studio"));
+        .unwrap_or_else(|_| {
+            let sub = if cfg!(target_os = "macos") {
+                "Library/Application Support/atelier-studio"
+            } else {
+                ".local/share/atelier-studio"
+            };
+            home().join(sub)
+        });
     let Ok(raw) = fs::read_to_string(app_dir.join("knowledge/knowledge.json")) else {
         return json_error(StatusCode::NOT_FOUND, "not found");
     };
@@ -789,7 +800,14 @@ pub async fn ragdoc_draft_asset(
     axum::extract::Path((id, asset)): axum::extract::Path<(String, String)>,
 ) -> impl IntoResponse {
     let app_dir = std::env::var("ATELIER_APP_DIR").map(PathBuf::from)
-        .unwrap_or_else(|_|home().join("Library/Application Support/atelier-studio"));
+        .unwrap_or_else(|_| {
+            let sub = if cfg!(target_os = "macos") {
+                "Library/Application Support/atelier-studio"
+            } else {
+                ".local/share/atelier-studio"
+            };
+            home().join(sub)
+        });
     let Some((path, mime)) = ragdoc_asset_path(&app_dir.join("knowledge/article-drafts"), &id, &asset) else {
         return json_error(StatusCode::NOT_FOUND, "not found");
     };

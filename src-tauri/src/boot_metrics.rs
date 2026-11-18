@@ -111,8 +111,8 @@ pub fn record_boot_metrics(payload: BootMetricsV1) -> Result<(), String> {
 }
 
 fn boot_metrics_path() -> Result<PathBuf, String> {
-    dirs::home_dir()
-        .map(|home| home.join("Library/Application Support/atelier-studio/boot-metrics.json"))
+    crate::atelier_data_dir()
+        .map(|dir| dir.join("boot-metrics.json"))
         .ok_or_else(|| "répertoire utilisateur introuvable pour boot-metrics.json".to_string())
 }
 

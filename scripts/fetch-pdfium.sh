@@ -12,9 +12,10 @@ PDFIUM_BUILD=8066
 DEST=rust/vendor/pdfium
 
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64)  ASSET=pdfium-mac-arm64;  SHA=336219e80580b93c6523f44db7dc1de59cc497b13a7390ddac84223f68ca162b; LIB=libpdfium.dylib ;;
-  Darwin-x86_64) ASSET=pdfium-mac-x64;    SHA=841ecac278cdd46288dd065873522cf72f3996560d8978f473d336f01d59942c; LIB=libpdfium.dylib ;;
-  Linux-x86_64)  ASSET=pdfium-linux-x64;  SHA=0b43f405477cf2cfc4dbff06905093c3309756c6bca1fb9da99234a2ca97fed2; LIB=libpdfium.so ;;
+  Darwin-arm64)  ASSET=pdfium-mac-arm64;   SHA=336219e80580b93c6523f44db7dc1de59cc497b13a7390ddac84223f68ca162b; LIB=libpdfium.dylib ;;
+  Darwin-x86_64) ASSET=pdfium-mac-x64;     SHA=841ecac278cdd46288dd065873522cf72f3996560d8978f473d336f01d59942c; LIB=libpdfium.dylib ;;
+  Linux-x86_64)  ASSET=pdfium-linux-x64;   SHA=0b43f405477cf2cfc4dbff06905093c3309756c6bca1fb9da99234a2ca97fed2; LIB=libpdfium.so ;;
+  Linux-aarch64|Linux-arm64) ASSET=pdfium-linux-arm64; SHA=0e6f90dccbc6b81fd5d7106abaf164c4222178f024c204d00d526b60fd2ad535; LIB=libpdfium.so ;;
   *) echo "[fetch-pdfium] plateforme non prise en charge : $(uname -s)-$(uname -m)" >&2; exit 1 ;;
 esac
 

@@ -74,13 +74,21 @@ cp -f "$PDFIUM_LIB" "$DIST/"
 cp -f "$(dirname "$PDFIUM_LIB")/../LICENSE" "$DIST/PDFIUM_LICENSE"
 PDFIUM_NAME="$(basename "$PDFIUM_LIB")"
 
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
 # Drop a tiny stamp for diagnostics (not hashed as the server binary itself is the identity).
 {
   echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   for BIN_NAME in "${BIN_NAMES[@]}" "${KB_BIN_NAMES[@]}"; do
-    shasum -a 256 "$DIST/$BIN_NAME" | awk -v name="$BIN_NAME" '{print name "_sha256=" $1}'
+    echo "${BIN_NAME}_sha256=$(sha256_file "$DIST/$BIN_NAME")"
   done
-  shasum -a 256 "$DIST/$PDFIUM_NAME" | awk -v name="$PDFIUM_NAME" '{print name "_sha256=" $1}'
+  echo "${PDFIUM_NAME}_sha256=$(sha256_file "$DIST/$PDFIUM_NAME")"
 } >"$DIST/BUILD_STAMP.txt"
 
 du -sh "$DIST"

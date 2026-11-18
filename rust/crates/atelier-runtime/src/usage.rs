@@ -382,6 +382,117 @@ pub fn local_midnight_ms() -> u64 {
         .unwrap_or(0)
 }
 
+fn opencode_db_path(home: &Path) -> PathBuf {
+    std::env::var_os("XDG_DATA_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".local/share"))
+        .join("opencode/opencode.db")
+}
+
+/// Lit les jetons, tours et coûts OpenCode directement dans `opencode.db`
+/// (lecture seule, < 1 ms, sans spawner le CLI). Renvoie l'activité du jour,
+/// ou à défaut celle des 7 derniers jours (`period: "7d"`).
+pub fn opencode_usage(db_path: &Path, midnight_ms: u64) -> Option<Value> {
+    if !db_path.is_file() {
+        return None;
+    }
+    let flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = rusqlite::Connection::open_with_flags(db_path, flags).ok()?;
+    let seven_days_ms = midnight_ms.saturating_sub(6 * 86_400_000);
+    let mut stmt = conn
+        .prepare("SELECT time_created, data FROM message WHERE time_created >= ?1")
+        .ok()?;
+    let rows = stmt
+        .query_map(rusqlite::params![seven_days_ms as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })
+        .ok()?;
+
+    let mut today_in: u64 = 0;
+    let mut today_out: u64 = 0;
+    let mut today_turns: u64 = 0;
+    let mut today_cost: f64 = 0.0;
+    let mut today_models: std::collections::BTreeMap<String, (u64, u64)> =
+        std::collections::BTreeMap::new();
+
+    let mut week_in: u64 = 0;
+    let mut week_out: u64 = 0;
+    let mut week_turns: u64 = 0;
+    let mut week_cost: f64 = 0.0;
+
+    for row in rows.flatten() {
+        let (ts_i64, raw) = row;
+        let ts = ts_i64.max(0) as u64;
+        let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if v.get("role").and_then(Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let tok = &v["tokens"];
+        let input = tok["input"].as_u64().unwrap_or(0)
+            + tok["cache"]["read"].as_u64().unwrap_or(0)
+            + tok["cache"]["write"].as_u64().unwrap_or(0);
+        let output =
+            tok["output"].as_u64().unwrap_or(0) + tok["reasoning"].as_u64().unwrap_or(0);
+        if input == 0 && output == 0 {
+            continue;
+        }
+        let cost = v["cost"].as_f64().unwrap_or(0.0);
+        week_in += input;
+        week_out += output;
+        week_turns += 1;
+        week_cost += cost;
+
+        if ts >= midnight_ms {
+            today_in += input;
+            today_out += output;
+            today_turns += 1;
+            today_cost += cost;
+            let provider_id = v["providerID"].as_str().unwrap_or("opencode");
+            let model_id = v["modelID"].as_str().unwrap_or("");
+            if !model_id.is_empty() {
+                let key = if model_id.contains('/') {
+                    model_id.to_string()
+                } else {
+                    format!("{provider_id}/{model_id}")
+                };
+                let entry = today_models.entry(key).or_insert((0, 0));
+                entry.0 += 1;
+                entry.1 += output;
+            }
+        }
+    }
+
+    if today_turns > 0 {
+        let models_map: serde_json::Map<String, Value> = today_models
+            .into_iter()
+            .map(|(k, (t, o))| (k, json!({"turns": t, "output": o})))
+            .collect();
+        Some(json!({
+            "input": today_in,
+            "output": today_out,
+            "turns": today_turns,
+            "cost": (today_cost * 10000.0).round() / 10000.0,
+            "period": "today",
+            "models": Value::Object(models_map),
+        }))
+    } else if week_turns > 0 {
+        Some(json!({
+            "input": week_in,
+            "output": week_out,
+            "turns": week_turns,
+            "cost": (week_cost * 10000.0).round() / 10000.0,
+            "period": "7d",
+            "models": {},
+        }))
+    } else {
+        None
+    }
+}
+
 // --------------------------------------------------------------- collect ---
 
 // getUsage rescanne des arborescences entières de logs (codex/grok/kimi) :
@@ -418,10 +529,11 @@ async fn collect_providers_uncached() -> Value {
                 codex_rate_limits(&h.join(".codex/sessions")),
                 grok_credits(&h.join(".grok/logs/unified.jsonl"), now_s),
                 kimi_today(&h.join(".kimi-code/sessions"), midnight),
+                opencode_usage(&opencode_db_path(&h), midnight),
             )
         })
     );
-    let (codex, grok, kimi) = rest.unwrap_or((None, None, None));
+    let (codex, grok, kimi, opencode) = rest.unwrap_or((None, None, None, None));
     let wrap_limits = |v: Option<Value>| match v {
         Some(mut v) => {
             if let Some(o) = v.as_object_mut() {
@@ -445,7 +557,10 @@ async fn collect_providers_uncached() -> Value {
             Some(d) => json!({"kind": "tokens", "ts": now_ms(), "data": d}),
             None => Value::Null,
         },
-        "opencode": json!({"kind": "ledger"}),
+        "opencode": match opencode {
+            Some(d) => json!({"kind": "tokens", "ts": now_ms(), "data": d}),
+            None => json!({"kind": "ledger"}),
+        },
     })
 }
 
@@ -684,5 +799,40 @@ mod tests {
         let first = collect_providers().await;
         let second = collect_providers().await;
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn opencode_usage_sums_sqlite_assistant_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("opencode.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute(
+            "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)",
+            [],
+        )
+        .unwrap();
+        let msg = json!({
+            "role": "assistant",
+            "cost": 0.125,
+            "providerID": "opencode-go",
+            "modelID": "gpt-6-luna",
+            "tokens": { "input": 1000, "output": 250, "reasoning": 50, "cache": { "read": 500, "write": 0 } }
+        })
+        .to_string();
+        conn.execute(
+            "INSERT INTO message VALUES ('m1', 's1', 2000, 2001, ?1)",
+            rusqlite::params![msg],
+        )
+        .unwrap();
+        drop(conn);
+
+        let usage = opencode_usage(&db_path, 1500).expect("usage du jour");
+        assert_eq!(usage["input"], json!(1500));
+        assert_eq!(usage["output"], json!(300));
+        assert_eq!(usage["turns"], json!(1));
+        assert_eq!(usage["cost"], json!(0.125));
+        assert_eq!(usage["period"], json!("today"));
+        assert_eq!(usage["models"]["opencode-go/gpt-6-luna"]["turns"], json!(1));
+        assert_eq!(usage["models"]["opencode-go/gpt-6-luna"]["output"], json!(300));
     }
 }
