@@ -8,8 +8,12 @@
 //! viennent de conda-forge ; pixi les lie depuis son cache, donc deux envs
 //! qui partagent un paquet ne le stockent qu'une fois.
 //!
-//! Atelier ne télécharge pas pixi : absent, l'erreur donne la ligne
-//! d'installation. Atelier ne crée jamais d'env conda et ne touche pas aux
+//! pixi absent de la machine, le serveur d'Atelier le télécharge une fois
+//! (version épinglée, archive officielle vérifiée par sha256) dans
+//! `<app>/tools/pixi-<version>/pixi` : une personne qui vient d'installer
+//! Atelier a Jupyter et numpy sans ouvrir de Terminal. Une variable
+//! `ATELIER_PIXI` posée, ou `ATELIER_PIXI_DOWNLOAD=0`, coupe ce
+//! téléchargement. Atelier ne crée jamais d'env conda et ne touche pas aux
 //! envs des autres (conda, Claude Science, système) : `add` et `remove` n'y
 //! sont pas permis.
 
@@ -21,6 +25,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -34,6 +39,19 @@ pub const INSTALL_LINE: &str = "curl -fsSL https://pixi.sh/install.sh | sh";
 
 /// Python de l'env neuf. Écrit une fois dans `pixi.toml`, où il se change.
 const PYTHON_PIN: &str = "3.12.*";
+/// Paquets de l'env neuf, à côté de Python : de quoi ouvrir un notebook
+/// (ipykernel) et faire une première analyse sans rien ajouter.
+const STARTER_PACKAGES: [&str; 5] = ["ipykernel", "numpy", "pandas", "matplotlib", "scipy"];
+
+/// Version de pixi qu'Atelier télécharge quand la machine n'en a pas.
+pub const PIXI_VERSION: &str = "0.84.2";
+/// Empreintes publiées avec la version (fichiers `.sha256` de la release).
+const PIXI_SHA256: [(&str, &str); 4] = [
+    ("aarch64-apple-darwin", "039d4b48c7e17bc62a36faa2af1b13d0d187f5dd6e8fea17e0587302438df6e6"),
+    ("x86_64-apple-darwin", "a633a4f8276955b73248397c17ce77380eb7133dc96c54bc271239b7dc9b8837"),
+    ("x86_64-unknown-linux-musl", "6d2a576bde0a7b26533a068fec0aea6e4ee21c36668efc1dc73fce90110906ae"),
+    ("aarch64-unknown-linux-musl", "0957b6352d077bb3ffcce913f90b1e6cfbc6b98888a45d59ee2910e8c4811110"),
+];
 /// Une installation lourde (PyMC, GDAL) prend des minutes, pas des heures.
 const PIXI_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 /// Fin de la sortie de pixi gardée dans un message d'erreur.
@@ -125,10 +143,25 @@ fn find_pixi_in(explicit: Option<&OsStr>, path: Option<&OsStr>, usual: &[PathBuf
 /// Phrase d'erreur quand pixi manque : où on a cherché, comment l'installer.
 pub fn missing_message() -> String {
     format!(
-        "pixi est introuvable (cherché : variable ATELIER_PIXI, PATH, ~/.pixi/bin, /opt/homebrew/bin, /usr/local/bin). \
-L'env « {ATELIER_ENV} » en a besoin. Demande à l'utilisateur de l'installer depuis son terminal : \
-`{INSTALL_LINE}` (ou `brew install pixi`), puis réessaie. Atelier ne télécharge rien lui-même."
+        "pixi est introuvable (cherché : variable ATELIER_PIXI, PATH, ~/.pixi/bin, /opt/homebrew/bin, /usr/local/bin) \
+et Atelier n'a pas pu le télécharger. L'env « {ATELIER_ENV} » en a besoin. Demande à l'utilisateur de l'installer \
+depuis son terminal : `{INSTALL_LINE}` (ou `brew install pixi`), puis réessaie."
     )
+}
+
+/// Archive officielle de pixi pour cette machine. `ATELIER_PIXI_URL` et
+/// `ATELIER_PIXI_SHA256` la remplacent (miroir d'entreprise, tests).
+fn pixi_release() -> Option<atelier_integrations::fetch::Release> {
+    let var = |name| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    if let (Some(url), Some(sha256)) = (var("ATELIER_PIXI_URL"), var("ATELIER_PIXI_SHA256")) {
+        return Some(atelier_integrations::fetch::Release { url, sha256 });
+    }
+    let target = atelier_integrations::fetch::current_target()?;
+    let (_, sha256) = PIXI_SHA256.iter().find(|(t, _)| *t == target)?;
+    Some(atelier_integrations::fetch::Release {
+        url: format!("https://github.com/prefix-dev/pixi/releases/download/v{PIXI_VERSION}/pixi-{target}.tar.gz"),
+        sha256: (*sha256).to_string(),
+    })
 }
 
 /// Plateforme conda de cette machine, écrite dans le `pixi.toml` neuf.
@@ -143,6 +176,7 @@ fn conda_platform() -> Option<&'static str> {
 }
 
 fn manifest_text(platform: &str) -> String {
+    let starters: String = STARTER_PACKAGES.iter().map(|p| format!("{p} = \"*\"\n")).collect();
     format!(
         "# Environnement Python d'Atelier Studio : un seul env pour toutes les analyses.\n\
 # Géré par pixi (https://pixi.sh), paquets de conda-forge. pixi.lock, à côté,\n\
@@ -159,7 +193,7 @@ channels = [\"conda-forge\"]\n\
 platforms = [\"{platform}\"]\n\
 \n\
 [dependencies]\n\
-python = \"{PYTHON_PIN}\"\n"
+python = \"{PYTHON_PIN}\"\n{starters}"
     )
 }
 
@@ -277,6 +311,13 @@ pub struct Pixi {
     atelier_dir: PathBuf,
     /// Binaire imposé (`Some(None)` : pixi tenu pour absent). Sert aux tests.
     forced: Mutex<Option<Option<PathBuf>>>,
+    /// Dossier d'Atelier : pixi téléchargé va dans `<app>/tools/`.
+    app_dir: PathBuf,
+    /// Téléchargement de pixi permis : le serveur le permet au démarrage,
+    /// jamais les tests (aucun accès réseau en douce).
+    download: AtomicBool,
+    /// Archive imposée au lieu de la release officielle (tests).
+    release: Mutex<Option<atelier_integrations::fetch::Release>>,
     locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
     /// Dernier changement de paquets de chaque fil, tant qu'il reste à
     /// suivre (une installation plus longue que l'attente de l'appel).
@@ -290,6 +331,9 @@ impl Pixi {
             home: home.to_path_buf(),
             atelier_dir: app_dir.join("python"),
             forced: Mutex::new(None),
+            app_dir: app_dir.to_path_buf(),
+            download: AtomicBool::new(false),
+            release: Mutex::new(None),
             locks: Mutex::new(HashMap::new()),
             changes: Mutex::new(HashMap::new()),
         }
@@ -363,18 +407,74 @@ impl Pixi {
         *self.forced.lock().unwrap_or_else(|e| e.into_inner()) = Some(binary);
     }
 
+    /// pixi trouvé sur la machine, ou déjà téléchargé par Atelier.
     pub fn binary(&self) -> Option<PathBuf> {
         let forced = self.forced.lock().unwrap_or_else(|e| e.into_inner()).clone();
         match forced {
             Some(binary) => binary,
-            None => find_pixi(&self.home),
+            None => find_pixi(&self.home).or_else(|| {
+                let downloaded = self.download_path();
+                atelier_integrations::fetch::is_installed(&downloaded).then_some(downloaded)
+            }),
         }
+    }
+
+    /// Permet de télécharger pixi quand la machine n'en a pas (serveur
+    /// d'Atelier ; `ATELIER_PIXI_DOWNLOAD=0` l'interdit).
+    pub fn allow_download(&self) {
+        let refused = std::env::var("ATELIER_PIXI_DOWNLOAD").is_ok_and(|v| v.trim() == "0");
+        self.download.store(!refused, Ordering::Relaxed);
+    }
+
+    /// Archive à télécharger au lieu de la release officielle (tests).
+    pub fn set_release(&self, release: atelier_integrations::fetch::Release) {
+        *self.release.lock().unwrap_or_else(|e| e.into_inner()) = Some(release);
+    }
+
+    fn release(&self) -> Option<atelier_integrations::fetch::Release> {
+        let forced = self.release.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        forced.or_else(pixi_release)
+    }
+
+    fn download_path(&self) -> PathBuf {
+        atelier_integrations::fetch::tool_path(&self.app_dir, "pixi", PIXI_VERSION)
+    }
+
+    /// pixi peut être téléchargé à la demande : permis, pas imposé par un
+    /// test ni par `ATELIER_PIXI`, et publié pour cette machine.
+    fn downloadable(&self) -> bool {
+        self.download.load(Ordering::Relaxed)
+            && self.forced.lock().unwrap_or_else(|e| e.into_inner()).is_none()
+            && std::env::var_os("ATELIER_PIXI").is_none_or(|v| v.is_empty())
+            && self.release().is_some()
+    }
+
+    /// pixi est là, ou le sera au premier usage.
+    pub fn available(&self) -> bool {
+        self.binary().is_some() || self.downloadable()
+    }
+
+    /// pixi, téléchargé d'abord s'il manque et que c'est permis.
+    pub async fn ensure_binary(&self) -> Result<PathBuf, String> {
+        if let Some(binary) = self.binary() {
+            return Ok(binary);
+        }
+        if !self.downloadable() {
+            return Err(missing_message());
+        }
+        let release = self.release().ok_or_else(missing_message)?;
+        let path = self.download_path();
+        tracing::info!(url = %release.url, "téléchargement de pixi pour l'env « atelier »");
+        tokio::task::spawn_blocking(move || atelier_integrations::fetch::ensure_at(&path, "pixi", &release))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("téléchargement de pixi {PIXI_VERSION} impossible ({e}). {}", missing_message()))
     }
 
     /// Env demandé par son nom mais absent de la liste : si c'est celui
     /// d'Atelier et que pixi manque, l'erreur utile est celle de pixi.
     pub(crate) fn explain_unknown(&self, asked: Option<&str>, error: String) -> String {
-        if asked.map(str::trim) == Some(ATELIER_ENV) && self.binary().is_none() {
+        if asked.map(str::trim) == Some(ATELIER_ENV) && !self.available() {
             return missing_message();
         }
         error
@@ -402,7 +502,7 @@ impl Pixi {
     /// (délai du pont) ne coupe pas une installation à moitié faite, et
     /// l'appel suivant attend son tour puis trouve l'env à jour.
     async fn run(&self, project: &Path, args: Vec<String>) -> Result<String, String> {
-        let binary = self.binary().ok_or_else(missing_message)?;
+        let binary = self.ensure_binary().await?;
         let lock = self
             .locks
             .lock()
@@ -449,7 +549,7 @@ impl Pixi {
         let Some(project) = managed_project(env) else {
             return Ok(());
         };
-        if self.binary().is_none() {
+        if !self.available() {
             // Env déjà installé : il sert tel quel ; pixi ne manque que
             // pour le créer ou le modifier.
             return if env.python.is_file() { Ok(()) } else { Err(missing_message()) };
@@ -682,7 +782,7 @@ impl KernelManager {
         pypi: bool,
     ) -> Result<Value, String> {
         let project = managed_project(env)
-            .ok_or_else(|| not_managed(env, self.pixi().binary().is_none()))?;
+            .ok_or_else(|| not_managed(env, !self.pixi().available()))?;
         let specs = validate_specs(specs, kind, pypi).map_err(|e| format!("kernel_bad_package — {e}"))?;
         if kind == ChangeKind::Remove && env.source == SOURCE_ATELIER && specs.iter().any(|s| s == "python") {
             return Err(format!(
@@ -691,7 +791,7 @@ Pour changer de version : action add avec python=3.13."
             ));
         }
         let pixi = self.pixi();
-        if pixi.binary().is_none() {
+        if !pixi.available() {
             return Err(format!("pixi_missing — {}", missing_message()));
         }
         if env.source == SOURCE_ATELIER {
@@ -828,7 +928,11 @@ appelle restart pour prendre l'env à jour (les variables seront perdues).",
             }
             None => {
                 out["pixi"] = Value::Null;
-                out["note"] = json!(missing_message());
+                out["note"] = json!(if pixi.available() {
+                    format!("pixi sera téléchargé (version {PIXI_VERSION}) au premier démarrage de l'env « {ATELIER_ENV} ».")
+                } else {
+                    missing_message()
+                });
             }
         }
         if let Some((file, sha)) = lock_print(&env.prefix) {
@@ -1094,6 +1198,86 @@ esac
         };
         m.pixi().prepare(&conda).await.unwrap();
         assert_eq!(appels(&projet).len(), 3);
+    }
+
+    /// Archive `.tar.gz` d'un faux pixi, servie une fois par un petit
+    /// serveur HTTP local ; rend son URL et son sha256.
+    fn servir_faux_pixi(dir: &Path) -> atelier_integrations::fetch::Release {
+        use std::io::{BufRead, BufReader, Write};
+        let script = std::fs::read(faux_pixi(&dir.join("source"), None)).unwrap();
+        let mut tar = tar_builder();
+        let mut header = tar::Header::new_gnu();
+        header.set_size(script.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        tar.append_data(&mut header, "pixi", script.as_slice()).unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(&tar.into_inner().unwrap()).unwrap();
+        let body = gz.finish().unwrap();
+        let sha256 = hex::encode(Sha256::digest(&body));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/pixi.tar.gz", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                    line.clear();
+                }
+                let mut stream = stream;
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = stream.write_all(&body);
+            }
+        });
+        atelier_integrations::fetch::Release { url, sha256 }
+    }
+
+    fn tar_builder() -> tar::Builder<Vec<u8>> {
+        tar::Builder::new(Vec::new())
+    }
+
+    #[tokio::test]
+    async fn sans_pixi_sur_la_machine_atelier_le_telecharge_puis_cree_l_env() {
+        let app = tempfile::tempdir().unwrap();
+        let m = KernelManager::new(app.path(), app.path());
+        if find_pixi(app.path()).is_some() || std::env::var_os("ATELIER_PIXI").is_some() {
+            return; // pixi déjà sur cette machine : rien à télécharger.
+        }
+        // Sans permission (tests, ATELIER_PIXI_DOWNLOAD=0) : rien ne part.
+        m.pixi().set_release(servir_faux_pixi(app.path()));
+        assert!(!m.pixi().available());
+        assert!(m.envs(None).iter().all(|e| e.source != SOURCE_ATELIER));
+
+        m.pixi().download.store(true, Ordering::Relaxed);
+        assert!(m.pixi().available() && m.pixi().binary().is_none());
+        // L'env d'Atelier est proposé avant d'exister : son premier noyau le crée.
+        let env = m.envs(None).into_iter().find(|e| e.source == SOURCE_ATELIER).expect("env atelier proposé");
+        m.pixi().prepare(&env).await.unwrap();
+        let binary = m.pixi().binary().expect("pixi téléchargé");
+        assert_eq!(binary, app.path().join(format!("tools/pixi-{PIXI_VERSION}/pixi")));
+        assert_eq!(appels(m.pixi().atelier_dir()), ["install pypi=0 "]);
+        let manifest = std::fs::read_to_string(m.pixi().atelier_dir().join("pixi.toml")).unwrap();
+        for paquet in STARTER_PACKAGES {
+            assert!(manifest.contains(&format!("{paquet} = \"*\"")), "{manifest}");
+        }
+    }
+
+    #[test]
+    fn chaque_plateforme_de_mac_et_linux_a_son_empreinte_de_pixi() {
+        for target in [
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+        ] {
+            let (_, sha) = PIXI_SHA256.iter().find(|(t, _)| *t == target).unwrap();
+            assert_eq!(sha.len(), 64);
+            assert!(sha.chars().all(|c| c.is_ascii_hexdigit()));
+        }
+        if atelier_integrations::fetch::current_target().is_some() {
+            let release = pixi_release().unwrap();
+            assert!(release.url.contains(&format!("/v{PIXI_VERSION}/")), "{}", release.url);
+        }
     }
 
     #[tokio::test]
