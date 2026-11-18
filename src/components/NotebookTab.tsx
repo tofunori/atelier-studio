@@ -15,7 +15,12 @@ import {
 import {
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
+  ClockIcon,
   CopyIcon,
+  CpuIcon,
+  HistoryIcon,
+  MessageSquareIcon,
   DownloadIcon,
   Maximize2Icon,
   MessageSquarePlusIcon,
@@ -46,12 +51,24 @@ import {
   type DiscoveredKernel,
   type InputRequest,
   type NotebookPushEvent,
+  type NotebookKernelStatus,
   type NotebookSnapshot,
   type UiCell,
   type UiOutput,
 } from "../lib/notebook";
 import { setDocumentUnsaved } from "../lib/unsavedDocuments";
 import { attachCellScrollAnchor } from "../lib/cellScrollAnchor";
+import {
+  cellRunState,
+  errorFixRequest,
+  errorLocation,
+  formatRunClock,
+  formatRunDuration,
+  type CellRun,
+  type CellRunState,
+  type ErrorLocation,
+} from "../lib/notebookRun";
+import { NotebookCodeEditor, caretOffsetAt } from "./NotebookCodeEditor";
 import { MD_COMPONENTS, MdBody, highlightCode, useMdPlugins } from "./chat/md";
 import {
   Button,
@@ -331,6 +348,8 @@ function NotebookBanners({
   onRestore,
   onDiscardRecovery,
   onRestart,
+  onPickKernel,
+  onAskChat,
 }: {
   snapshot: NotebookSnapshot;
   onReload: () => void;
@@ -338,11 +357,40 @@ function NotebookBanners({
   onRestore: () => void;
   onDiscardRecovery: () => void;
   onRestart: () => void;
+  onPickKernel: () => void;
+  onAskChat: (detail: string) => void;
 }) {
   const { status } = snapshot;
   const exit = status.state === "dead" ? kernelExitDetail(status) : null;
+  // Le serveur préfixe déjà « Le noyau n'a pas démarré : » : on n'en garde que la raison.
+  const failure =
+    status.state === "error" && status.message
+      ? status.message.replace(/^Le noyau n'a pas démarré\s*:\s*/, "")
+      : null;
   return (
     <>
+      {failure !== null ? (
+        <InlineNotice tone="error" className="nb-banner nb-kernel-failed">
+          <span className="nb-banner-text">
+            <b>{t("notebook.kernel-failed")}</b>
+            <span className="nb-kernel-failed-why">
+              {status.displayName ? `${status.displayName} · ` : ""}
+              {failure}
+            </span>
+          </span>
+          <span className="nb-banner-actions">
+            <Button variant="secondary" size="xs" onClick={onPickKernel}>
+              <CpuIcon size={12} />
+              <span>{t("notebook.kernel-pick")}</span>
+            </Button>
+            <Button variant="ghost" size="xs" onClick={() => onAskChat(failure)}>
+              <MessageSquareIcon size={12} />
+              <span>{t("notebook.kernel-ask-chat")}</span>
+            </Button>
+          </span>
+        </InlineNotice>
+      ) : null}
+
       {snapshot.diskChanged ? (
         <InlineNotice tone="warning" className="nb-banner">
           <span className="nb-banner-text">{t("notebook.disk-changed")}</span>
@@ -446,6 +494,130 @@ function InputPrompt({
   );
 }
 
+/**
+ * Code coloré, mémoïsé : React 19 réécrit innerHTML dès que l'objet
+ * `{ __html }` change, donc à chaque rendu de l'onglet (état du noyau,
+ * mémoire…). La sélection en cours dans le code était alors perdue.
+ */
+const HighlightedCode = memo(function HighlightedCode({ html }: { html: string }) {
+  return <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />;
+});
+
+/** État d'exécution en tête de cellule : ✓ durée · heure, chrono, attente… */
+function CellStatus({ state }: { state: CellRunState }) {
+  const lang = getResolvedLanguage();
+  switch (state.kind) {
+    case "idle":
+      return null;
+    case "running":
+      return (
+        <span className="nb-run" data-state="running" role="status">
+          <Spinner size={12} />
+          <b>{t("notebook.run-running")}</b>
+          <span className="nb-run-time">· {formatRunDuration(state.elapsedMs, lang).replace(/,\d+ s$/, " s")}</span>
+        </span>
+      );
+    case "queued":
+      return (
+        <span className="nb-run" data-state="queued">
+          <ClockIcon size={12} strokeWidth={1.4} />
+          <b>{t("notebook.run-queued")}</b>
+        </span>
+      );
+    case "done":
+      return (
+        <span className="nb-run" data-state="done" title={t("notebook.run-done")}>
+          <CheckIcon size={12} strokeWidth={1.6} />
+          <b>{formatRunDuration(state.durationMs, lang)}</b>
+          <span className="nb-run-time">· {formatRunClock(state.finishedAt, lang)}</span>
+        </span>
+      );
+    case "error":
+      return (
+        <span className="nb-run" data-state="error">
+          <XIcon size={12} strokeWidth={1.6} />
+          <b>{t("notebook.run-error")}</b>
+          {state.durationMs !== undefined ? (
+            <span className="nb-run-time">· {formatRunDuration(state.durationMs, lang)}</span>
+          ) : null}
+        </span>
+      );
+    case "stale":
+      return (
+        <span className="nb-run" data-state="stale">
+          <HistoryIcon size={12} strokeWidth={1.4} />
+          <b>{t("notebook.run-stale")}</b>
+        </span>
+      );
+  }
+}
+
+/** Erreur Python : titre, ligne en cause, trace repliée, deux actions neutres. */
+function ErrorOutput({
+  output,
+  location,
+  onFix,
+}: {
+  output: Extract<UiOutput, { kind: "error" }>;
+  location: ErrorLocation | null;
+  onFix?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const trace = output.traceback?.trim() ?? "";
+  const traceLines = trace ? trace.split("\n").length : 0;
+  const copy = () => {
+    void navigator.clipboard?.writeText(trace || `${output.ename}: ${output.evalue}`);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+  return (
+    <div className="nb-error" data-part="output">
+      <div className="nb-error-head">
+        <span className="nb-error-name">{output.ename}</span>
+        {output.evalue ? <span className="nb-error-value">{output.evalue}</span> : null}
+      </div>
+      {location ? (
+        <div className="nb-error-where">
+          {t("notebook.error-line", { n: location.line })}
+          {location.func ? (
+            <>
+              {" "}
+              {t("notebook.error-in")} <code>{location.func}</code>
+            </>
+          ) : null}
+          {location.code ? (
+            <>
+              {" : "}
+              <code>{location.code}</code>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {trace ? (
+        <details className="nb-error-trace">
+          <summary>
+            <ChevronRightIcon size={12} className="nb-error-chevron" />
+            {t("notebook.error-trace", { n: traceLines })}
+          </summary>
+          <pre>{trace}</pre>
+        </details>
+      ) : null}
+      <div className="nb-error-actions">
+        {onFix ? (
+          <Button variant="secondary" size="xs" className="nb-error-fix" onClick={onFix}>
+            <MessageSquareIcon size={12} />
+            <span>{t("notebook.error-fix")}</span>
+          </Button>
+        ) : null}
+        <Button variant="ghost" size="xs" onClick={copy}>
+          {copied ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
+          <span>{copied ? t("notebook.copied") : t("notebook.error-copy")}</span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 const OutputBlock = memo(function OutputBlock({
   output,
   cellIndex,
@@ -462,7 +634,7 @@ const OutputBlock = memo(function OutputBlock({
   mdRemark: any[];
   mdRehype: any[];
   onOpenLightbox: (fig: LightboxFigure) => void;
-  onSaveFigure: (fig: LightboxFigure, figKey: string) => void;
+  onSaveFigure: (fig: LightboxFigure, figKey: string) => unknown;
   savedKeySet: ReadonlySet<string>;
 }) {
   // Hooks avant tout retour anticipé (règles des hooks).
@@ -658,6 +830,19 @@ export default function NotebookTab({
   const [lightbox, setLightbox] = useState<LightboxFigure | null>(null);
   const [savedFigures, setSavedFigures] = useState<ReadonlySet<string>>(() => new Set());
   const [picked, setPicked] = useState<PickedSelection | null>(null);
+  // Où poser le curseur quand une cellule passe en édition (point cliqué).
+  const [editCaret, setEditCaret] = useState<number | null>(null);
+  const pressAtRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Passages des cellules dans cette session : durée, heure, génération du
+  // noyau (un redémarrage rend les passages précédents « avant le redémarrage »).
+  const [runs, setRuns] = useState<Readonly<Record<string, CellRun>>>({});
+  const [generation, setGeneration] = useState(0);
+  const [queuedIds, setQueuedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [now, setNow] = useState(() => Date.now());
+  const generationRef = useRef(0);
+  const prevBusyRef = useRef<string | null>(null);
+  const prevStateRef = useRef<string>("off");
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
@@ -705,6 +890,40 @@ export default function NotebookTab({
     };
   }, [path, projectRoot]);
 
+  const busyCellId = snapshot?.status.busyCellId ?? null;
+  const kernelState = snapshot?.status.state ?? "off";
+
+  // Suivi des passages, événement par événement : une cellule rapide passe
+  // « occupée » puis « libre » dans le même rendu, on ne la verrait pas.
+  const trackKernelStatus = useCallback((st: NotebookKernelStatus) => {
+    const at = Date.now();
+    if (st.state === "starting" && prevStateRef.current !== "starting") {
+      generationRef.current += 1;
+      setGeneration(generationRef.current);
+    }
+    prevStateRef.current = st.state;
+    const busy = st.busyCellId ?? null;
+    const prev = prevBusyRef.current;
+    if (prev === busy) return;
+    prevBusyRef.current = busy;
+    setRuns((old) => {
+      const next = { ...old };
+      if (prev && next[prev] && next[prev].finishedAt === undefined) {
+        next[prev] = { ...next[prev], finishedAt: at };
+      }
+      if (busy) next[busy] = { startedAt: at, generation: generationRef.current };
+      return next;
+    });
+    if (busy) {
+      setQueuedIds((old) => {
+        if (!old.has(busy)) return old;
+        const next = new Set(old);
+        next.delete(busy);
+        return next;
+      });
+    }
+  }, []);
+
   // Abonnement temps réel aux événements poussés par le moteur ZeroMQ / MCP.
   useEffect(() => {
     const onPush = (ev: Event) => {
@@ -718,6 +937,7 @@ export default function NotebookTab({
         void showError(payload.message);
         return;
       }
+      if (payload.event === "kernelStatus") trackKernelStatus(payload.status);
       if (payload.event === "snapshotReplaced") {
         void showInfo(t("notebook.reloaded-from-disk"));
       }
@@ -725,7 +945,23 @@ export default function NotebookTab({
     };
     window.addEventListener("notebook-event", onPush);
     return () => window.removeEventListener("notebook-event", onPush);
-  }, [path]);
+  }, [path, trackKernelStatus]);
+
+
+  // « Tout exécuter » fini (ou arrêté sur une erreur) : plus rien en attente.
+  useEffect(() => {
+    if (!queuedIds.size || busyCellId || kernelState === "busy" || kernelState === "starting") return;
+    const timer = window.setTimeout(() => setQueuedIds(new Set()), 1500);
+    return () => window.clearTimeout(timer);
+  }, [queuedIds, busyCellId, kernelState]);
+
+  // Chrono de la cellule en cours.
+  useEffect(() => {
+    if (!busyCellId) return;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busyCellId]);
 
   // Synchronisation de l'indicateur « non enregistré » avec la garde globale d'Atelier.
   useEffect(() => {
@@ -802,9 +1038,38 @@ export default function NotebookTab({
     const root = scrollerRef.current;
     if (!root) return;
     let timer = 0;
-    const pick = () => {
+    let point: { x: number; y: number } | null = null;
+    const pick = (ev?: Event) => {
+      if (ev instanceof MouseEvent) point = { x: ev.clientX, y: ev.clientY };
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
+        // Sélection dans une cellule en cours d'édition (zone de saisie).
+        const area = document.activeElement;
+        if (
+          area instanceof HTMLTextAreaElement &&
+          area.classList.contains("nb-code-input") &&
+          area.selectionEnd > area.selectionStart
+        ) {
+          const chosen = area.value.slice(area.selectionStart, area.selectionEnd);
+          const cellEl = area.closest<HTMLElement>(".nb-cell[data-cell-index]");
+          if (chosen.trim() && cellEl && root.contains(cellEl)) {
+            const from = area.value.slice(0, area.selectionStart).split("\n").length;
+            const span = chosen.replace(/\n+$/, "").split("\n").length;
+            const view = root.getBoundingClientRect();
+            const column = (cellEl.querySelector<HTMLElement>(".nb-cell-body") ?? cellEl).getBoundingClientRect();
+            const field = area.getBoundingClientRect();
+            const y = point && point.y >= field.top && point.y <= field.bottom ? point.y : field.bottom;
+            setPicked({
+              box: { left: column.left, right: column.right, width: column.width, top: view.top, bottom: view.bottom, height: view.height },
+              caret: { left: point?.x ?? field.right, top: y - 8, bottom: y + 8 },
+              text: chosen.trim(),
+              cellIndex: Number(cellEl.dataset.cellIndex) || 1,
+              part: "code",
+              lines: [from, from + span - 1],
+            });
+            return;
+          }
+        }
         const sel = window.getSelection();
         const text = sel?.toString().trim() ?? "";
         if (!sel || !text || sel.rangeCount === 0) {
@@ -837,7 +1102,10 @@ export default function NotebookTab({
       }, 0);
     };
     const onKeyUp = (ev: KeyboardEvent) => {
-      if (ev.shiftKey || ev.key === "Shift") pick();
+      if (ev.shiftKey || ev.key === "Shift") {
+        point = null;
+        pick();
+      }
     };
     document.addEventListener("mouseup", pick);
     document.addEventListener("keyup", onKeyUp);
@@ -943,12 +1211,18 @@ export default function NotebookTab({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [visible, handleSave]);
 
-  const startEditing = useCallback((cell: UiCell) => {
-    setFocusedCellId(cell.id);
-    setEditingCellId(cell.id);
-    setDraftSource(cell.source);
-    setCompletions(null);
-  }, []);
+  const startEditing = useCallback(
+    async (cell: UiCell, caret?: number | null) => {
+      // Passer d'une cellule à l'autre enregistre la précédente (comme Jupyter).
+      if (editingCellId && editingCellId !== cell.id) await commitActiveEdit();
+      setFocusedCellId(cell.id);
+      setEditCaret(caret ?? null);
+      setEditingCellId(cell.id);
+      setDraftSource(cell.source);
+      setCompletions(null);
+    },
+    [commitActiveEdit, editingCellId],
+  );
 
   const handleRunCell = useCallback(
     async (cell: UiCell, overrideSource?: string) => {
@@ -975,8 +1249,13 @@ export default function NotebookTab({
   const handleRunAll = useCallback(async () => {
     try {
       await commitActiveEdit();
+      const codeIds = (snapshotRef.current?.cells ?? [])
+        .filter((c) => c.cellType === "code")
+        .map((c) => c.id);
+      setQueuedIds(new Set(codeIds));
       await notebookCommand<{ started: boolean }>("runAll", { path, projectRoot });
     } catch (err) {
+      setQueuedIds(new Set());
       void showError((err as Error).message);
     }
   }, [commitActiveEdit, path, projectRoot]);
@@ -1228,6 +1507,23 @@ export default function NotebookTab({
     (cell: UiCell) => {
       const citation = formatNotebookSelectionCitation(chatName, cell.index, "code", cell.source);
       window.dispatchEvent(new CustomEvent("kernel-add-to-chat", { detail: { text: citation } }));
+    },
+    [chatName],
+  );
+
+  // « Corriger avec le chat » : le code de la cellule et la trace, en capsule.
+  const fixWithChat = useCallback(
+    (cell: UiCell, error: Extract<UiOutput, { kind: "error" }>) => {
+      const text = errorFixRequest({ notebookName: chatName, cellIndex: cell.index, source: cell.source, error });
+      window.dispatchEvent(new CustomEvent("kernel-add-to-chat", { detail: { text } }));
+    },
+    [chatName],
+  );
+
+  const askChatAboutKernel = useCallback(
+    (detail: string) => {
+      const text = `${t("notebook.kernel-ask-text", { name: chatName })}\n\n${detail}`;
+      window.dispatchEvent(new CustomEvent("kernel-add-to-chat", { detail: { text } }));
     },
     [chatName],
   );
@@ -1534,6 +1830,8 @@ export default function NotebookTab({
                 onRestore={() => void runSnapshotOp("restoreRecovery")}
                 onDiscardRecovery={() => void runSnapshotOp("discardRecovery")}
                 onRestart={() => void handleRestart()}
+                onPickKernel={() => setKernelMenuOpen(true)}
+                onAskChat={askChatAboutKernel}
               />
 
               {(proposalsByTarget.get("") ?? []).map((prop) => (
@@ -1657,12 +1955,28 @@ export default function NotebookTab({
                   );
                 }
 
-                // Cellule de code ou brute : puits tonal sans bordure latérale orange.
-                const highlighted = highlightCode(cell.source, snapshot.language || "python");
+                // Cellule de code : carte posée sur la page, code creusé dedans.
+                const language = snapshot.language || "python";
+                const highlighted = highlightCode(cell.source, language);
+                const runState = cellRunState({
+                  cell,
+                  run: runs[cell.id],
+                  running: isRunningCell,
+                  queued: queuedIds.has(cell.id),
+                  generation,
+                  now,
+                });
+                const firstError = cell.outputs.find(
+                  (o): o is Extract<UiOutput, { kind: "error" }> => o.kind === "error",
+                );
+                const errLoc = firstError ? errorLocation(firstError.traceback ?? "", cell.executionCount) : null;
                 return (
                   <div key={cell.id}>
                     <article
                       className="nb-cell"
+                      data-kind="code"
+                      data-run={runState.kind}
+                      data-editing={isEditing ? "true" : undefined}
                       data-cell-id={cell.id}
                       data-cell-index={cell.index}
                       data-focused={isFocused ? "true" : "false"}
@@ -1670,11 +1984,9 @@ export default function NotebookTab({
                       onClick={() => setFocusedCellId(cell.id)}
                     >
                       <div className="nb-cell-gutter">
-                        {isRunningCell ? (
-                          <Spinner size={12} />
-                        ) : (
-                          <span className="nb-cell-num">{cell.executionCount ?? ""}</span>
-                        )}
+                        <span className="nb-cell-num">
+                          {isRunningCell ? "*" : (cell.executionCount ?? "")}
+                        </span>
                       </div>
 
                       <div className="nb-cell-body">
@@ -1695,6 +2007,16 @@ export default function NotebookTab({
                             ) : null}
                           </RowButton>
 
+                          <CellStatus state={runState} />
+
+                          {isEditing ? (
+                            <span className="nb-cell-hint" aria-hidden="true">
+                              <kbd>⇧↵</kbd> {t("notebook.run-hint")}
+                              <span className="nb-cell-hint-dot">·</span>
+                              <kbd>Échap</kbd> {t("notebook.done-edit")}
+                            </span>
+                          ) : null}
+
                           <div className="nb-cell-actions">
                             {mode === "live" && cell.cellType === "code" ? (
                               <IconButton
@@ -1711,28 +2033,6 @@ export default function NotebookTab({
                               >
                                 <PlayIcon size={12} />
                               </IconButton>
-                            ) : null}
-
-                            {mode === "live" ? (
-                              isEditing ? (
-                                <Button
-                                  variant="ghost"
-                                  size="xs"
-                                  onClick={() => void commitActiveEdit()}
-                                >
-                                  <CheckIcon size={12} />
-                                  <span>{t("notebook.done-edit")}</span>
-                                </Button>
-                              ) : (
-                                <IconButton
-                                  size="s"
-                                  label={t("notebook.edit-cell")}
-                                  title={t("notebook.edit-cell")}
-                                  onClick={() => startEditing(cell)}
-                                >
-                                  <PencilIcon size={12} />
-                                </IconButton>
-                              )
                             ) : null}
 
                             <IconButton
@@ -1783,19 +2083,17 @@ export default function NotebookTab({
                           <>
                             {editProposals.length > 0 ? null : isEditing ? (
                               <>
-                                <textarea
-                                  ref={editorRef}
-                                  className="nb-editor-area"
+                                <NotebookCodeEditor
                                   value={draftSource}
-                                  rows={Math.max(3, draftSource.split("\n").length + 1)}
-                                  aria-label={`Code cellule ${cell.index}`}
-                                  spellCheck={false}
-                                  onChange={(e) => {
-                                    setDraftSource(e.target.value);
+                                  html={highlightCode(draftSource, language)}
+                                  ariaLabel={`Code cellule ${cell.index}`}
+                                  textareaRef={editorRef}
+                                  caret={editCaret}
+                                  onChange={(value) => {
+                                    setDraftSource(value);
                                     if (completions) setCompletions(null);
                                   }}
                                   onKeyDown={(e) => handleEditorKeyDown(e, cell)}
-                                  autoFocus
                                 />
                                 {completions && completions.cellId === cell.id ? (
                                   <div className="nb-completions" role="listbox">
@@ -1815,20 +2113,45 @@ export default function NotebookTab({
                               <pre
                                 className="nb-well"
                                 data-part="code"
-                                onDoubleClick={() => {
-                                  if (mode === "live") startEditing(cell);
+                                data-editable={mode === "live" ? "true" : undefined}
+                                onMouseDown={(e) => {
+                                  pressAtRef.current = { x: e.clientX, y: e.clientY };
+                                }}
+                                onClick={(e) => {
+                                  // Un clic édite (comme Jupyter) ; un glisser
+                                  // sélectionne pour le chat.
+                                  if (mode !== "live") return;
+                                  const press = pressAtRef.current;
+                                  pressAtRef.current = null;
+                                  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) return;
+                                  if (e.detail > 1) return;
+                                  const sel = window.getSelection();
+                                  if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+                                  void startEditing(cell, caretOffsetAt(e.currentTarget, e.clientX, e.clientY));
                                 }}
                               >
-                                <code
-                                  className="hljs"
-                                  dangerouslySetInnerHTML={{ __html: highlighted }}
-                                />
+                                {errLoc ? (
+                                  <span
+                                    className="nb-err-line"
+                                    aria-hidden="true"
+                                    style={{ top: `calc(var(--nb-well-pad-y) + ${errLoc.line - 1} * var(--nb-well-line))` }}
+                                  />
+                                ) : null}
+                                <HighlightedCode html={highlighted} />
                               </pre>
                             )}
 
                             {cell.outputs.length > 0 || isRunningCell ? (
                               <HeldOutputs running={isRunningCell}>
-                                {cell.outputs.map((out, oi) => (
+                                {cell.outputs.map((out, oi) =>
+                                  out.kind === "error" ? (
+                                    <ErrorOutput
+                                      key={oi}
+                                      output={out}
+                                      location={out === firstError ? errLoc : errorLocation(out.traceback ?? "", cell.executionCount)}
+                                      onFix={mode === "live" ? () => fixWithChat(cell, out) : undefined}
+                                    />
+                                  ) : (
                                   <OutputBlock
                                     key={oi}
                                     output={out}
@@ -1837,10 +2160,11 @@ export default function NotebookTab({
                                     mdRemark={mdPlugins.remark}
                                     mdRehype={mdPlugins.rehype}
                                     onOpenLightbox={setLightbox}
-                                    onSaveFigure={(fig, key) => void handleSaveFigure(fig, key)}
+                                    onSaveFigure={handleSaveFigure}
                                     savedKeySet={savedFigures}
                                   />
-                                ))}
+                                  ),
+                                )}
                               </HeldOutputs>
                             ) : null}
                           </>

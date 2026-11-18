@@ -247,16 +247,19 @@ describe("NotebookTab et utilitaires Jupyter", () => {
       expect(screen.getByText("beta_intra")).toBeTruthy();
       expect(screen.getByText("-0,031").getAttribute("onclick")).toBeNull();
 
-      // Le contexte vivant initial pointe sur la cellule [1] sur 3.
-      expect(liveEvents[liveEvents.length - 1]).toEqual({
-        tabId: "doc-nb1",
-        context: {
-          kind: "notebook",
-          path: "/tmp/projet/analyse_albedo.ipynb",
-          name: "analyse_albedo.ipynb",
-          cell: 1,
-          cellCount: 3,
-        },
+      // Le contexte vivant initial pointe sur la cellule [1] sur 3 (publié
+      // après le rendu : on l'attend, sinon le test échoue sous charge).
+      await waitFor(() => {
+        expect(liveEvents[liveEvents.length - 1]).toEqual({
+          tabId: "doc-nb1",
+          context: {
+            kind: "notebook",
+            path: "/tmp/projet/analyse_albedo.ipynb",
+            name: "analyse_albedo.ipynb",
+            cell: 1,
+            cellCount: 3,
+          },
+        });
       });
 
       // Clic sur la cellule 3 → le contexte vivant bascule sur cell: 3.

@@ -161,6 +161,8 @@ async function main() {
     check("exécution simple : compteur [1]", await until(async () => (await count(page, C.set)).trim() === "1", 90000), await count(page, C.set));
     await run(page, C.print);
     check("exécution enchaînée : y = 42", await until(async () => (await outputs(page, C.print)).includes("y = 42"), 15000));
+    const doneTag = await cell(page, C.print).locator('.nb-run[data-state="done"]').innerText().catch(() => "");
+    check("état visible : ✓ durée · heure", /\d s\s*· \d{2}:\d{2}/.test(doneTag), doneTag.replace(/\s+/g, " "));
 
     // 2. Cellule longue : la sortie arrive au fil de l'eau.
     await run(page, C.long);
@@ -171,6 +173,10 @@ async function main() {
     // 3. Erreur Python lisible.
     await run(page, C.error);
     check("erreur : ZeroDivisionError affichée", await until(async () => (await outputs(page, C.error)).includes("ZeroDivisionError"), 10000));
+    check("erreur : ligne en cause indiquée", (await outputs(page, C.error)).includes("Ligne 2"));
+    await cell(page, C.error).getByRole("button", { name: "Corriger avec le chat" }).click();
+    const fix = await page.evaluate(() => ((window as unknown as { __chat: string[] }).__chat ?? []).at(-1) ?? "");
+    check("Corriger avec le chat : code et trace envoyés", /^essai\.ipynb \[\d+\] \(L1-4\)/.test(fix) && fix.includes("ZeroDivisionError") && fix.includes("Cell In["), fix.slice(0, 50));
 
     // 4. Figure matplotlib.
     if (pythonHas("matplotlib")) {
@@ -193,7 +199,9 @@ async function main() {
     await place(page, C.long, 200);
     const well = cell(page, C.long).locator("pre.nb-well");
     const box = (await well.boundingBox())!;
-    await page.mouse.move(box.x + 16, box.y + 32);
+    // Départ dans le texte : pile au milieu du premier caractère, Chromium
+    // ne commence aucune sélection (bord entre deux positions de curseur).
+    await page.mouse.move(box.x + 30, box.y + 32);
     await page.mouse.down();
     await page.mouse.move(box.x + 200, box.y + 70, { steps: 5 });
     await page.mouse.up();
@@ -203,7 +211,21 @@ async function main() {
       await bubble.click();
       const sent = await page.evaluate(() => ((window as unknown as { __chat: string[] }).__chat ?? []).at(-1) ?? "");
       check("sélection → chat : capsule nommée", /^essai\.ipynb \[\d+\] \(L\d/.test(sent), sent.slice(0, 60));
-    } else check("sélection → chat : bulle affichée", false);
+    } else {
+      const sel = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+      check("sélection → chat : bulle affichée", false, `sélection « ${sel.slice(0, 30)} »`);
+    }
+
+    // 6 bis. Un clic dans le code l'édite, la coloration reste.
+    await place(page, C.set, 200);
+    const setWell = cell(page, C.set).locator("pre.nb-well");
+    const sb = (await setWell.boundingBox())!;
+    await page.mouse.click(sb.x + sb.width - 20, sb.y + sb.height - 12);
+    const editing = await until(async () => (await cell(page, C.set).locator("textarea.nb-code-input").count()) > 0, 3000);
+    const colored = await cell(page, C.set).locator(".nb-code-edit .hljs span").count();
+    check("clic dans le code : édition, coloration gardée", editing && colored > 0, `${colored} jetons colorés`);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(400);
 
     // 7. input().
     await place(page, C.input, 200);
@@ -228,6 +250,7 @@ async function main() {
     await page.waitForTimeout(4000);
     await run(page, C.print);
     check("redémarrage : variables effacées (NameError)", await until(async () => (await outputs(page, C.print)).includes("NameError"), 30000));
+    check("redémarrage : anciens passages marqués", (await cell(page, C.set).locator('.nb-run[data-state="stale"]').count()) === 1);
 
     // 10. Tout exécuter s'arrête à l'erreur.
     const lastBefore = await count(page, C.last);
