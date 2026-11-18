@@ -95,12 +95,14 @@ export function SetupInlineTerminal(p: { command: string; onClose: () => void })
   useEffect(() => { onCloseRef.current = p.onClose; }, [p.onClose]);
 
   useEffect(() => {
+    let closeTimer: number | undefined;
     const onExit = () => {
       recheckAll();
-      window.setTimeout(() => onCloseRef.current(), 600);
+      closeTimer = window.setTimeout(() => onCloseRef.current(), 600);
     };
     window.addEventListener(`term-exit:${termId}`, onExit);
     return () => {
+      window.clearTimeout(closeTimer);
       window.removeEventListener(`term-exit:${termId}`, onExit);
       wsSend({ type: "termClose", termId });
     };
