@@ -158,7 +158,7 @@ fn friendly_source(src: &str) -> &'static str {
     }
 }
 
-fn pyenv_to_kernel(env: PyEnv) -> DiscoveredKernel {
+pub(crate) fn pyenv_to_kernel(env: PyEnv) -> DiscoveredKernel {
     let has_ipy = env_has_ipykernel(&env.prefix);
     let source_label = friendly_source(&env.source);
     let backend = if has_ipy {
@@ -228,7 +228,13 @@ pub fn discover_kernels(
 ) -> Vec<DiscoveredKernel> {
     let pixi_present = atelier_kernel::pixi::find_pixi(home).is_some();
     let py_envs = discover_envs_with(home, project_root, atelier_kernel_dir, pixi_present);
+    discover_kernels_from(home, py_envs)
+}
 
+/// Comme `discover_kernels`, à partir d'une liste d'envs déjà faite (celle
+/// du `KernelManager` d'Atelier : env « atelier » compris, proposé même avant
+/// d'exister quand pixi est là ou téléchargeable).
+pub fn discover_kernels_from(home: &Path, py_envs: Vec<PyEnv>) -> Vec<DiscoveredKernel> {
     let mut out = Vec::new();
     let mut seen_bins = HashSet::new();
 
