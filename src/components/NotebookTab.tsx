@@ -284,6 +284,12 @@ const OutputBlock = memo(function OutputBlock({
   onSaveFigure: (fig: LightboxFigure, figKey: string) => void;
   savedKeySet: ReadonlySet<string>;
 }) {
+  // Hooks avant tout retour anticipé (règles des hooks).
+  const rawHtml = output.kind === "data" ? output.textHtml : undefined;
+  const rawSvg = output.kind === "data" ? output.imageSvg : undefined;
+  const safeHtml = useMemo(() => (rawHtml ? sanitizeNotebookHtml(rawHtml) : ""), [rawHtml]);
+  const safeSvg = useMemo(() => (rawSvg ? sanitizeNotebookSvg(rawSvg) : ""), [rawSvg]);
+
   if (output.kind === "stream") {
     if (!output.text) return null;
     return (
@@ -307,15 +313,6 @@ const OutputBlock = memo(function OutputBlock({
       </pre>
     );
   }
-
-  const safeHtml = useMemo(
-    () => (output.textHtml ? sanitizeNotebookHtml(output.textHtml) : ""),
-    [output.textHtml],
-  );
-  const safeSvg = useMemo(
-    () => (output.imageSvg ? sanitizeNotebookSvg(output.imageSvg) : ""),
-    [output.imageSvg],
-  );
 
   const hasFigure = Boolean(safeSvg || output.imagePng || output.imageJpeg);
   const figure: LightboxFigure | null = safeSvg
@@ -469,7 +466,9 @@ export default function NotebookTab({
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const snapshotRef = useRef<NotebookSnapshot | null>(null);
-  snapshotRef.current = snapshot;
+  useLayoutEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   // Synchronise l'url si un lien du chat demande explicitement diff=1.
   useEffect(() => {
