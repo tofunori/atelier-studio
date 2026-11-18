@@ -118,7 +118,8 @@ fn epoch(meta: &fs::Metadata, created: bool) -> u64 {
         .unwrap_or_default()
 }
 
-fn local_date(epoch: u64) -> String {
+/// Date locale « AAAA-MM-JJ HH:MM » (chrono : même résultat sur macOS et Linux).
+pub fn local_date(epoch: u64) -> String {
     let time = UNIX_EPOCH + std::time::Duration::from_secs(epoch);
     let date: DateTime<Local> = time.into();
     date.format("%Y-%m-%d %H:%M").to_string()

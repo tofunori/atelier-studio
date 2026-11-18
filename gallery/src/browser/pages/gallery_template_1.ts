@@ -1276,7 +1276,7 @@ function openInContext(rel){
   // Dans Atelier, tous les documents pris en charge restent dans le même
   // espace de travail et s'ouvrent dans un onglet IDE. En mode navigateur
   // autonome, on conserve l'ouverture dans l'application système.
-  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))){
+  if(EMB && f && (f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='svg'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext)||nbExt(f.ext))){
     lbOpenAny(rel);
     return;
   }
@@ -1303,16 +1303,19 @@ async function lbShow(i: number){
   lbIdx=i; const f=lbList[i]; lbNotable=imgExt(f.ext)&&f.ext!=='svg'; annotLeave();
   lbVersionsReset(f);annotSelected=null;annotBind(false);annotPillUpdate();
   markRecent(f.rel);
-  const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv', isDocx=f.ext==='docx';
+  const isTex=f.ext==='tex', isPdf=f.ext==='pdf', isMd=f.ext==='md', isCode=codeExt(f.ext), isSvg=f.ext==='svg', isVid=videoExt(f.ext), isCsv=f.ext==='csv', isDocx=f.ext==='docx', isNb=nbExt(f.ext);
+  // Hors d'Atelier (navigateur seul), un cahier s'ouvre dans l'application système.
+  if(isNb && !EMB){ openDefault(f.rel); await lbClose(); return; }
   // Embarqué dans Atelier Studio : les fichiers texte/code s'ouvrent dans un
   // ONGLET Studio (la galerie reste navigable), pas dans la lightbox.
-  if(EMB && (isTex||isMd||isCode||isPdf||isSvg||isCsv||isDocx)){
+  if(EMB && (isTex||isMd||isCode||isPdf||isSvg||isCsv||isDocx||isNb)){
     // Studio : latex_studio pour tex/code ; éditeur WYSIWYG pour markdown
     let u;
     if(isPdf) u='/.fig_thumbs/pdf_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='+encodeURIComponent(f.rel)+'&v=__VER__';
     else if(isMd) u='/.fig_thumbs/md_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     else if(isDocx) u='/.fig_thumbs/docx_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
+    else if(isNb) u='/.fig_thumbs/ipynb_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel);
     else u='/.fig_thumbs/latex_studio.html?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&v=__VER__';
     __atelierPost({type:'atelier-open-tab', url:u, title:f.name});
     await lbClose();
@@ -1606,7 +1609,7 @@ function lbNav(dir: number){
   // En plein écran (fs), rester strictement sur les images bitmap.
   const fs=lb().classList.contains('fs');
   const ok=(f)=> fs ? ['png','jpg','jpeg'].includes(f.ext)
-               : !(f.ext==='svg'||f.ext==='pdf'||f.ext==='md'||f.ext==='tex'||codeExt(f.ext));
+               : !(f.ext==='svg'||f.ext==='pdf'||f.ext==='md'||f.ext==='tex'||codeExt(f.ext)||nbExt(f.ext));
   let i=lbIdx+dir;
   while(i>=0&&i<lbList.length&&!ok(lbList[i])) i+=dir;
   lbShow(i);
@@ -1916,7 +1919,7 @@ window.addEventListener('message', function(e){
   (document.getElementById('favChip') as HTMLSpanElement).textContent='★ Favoris ('+favs.size+')';
   render();
 });
-const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,r:false,jl:false,tex:false,sh:false};
+const DEFAULT_EXTS = {png:true,jpg:true,jpeg:true,svg:true,mp4:true,m4v:true,mov:true,webm:true,pdf:false,html:false,docx:false,xlsx:false,xls:false,csv:false,md:false,py:false,ipynb:false,r:false,jl:false,tex:false,sh:false};
 const GALLERY_PROJECT_SCOPE='__ROOT__';
 const galleryProjectStorageKey=(name)=>name+':'+GALLERY_PROJECT_SCOPE;
 function readGalleryJson(key: string, fallback: unknown){
@@ -2008,12 +2011,14 @@ const imgExt = (e) => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
 const videoExt = (e) => e==='mp4'||e==='m4v'||e==='mov'||e==='webm';
 const appExt = (e) => e==='docx'||e==='xlsx'||e==='xls'||e==='csv';
 const codeExt = (e) => e==='py'||e==='r'||e==='jl'||e==='tex'||e==='sh';
+// Cahier Jupyter : s'ouvre dans l'éditeur de cahiers d'Atelier ; la carte montre sa première figure.
+const nbExt = (e) => e==='ipynb';
 // All file types live in this one menu (PNG/PDF/SVG/Video are no longer standalone chips).
-const TYPE_LIST: Array<[string, string]> = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/mov/webm)'],['pdf','PDF'],['html','HTML'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['md','Markdown'],['py','Python'],['r','R'],['jl','Julia'],['tex','LaTeX'],['sh','Shell']];
-const DEFAULT_PINNED_TYPES=['png','svg','pdf','html','tex','py','jl'];
+const TYPE_LIST: Array<[string, string]> = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/mov/webm)'],['pdf','PDF'],['html','HTML'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['md','Markdown'],['py','Python'],['ipynb','Jupyter'],['r','R'],['jl','Julia'],['tex','LaTeX'],['sh','Shell']];
+const DEFAULT_PINNED_TYPES=['png','svg','pdf','html','tex','py','ipynb','jl'];
 const BUILTIN_FILE_PRESETS=[
   {id:'figures',label:'Figures',extensions:['png','svg','pdf']},
-  {id:'sources',label:'Sources',extensions:['tex','py','jl']},
+  {id:'sources',label:'Sources',extensions:['tex','py','ipynb','jl']},
   {id:'interactive',label:'Interactive',extensions:['html']},
 ];
 const pinnedTypesKey=galleryProjectStorageKey('galleryPinnedFileTypesV1');
@@ -2035,7 +2040,7 @@ const FMT_CATS: Array<[string, string[]]> = [
   ['Vidéos',   ['mp4','m4v','mov','webm']],
   ['Documents',['pdf','html','docx','md']],
   ['Données',  ['csv','xlsx','xls']],
-  ['Code',     ['py','r','jl','tex','sh']],
+  ['Code',     ['py','ipynb','r','jl','tex','sh']],
 ];
 const FMT_ICONS = {
   Images:'<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="10" rx="1.8"/><circle cx="6" cy="6.2" r="1"/><path d="M3.5 11l3.1-3 2.2 2 1.4-1.3 2.3 2.3"/></svg>',
@@ -2230,6 +2235,12 @@ const snipObserver = new IntersectionObserver((entries,obs)=>{
       .then(r=>r.ok?r.text():'').then(t=>{el.textContent=t;}).catch(()=>{});
   }
 },{rootMargin:'250px'});
+// Cahier sans figure : la carte montre le début de ses cellules (texte lu côté serveur).
+(window as unknown as {galleryNotebookNoFigure: (img: HTMLImageElement)=>void}).galleryNotebookNoFigure = (img)=>{
+  const box=img.parentElement; if(!box) return;
+  const snip=document.createElement('div'); snip.className='snip'; snip.dataset.snip=img.dataset.nb||'';
+  box.replaceWith(snip); snipObserver.observe(snip);
+};
 // Word : la première page dessinée à l'échelle (format, marges, tailles en
 // points du document), servie allégée par /docx/peek et chargée seulement
 // quand la carte entre dans la vue. La page suit la taille de la vignette.
@@ -2440,7 +2451,7 @@ function render(){
     return b.mtime-a.mtime;
   });
   list = groupFigureVersions(list);
-  lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext));
+  lbList = list.filter(f=>imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)||nbExt(f.ext));
   lbListSaved=null; // la vue vient d'être rebâtie : plus rien à restaurer
   const grid=(document.getElementById('grid') as HTMLElement);
   applyPresentation();
@@ -2465,7 +2476,7 @@ function render(){
     if(galleryPresentation.mode==='list'){
       const selected=selSet.has(f.rel), wf=workflowLabel(workflow[f.rel]);
       return `<div class="card gallery-detail-row ${selectedRel===f.rel?'sel2':''} ${selected?'bulk-selected':''}" data-card="${escA(f.rel)}" role="row" aria-selected="${selected}">
-        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}" aria-pressed="${selected}">${selGlyph(selected)}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
+        <div class="gallery-detail-name" role="gridcell"><button class="selbox ${selected?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" aria-label="Sélectionner ${escA(f.name)}" aria-pressed="${selected}">${selGlyph(selected)}</button><button class="gallery-detail-open" data-act="${imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)||nbExt(f.ext)?'lb':'open'}" data-rel="${escA(f.rel)}" title="${escA(f.rel)}">${esc(f.name)}</button>${figureGroups.has(f.rel)?`<span class="stackn" title="${figureGroups.get(f.rel).length} fichiers pour cette figure">${figureGroups.get(f.rel).length}</span>`:''}${favs.has(f.rel)?'<span class="fv">★</span>':''}</div>
         <div role="gridcell">${esc(f.ext.toUpperCase())}</div><div role="gridcell">${fmtSize(f.size)}</div><div role="gridcell">${esc(f.mdate)}</div><div role="gridcell" class="gallery-detail-status"><span>${esc(wf)}</span><button data-act="more" data-rel="${escA(f.rel)}" aria-label="Actions pour ${escA(f.name)}">${hovIco('more')}</button></div>
       </div>`;
     }
@@ -2479,7 +2490,9 @@ function render(){
       : isHtml
       ? `<img loading="lazy" decoding="async" src="${escA(tsrc)}" alt="" onerror="this.onerror=null;this.remove()">`
       : `<img loading="lazy" decoding="async" src="${escA(tsrc)}" alt="">`;
-    const thumb = f.code
+    const thumb = nbExt(f.ext)
+      ? `<div class="thumb"><img loading="lazy" decoding="async" src="${escA('/thumb?path='+encodeURIComponent('__ROOT__/'+f.rel)+'&w=480&v='+f.mtime)}" data-nb="${escA(f.rel)}" alt="" onerror="galleryNotebookNoFigure(this)"></div>`
+      : f.code
       ? `<div class="snip" data-snip="${escA(f.rel)}"></div>`
       : f.ext === 'docx'
       ? `<div class="thumb docx-page" data-docx="${escA(f.rel)}" data-v="${f.mtime}"></div>`
@@ -2500,9 +2513,9 @@ function render(){
     const pileTag = pile ? `<span class="stackn${pileLate?' late':''}" title="${escA(pile.length+' fichiers pour cette figure'+(pileLate?' · une copie plus ancienne diffère':''))}">${STACK_ICON}${pile.length}</span>` : '';
     return `<div class="card ${f.archive?'arch':''} ${isHid?'hid':''} ${selectedRel===f.rel?'sel2':''} ${pile?'stack':''}" data-card="${escA(f.rel)}" role="option" aria-selected="${selectedRel===f.rel}">
       <span class="selbox ${selSet.has(f.rel)?'on':''}" data-act="sel" data-rel="${escA(f.rel)}" title="Sélectionner — Maj-clic pour une plage">${selGlyph(selSet.has(f.rel))}</span>
-      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Ouvrir avec l’application par défaut">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
+      ${(imgExt(f.ext)||videoExt(f.ext)||f.ext==='pdf'||f.ext==='md'||codeExt(f.ext)||nbExt(f.ext))?`<div data-act="lb" data-rel="${escA(f.rel)}" style="cursor:zoom-in;position:relative">${videoExt(f.ext)?'<span class="playbtn">&#9654;</span>':''}${thumb}${pileTag}</div>`:appExt(f.ext)?`<div data-act="open" data-rel="${escA(f.rel)}" style="cursor:pointer" title="Ouvrir avec l’application par défaut">${thumb}</div>`:`<a href="${escA(f.rel)}" target="_blank" style="text-decoration:none">${thumb}</a>`}
       <div class="hov">
-        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}">${hovIco('open')}</button>
+        <button data-act="open" data-rel="${escA(f.rel)}" aria-label="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext)||nbExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}" title="${EMB&&(f.ext==='tex'||f.ext==='md'||f.ext==='pdf'||f.ext==='csv'||f.ext==='docx'||codeExt(f.ext)||nbExt(f.ext))?'Ouvrir dans Atelier':'Ouvrir avec l’application par défaut'}">${hovIco('open')}</button>
         <button data-act="copy" data-rel="${escA(f.rel)}" aria-label="Copier le chemin" title="Copier le chemin">${hovIco('copy')}</button>
         <button data-act="chat" data-rel="${escA(f.rel)}" class="embOnly" aria-label="Joindre au chat de Studio" title="Joindre au chat de Studio">${hovIco('chat')}</button>
         ${(imgExt(f.ext)||f.ext==='pdf')?`<button data-act="src" data-rel="${escA(f.rel)}" class="embHide" aria-label="Ouvrir le script qui a produit cette figure" title="Ouvrir le script qui a produit cette figure">${hovIco('src')}</button>`:''}

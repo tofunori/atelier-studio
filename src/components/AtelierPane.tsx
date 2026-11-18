@@ -1098,7 +1098,10 @@ export default function AtelierPane({
    *  au clic droit sur l'onglet ou la surface (voir WORKSPACE_PANE_MENU).
    *  `button` : le navigateur, qui garde son bouton dans sa propre barre. */
   function renderPaneControls(paneNode: WorkspacePaneNode, ref: WorkspaceTabRef, mode: "anchor" | "button" = "button") {
-    const paneMenuKey = `${paneNode.id}:${workspaceTabId(ref)}`;
+    // Le bouton d'une surface (cahier, terminal…) et l'ancre du clic droit
+    // décrivent le même pane : chacun a sa clé, sinon un clic sur le bouton
+    // ouvrait aussi le menu de l'ancre (deux menus à la fois).
+    const paneMenuKey = `${paneNode.id}:${workspaceTabId(ref)}${mode === "anchor" ? "" : "#button"}`;
     const relative = ref.kind === "document"
       ? relFromTabUrl(documentById.get(ref.tabId)?.url ?? "", projectRoot, url)
       : null;

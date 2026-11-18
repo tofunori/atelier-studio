@@ -13,6 +13,7 @@ mod figure_notes;
 mod figure_versions;
 mod host;
 mod manuscript;
+mod notebook_preview;
 mod openable;
 mod pdf_review;
 mod ranged;

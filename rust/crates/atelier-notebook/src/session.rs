@@ -207,6 +207,46 @@ fn pick_ephemeral_ports() -> std::io::Result<[u16; 5]> {
     Ok(ports)
 }
 
+/// Dernières lignes d'erreur d'un noyau (sa sortie stderr), lues en continu.
+#[derive(Clone, Default)]
+struct StderrTail(Arc<Mutex<std::collections::VecDeque<String>>>);
+
+impl StderrTail {
+    const KEEP: usize = 12;
+
+    fn drain(&self, stderr: tokio::process::ChildStderr) {
+        let lines = self.0.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut reader = tokio::io::BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                let mut tail = lines.lock().unwrap_or_else(|e| e.into_inner());
+                if tail.len() == Self::KEEP {
+                    tail.pop_front();
+                }
+                tail.push_back(line);
+            }
+        });
+    }
+
+    /// L'erreur, suivie de ce que le noyau a écrit avant de s'arrêter.
+    async fn explain(&self, err: String) -> String {
+        // Laisse la lecture rattraper les dernières lignes d'un processus mort.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let tail = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let text: Vec<&str> = tail
+            .iter()
+            .map(|l| l.trim_end())
+            .filter(|l| !l.is_empty())
+            .collect();
+        if text.is_empty() {
+            err
+        } else {
+            format!("{err}\n{}", text.join("\n"))
+        }
+    }
+}
+
 impl ZmqKernelHandle {
     /// Démarre un processus `kernelspec` réel et s'y connecte sur les 5 sockets ZeroMQ.
     pub async fn spawn_process(
@@ -272,10 +312,16 @@ impl ZmqKernelHandle {
             cmd.process_group(0);
         }
 
-        let child = cmd
+        let mut child = cmd
             .spawn()
             .map_err(|e| format!("échec lancement noyau `{program}` : {e}"))?;
         let pid = child.id();
+        // stderr est lu en continu : jamais lu, le tube se remplissait (64 Ko)
+        // et bloquait le noyau ; sa fin explique un noyau qui ne démarre pas.
+        let stderr_tail = StderrTail::default();
+        if let Some(err) = child.stderr.take() {
+            stderr_tail.drain(err);
+        }
 
         match Self::connect_to_endpoints(
             spec,
@@ -292,6 +338,7 @@ impl ZmqKernelHandle {
         {
             Ok(handle) => Ok(handle),
             Err(err) => {
+                let err = stderr_tail.explain(err).await;
                 let _ = std::fs::remove_file(&conn_path);
                 if let Some(p) = pid {
                     #[cfg(unix)]
@@ -343,13 +390,29 @@ impl ZmqKernelHandle {
             }
         }
 
-        let (shell, iopub, stdin, control, mut hb) = tokio::try_join!(
-            connect_retry(conn.shell_addr(), ZmqSocketType::Dealer, true),
-            connect_retry(conn.iopub_addr(), ZmqSocketType::Sub, false),
-            connect_retry(conn.stdin_addr(), ZmqSocketType::Dealer, true),
-            connect_retry(conn.control_addr(), ZmqSocketType::Dealer, true),
-            connect_retry(conn.hb_addr(), ZmqSocketType::Req, false),
-        )?;
+        let connect_all = async {
+            tokio::try_join!(
+                connect_retry(conn.shell_addr(), ZmqSocketType::Dealer, true),
+                connect_retry(conn.iopub_addr(), ZmqSocketType::Sub, false),
+                connect_retry(conn.stdin_addr(), ZmqSocketType::Dealer, true),
+                connect_retry(conn.control_addr(), ZmqSocketType::Dealer, true),
+                connect_retry(conn.hb_addr(), ZmqSocketType::Req, false),
+            )
+        };
+        // Un noyau qui meurt au démarrage (module manquant, Python cassé) ne
+        // fait plus attendre 25 s : sa sortie arrête l'attente tout de suite.
+        let (shell, iopub, stdin, control, mut hb) = match child.as_mut() {
+            Some(c) => tokio::select! {
+                sockets = connect_all => sockets?,
+                exit = c.wait() => {
+                    return Err(match exit {
+                        Ok(status) => format!("le noyau s'est arrêté au démarrage ({status})"),
+                        Err(e) => format!("le noyau s'est arrêté au démarrage : {e}"),
+                    });
+                }
+            },
+            None => connect_all.await?,
+        };
 
         let (mut shell_rx, shell_tx) = shell.into_split();
         // La moitié écriture d'`iopub` (et le socket `stdin`) doivent vivre aussi
@@ -1897,6 +1960,26 @@ impl NotebookManager {
     }
 
     /// Signale à l'onglet l'échec d'une exécution lancée en arrière-plan.
+    /// Raison d'un échec posée comme sortie d'erreur de la cellule lancée :
+    /// visible là où l'on regarde, et pas seulement dans une notification.
+    async fn show_cell_failure(&self, ws: &Arc<NotebookWorkspace>, cell_id: &str, message: &str) {
+        let mut doc = ws.doc.lock().await;
+        let Some(idx) = doc.find_cell_index(cell_id) else {
+            return;
+        };
+        doc.cells[idx].outputs = vec![CellOutput::Error {
+            ename: "KernelError".into(),
+            evalue: message.to_string(),
+            traceback: vec![message.to_string()],
+        }];
+        let ui = doc.cells[idx].to_ui(idx + 1);
+        self.emit(NotebookPushEvent::CellUpdated {
+            path: ws.path.display().to_string(),
+            cell: ui,
+            running: false,
+        });
+    }
+
     pub fn report_failure(&self, path: &Path, message: &str) {
         self.emit(NotebookPushEvent::RunFailed {
             path: std::fs::canonicalize(path)
@@ -2075,30 +2158,50 @@ impl NotebookManager {
             .clone();
         let weak = Arc::downgrade(ws);
 
+        let failed_status = NotebookKernelStatus {
+            state: "error".into(),
+            kernel_id: Some(spec.id.clone()),
+            display_name: Some(spec.display_name.clone()),
+            language: Some(spec.language.clone()),
+            backend: Some(spec.backend.clone()),
+            ..Default::default()
+        };
         let started = match spec.backend {
-            KernelBackendKind::ZmqKernelspec => {
-                let h = ZmqKernelHandle::spawn_process(
-                    spec,
-                    cwd,
-                    &self.runtime_dir,
-                    &nb_path_str,
-                    weak,
-                    listener,
-                )
-                .await?;
-                RunningBackend::Zmq(h)
-            }
-            KernelBackendKind::AtelierPythonFallback => {
-                let h = FallbackPythonHandle::spawn(
-                    spec,
-                    cwd,
-                    &self.runtime_dir,
-                    &nb_path_str,
-                    weak,
-                    listener,
-                )
-                .await?;
-                RunningBackend::Fallback(h)
+            KernelBackendKind::ZmqKernelspec => ZmqKernelHandle::spawn_process(
+                spec,
+                cwd,
+                &self.runtime_dir,
+                &nb_path_str,
+                weak,
+                listener,
+            )
+            .await
+            .map(RunningBackend::Zmq),
+            KernelBackendKind::AtelierPythonFallback => FallbackPythonHandle::spawn(
+                spec,
+                cwd,
+                &self.runtime_dir,
+                &nb_path_str,
+                weak,
+                listener,
+            )
+            .await
+            .map(RunningBackend::Fallback),
+        };
+        // Échec : l'onglet ne reste plus sur « Démarrage… » (boutons grisés
+        // pour toujours) ; il montre le noyau en erreur et pourquoi.
+        let started = match started {
+            Ok(started) => started,
+            Err(err) => {
+                let message = format!("Le noyau n'a pas démarré : {err}");
+                self.emit(NotebookPushEvent::KernelStatus {
+                    path: nb_path_str,
+                    status: NotebookKernelStatus {
+                        message: Some(message.clone()),
+                        ..failed_status
+                    },
+                });
+                return Err(message);
             }
         };
 
@@ -2179,7 +2282,10 @@ impl NotebookManager {
     ) -> Result<NotebookSnapshot, String> {
         let ws = self.get_or_open(path).await.map_err(|e| e.to_string())?;
         let _gate = ws.exec_gate.lock().await;
-        self.ensure_kernel(&ws, project_root, None).await?;
+        if let Err(message) = self.ensure_kernel(&ws, project_root, None).await {
+            self.show_cell_failure(&ws, cell_id, &message).await;
+            return Err(message);
+        }
 
         let (resolved_id, code) = {
             let mut doc = ws.doc.lock().await;
@@ -2192,6 +2298,15 @@ impl NotebookManager {
             if let Some(src) = override_source {
                 doc.cells[idx].source = src;
             }
+            // L'onglet apprend d'abord que la cellule tourne, puis que ses
+            // sorties sont effacées : il garde leur hauteur pendant
+            // l'exécution, et la page ne saute pas (WebKit, sans ancrage).
+            *ws.busy_cell.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(doc.cells[idx].id.clone());
+            self.emit(NotebookPushEvent::KernelStatus {
+                path: ws.path.display().to_string(),
+                status: ws.status(),
+            });
             doc.cells[idx].outputs.clear();
             ws.mark_dirty();
             let cid = doc.cells[idx].id.clone();
@@ -3002,6 +3117,33 @@ mod tests {
                 .push(serde_json::to_value(&ev).unwrap());
         }));
         (mgr, seen)
+    }
+
+    /// Relancer une cellule : l'onglet apprend qu'elle tourne AVANT que ses
+    /// sorties soient effacées ; il garde alors leur hauteur et la page ne
+    /// saute pas sur Mac (WebKit n'ancre pas le défilement).
+    #[tokio::test]
+    async fn rerun_announces_busy_before_clearing_outputs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nb = tiny_notebook(tmp.path(), "relance.ipynb", "print('a')");
+        let (mgr, seen) = collecting_manager(tmp.path());
+        mgr.run_cell(&nb, Some(tmp.path()), "c1", None).await.unwrap();
+        seen.lock().unwrap().clear();
+        mgr.run_cell(&nb, Some(tmp.path()), "c1", None).await.unwrap();
+        let events = seen.lock().unwrap().clone();
+        let clear = events
+            .iter()
+            .position(|e| {
+                e["event"] == "cellUpdated"
+                    && e["cell"]["outputs"].as_array().is_some_and(Vec::is_empty)
+            })
+            .expect("sorties effacées au départ");
+        let busy = events
+            .iter()
+            .position(|e| e["event"] == "kernelStatus" && e["status"]["busyCellId"] == "c1")
+            .expect("cellule annoncée occupée");
+        assert!(busy < clear, "occupée ({busy}) doit précéder l'effacement ({clear}) : {events:?}");
+        mgr.shutdown_all().await;
     }
 
     /// Sans changement local, un cahier modifié ailleurs (agent, git, autre

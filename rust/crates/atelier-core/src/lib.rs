@@ -13,7 +13,7 @@ pub use atelier_store::{durable, pdf_annots, tex_revisions};
 
 pub const ARTIFACT_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "svg", "pdf", "html", "htm", "docx", "xlsx", "xls", "csv", "md", "py",
-    "r", "jl", "tex", "sh", "rs", "mp4", "m4v", "mov", "webm",
+    "r", "jl", "tex", "sh", "rs", "mp4", "m4v", "mov", "webm", "ipynb",
 ];
 
 pub const EXCLUDED_DIRECTORIES: &[&str] = &[

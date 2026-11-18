@@ -342,7 +342,13 @@ export function formatNotebookSelectionCitation(
   cellIndex: number,
   part: "code" | "output",
   text: string,
+  lines?: [number, number],
 ): string {
-  const label = part === "code" ? `${notebookName} · [${cellIndex}]` : `${notebookName} · Out[${cellIndex}]`;
-  return `Extrait de \`${label}\` :\n\`\`\`\n${text.trim()}\n\`\`\`\n`;
+  // Même forme que les autres éditeurs (« chemin (L3-5) : « … » ») : le chat
+  // en fait la même capsule, nom du cahier et cellule, puis les lignes.
+  const label = part === "code" ? `${notebookName} [${cellIndex}]` : `${notebookName} Out[${cellIndex}]`;
+  const body = text.trim();
+  const [from, to] = lines ?? [1, Math.max(1, body.split("\n").length)];
+  const range = from === to ? `L${from}` : `L${from}-${to}`;
+  return `${label} (${range}) : « ${body} »`;
 }
