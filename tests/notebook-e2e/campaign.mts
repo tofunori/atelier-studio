@@ -4,7 +4,7 @@
 //
 //   node tests/notebook-e2e/campaign.mts
 //
-// Prérequis : `cargo build -p atelier-studio-server` (ou ATELIER_SERVER_BIN),
+// Prérequis : `cargo build --bin atelier-studio-server` (ou ATELIER_SERVER_BIN),
 // python3 (crée un .venv avec ipykernel, ou NB_E2E_VENV=<venv existant>).
 // Voir README.md.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
@@ -28,7 +28,7 @@ function serverBinary(): string {
   ].filter(Boolean) as string[];
   const found = candidates.find((c) => fs.existsSync(c));
   if (!found) {
-    console.error("atelier-studio-server introuvable : cargo build --manifest-path rust/Cargo.toml -p atelier-studio-server");
+    console.error("atelier-studio-server introuvable : cargo build --manifest-path rust/Cargo.toml --bin atelier-studio-server");
     process.exit(2);
   }
   return found;
@@ -58,7 +58,7 @@ const code = (source: string) => ({ cell_type: "code", metadata: {}, execution_c
 const md = (source: string) => ({ cell_type: "markdown", metadata: {}, source });
 
 // Indices 1-based, comme data-cell-index.
-const C = { set: 2, print: 3, long: 4, error: 5, figure: 6, input: 7, loop: 8, after: 9, last: 0 };
+const C = { set: 2, print: 3, long: 4, error: 5, figure: 6, input: 7, loop: 8, after: 9, display: 10, last: 0 };
 function notebook() {
   const cells = [
     md("# Campagne de bout en bout"),
@@ -70,6 +70,7 @@ function notebook() {
     code("nom = input('Ton nom ? ')\nprint('Bonjour', nom)"),
     code("import time\nwhile True:\n    time.sleep(0.2)"),
     code("print('après interruption')"),
+    code("from IPython.display import HTML\ndisplay(HTML('<b id=\"riche\">gras</b>'))"),
   ];
   for (let i = 0; i < 8; i++) {
     cells.push(md(`## Remplissage ${i}\n` + "Texte de remplissage pour allonger la page. ".repeat(12)));
@@ -109,6 +110,85 @@ const place = (p: Page, n: number, y: number) =>
     const el = document.querySelector(`article.nb-cell[data-cell-index="${n}"]`)!;
     document.querySelector(".nb-scroll")!.scrollTop += el.getBoundingClientRect().top - y;
   }, [n, y]);
+
+// .venv sans ipykernel : Atelier prend alors son noyau de secours
+// (atelier_noyau.py). On relie les paquets du .venv principal, sauf
+// ipykernel et IPython, pour reproduire un environnement de calcul simple.
+const BLOQUES = /^(ipykernel|ipython|comm|debugpy|jupyter|matplotlib_inline)/i;
+function prepareVenvSansIpykernel(project: string) {
+  const venv = path.join(project, ".venv");
+  spawnSync(python, ["-m", "venv", "--without-pip", venv], { stdio: "inherit" });
+  const lib = (py: string) =>
+    spawnSync(py, ["-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"], { encoding: "utf8" }).stdout.trim();
+  const source = lib(python);
+  const dest = lib(path.join(venv, "bin/python"));
+  for (const name of fs.readdirSync(source)) {
+    if (BLOQUES.test(name) || fs.existsSync(path.join(dest, name))) continue;
+    fs.symlinkSync(path.join(source, name), path.join(dest, name));
+  }
+}
+
+const S = { nu: 1, html: 2, montre: 3, ouverte: 4, repr: 5, muet: 6, coquille: 7 };
+function cahierSecours() {
+  return {
+    nbformat: 4, nbformat_minor: 5,
+    metadata: { kernelspec: { name: "python3", display_name: "Python 3", language: "python" } },
+    cells: [
+      code("display('bonjour display')"),
+      code("from IPython.display import HTML, Markdown\ndisplay(HTML('<b id=\"riche\">gras</b>'))\ndisplay(Markdown('*penché*'))"),
+      code("%matplotlib inline\nimport matplotlib.pyplot as plt\nplt.plot([0, 1], [0.6, 0.5])\nplt.show()\nprint('après show')"),
+      code("fig, ax = plt.subplots()\nax.plot([1, 2, 3])\nprint('figure ouverte')"),
+      code("class Tableau:\n    def _repr_html_(self):\n        return '<table id=\"tab\"><tr><td>1</td></tr></table>'\nTableau()"),
+      code("1 + 1;"),
+      code("!echo coquille"),
+    ],
+  };
+}
+
+async function campagneSecours(browser: import("@playwright/test").Browser, vitePort: number, port: number, work: string, errors: string[]) {
+  const project = path.join(work, "projet-secours");
+  fs.mkdirSync(project, { recursive: true });
+  const nbPath = path.join(project, "secours.ipynb");
+  fs.writeFileSync(nbPath, JSON.stringify(cahierSecours(), null, 1));
+  prepareVenvSansIpykernel(project);
+  const sp = spawnSync(path.join(project, ".venv/bin/python"), ["-c", "import IPython"], { stdio: "ignore" });
+  check("secours : .venv sans IPython", sp.status !== 0);
+
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  page.on("pageerror", (e) => errors.push(e.message));
+  const q = new URLSearchParams({ port: String(port), token: TOKEN, path: nbPath, root: project, theme: "dark", noanchor: "1" });
+  await page.goto(`http://localhost:${vitePort}/tests/notebook-e2e/harness.html?${q}`);
+  await page.waitForSelector(".nb-cell[data-cell-index]", { timeout: 30000 });
+  try {
+    await run(page, S.nu);
+    check("secours : display() sans import", await until(async () => (await outputs(page, S.nu)).includes("'bonjour display'"), 90000), (await outputs(page, S.nu)).slice(0, 120));
+    await run(page, S.html);
+    check("secours : display(HTML) rendu", await until(async () => (await cell(page, S.html).locator("b#riche").count()) > 0, 15000), (await outputs(page, S.html)).slice(0, 120));
+    check("secours : display(Markdown) rendu", (await cell(page, S.html).locator(".nb-outputs em").count()) > 0);
+    await run(page, S.montre);
+    const montre = await until(async () => (await outputs(page, S.montre)).includes("après show"), 60000);
+    const imgs = await cell(page, S.montre).locator("img").count();
+    const ordre = await cell(page, S.montre).evaluate((el) => {
+      const img = el.querySelector(".nb-outputs img");
+      const txt = [...el.querySelectorAll(".nb-outputs *")].find((n) => n.children.length === 0 && n.textContent?.includes("après show"));
+      return !!img && !!txt && !!(img.compareDocumentPosition(txt) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    check("secours : plt.show() en ligne, avant le texte qui suit", montre && imgs === 1 && ordre, `${imgs} image(s)`);
+    await run(page, S.ouverte);
+    await until(async () => (await outputs(page, S.ouverte)).includes("figure ouverte"), 15000);
+    check("secours : figure ouverte affichée en fin de cellule", await until(async () => (await cell(page, S.ouverte).locator("img").count()) === 1, 15000));
+    await run(page, S.repr);
+    check("secours : _repr_html_ rendu", await until(async () => (await cell(page, S.repr).locator("table#tab").count()) > 0, 15000), (await outputs(page, S.repr)).slice(0, 120));
+    await run(page, S.muet);
+    await until(async () => (await count(page, S.muet)).trim() !== "", 15000);
+    check("secours : « ; » masque le résultat", !(await outputs(page, S.muet)).includes("2"), (await outputs(page, S.muet)).slice(0, 60));
+    await run(page, S.coquille);
+    check("secours : !commande", await until(async () => (await outputs(page, S.coquille)).includes("coquille"), 15000), (await outputs(page, S.coquille)).slice(0, 120));
+    await page.screenshot({ path: path.join(work, "secours.png"), fullPage: true });
+  } finally {
+    await page.close();
+  }
+}
 
 async function main() {
   const bin = serverBinary();
@@ -184,6 +264,8 @@ async function main() {
       const fig = await until(async () => (await cell(page, C.figure).locator("img").count()) > 0, 60000);
       check("figure matplotlib rendue", fig, fig ? "" : (await outputs(page, C.figure)).slice(0, 120));
     } else skip("figure matplotlib rendue", "matplotlib absent");
+    await run(page, C.display);
+    check("display(HTML) rendu", await until(async () => (await cell(page, C.display).locator("b#riche").count()) > 0, 15000), (await outputs(page, C.display)).slice(0, 120));
 
     // 5. La vue reste sur la cellule relancée (Mac : pas d'ancrage natif).
     await place(page, C.long, 250);
@@ -259,8 +341,14 @@ async function main() {
     await page.waitForTimeout(3000);
     check("Tout exécuter : s'arrête à la cellule en erreur", (await count(page, C.last)) === lastBefore && (await outputs(page, C.print)).includes("y = 42"));
 
-    check("aucune erreur JavaScript", errors.length === 0, errors.slice(0, 2).join(" | "));
     await page.screenshot({ path: path.join(work, "fin.png") });
+
+    // 11. Noyau de secours (.venv sans ipykernel ni IPython, comme chez
+    // Thierry) : display, rendus riches, figures en ligne, !commande.
+    if (pythonHas("matplotlib")) await campagneSecours(browser, vitePort, port, work, errors);
+    else skip("noyau de secours", "matplotlib absent");
+
+    check("aucune erreur JavaScript", errors.length === 0, errors.slice(0, 2).join(" | "));
     console.log(`\ntraces : ${work}`);
   } finally {
     await browser.close();

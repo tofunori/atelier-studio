@@ -525,3 +525,106 @@ async fn un_noyau_fauche_pour_inactivite_previent_a_la_cellule_suivante() {
     assert!(r.warning.as_deref().unwrap().contains("noyau neuf"));
     relance.shutdown_all().await;
 }
+
+/// Pilote en mode riche (cahier sans ipykernel) : display(), IPython.display
+/// (vrai ou réduit), résultat envoyé comme sortie riche, « ; », !commande.
+/// Et en mode simple (outil Python du chat), display() écrit son texte.
+#[test]
+fn le_pilote_riche_imite_ipython() {
+    use std::io::{BufRead, BufReader, Write};
+    let Some(py) = python() else {
+        eprintln!("pas de python3 : test sauté");
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let pilote = dir.path().join("atelier_noyau.py");
+    std::fs::write(&pilote, atelier_kernel::DRIVER_SOURCE).unwrap();
+    let mut enfant = std::process::Command::new(py)
+        .arg("-u")
+        .arg(&pilote)
+        .current_dir(dir.path())
+        .env("MPLBACKEND", "module://atelier_inline")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut entree = enfant.stdin.take().unwrap();
+    let mut sortie = BufReader::new(enfant.stdout.take().unwrap()).lines();
+    let mut lire = move || -> serde_json::Value {
+        serde_json::from_str(&sortie.next().unwrap().unwrap()).unwrap()
+    };
+    assert_eq!(lire()["t"], "ready");
+    let mut cellule = |id: u64, code: &str, riche: bool| -> Vec<serde_json::Value> {
+        let req = serde_json::json!({ "op": "exec", "id": id, "code": code, "rich": riche });
+        writeln!(entree, "{req}").unwrap();
+        let mut messages = Vec::new();
+        loop {
+            let m = lire();
+            let fini = m["t"] == "done";
+            messages.push(m);
+            if fini {
+                return messages;
+            }
+        }
+    };
+    let affichages = |ms: &[serde_json::Value]| -> Vec<serde_json::Value> {
+        ms.iter().filter(|m| m["t"] == "display").cloned().collect()
+    };
+    let texte = |ms: &[serde_json::Value]| -> String {
+        ms.iter()
+            .filter(|m| m["t"] == "stream")
+            .filter_map(|m| m["text"].as_str())
+            .collect()
+    };
+
+    let ms = cellule(1, "display('a')", true);
+    let d = affichages(&ms);
+    assert_eq!(d.len(), 1, "{ms:?}");
+    assert_eq!(d[0]["data"]["text/plain"], "'a'");
+    assert_eq!(ms.last().unwrap()["status"], "ok");
+
+    let ms = cellule(
+        2,
+        "from IPython.display import HTML\ndisplay(HTML('<b>x</b>'))",
+        true,
+    );
+    let d = affichages(&ms);
+    assert_eq!(d.len(), 1, "{ms:?}");
+    assert_eq!(d[0]["data"]["text/html"], "<b>x</b>");
+
+    let ms = cellule(
+        3,
+        "class T:\n    def _repr_html_(self):\n        return '<i>t</i>'\nT()",
+        true,
+    );
+    let d = affichages(&ms);
+    assert_eq!(d.len(), 1, "{ms:?}");
+    assert_eq!(d[0]["result"], true);
+    assert_eq!(d[0]["data"]["text/html"], "<i>t</i>");
+
+    let ms = cellule(4, "1 + 1;", true);
+    assert!(affichages(&ms).is_empty(), "{ms:?}");
+    assert!(ms.last().unwrap()["result"].is_null(), "{ms:?}");
+
+    let ms = cellule(5, "!echo coquille", true);
+    assert_eq!(texte(&ms).trim(), "coquille", "{ms:?}");
+
+    let ms = cellule(6, "%timeit 1", true);
+    let fin = ms.last().unwrap();
+    assert_eq!(fin["status"], "error");
+    assert!(
+        fin["error"]["evalue"]
+            .as_str()
+            .unwrap()
+            .contains("ipykernel"),
+        "{fin}"
+    );
+
+    // Mode simple (chat) : display() écrit dans la sortie, sans message riche.
+    let ms = cellule(7, "display('b')", false);
+    assert!(affichages(&ms).is_empty(), "{ms:?}");
+    assert_eq!(texte(&ms), "'b'\n");
+
+    let _ = enfant.kill();
+}
