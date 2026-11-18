@@ -225,7 +225,9 @@ function NotebookSelectionBar({
     <div
       ref={hostRef}
       className="sel-toolbar kernel-selection"
-      style={{ left: picked.caret.left, top: picked.caret.bottom + 10 }}
+      // Position calculée comme les éditeurs (bord gauche), pas centrée par
+      // le translateX(-50 %) de .sel-toolbar.
+      style={{ left: picked.caret.left, top: picked.caret.bottom + 10, transform: "none" }}
     />
   );
 }
