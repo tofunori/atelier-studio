@@ -75,7 +75,8 @@ pub async fn orca_native_fullscreen(
             json!({"ok": false, "error": "not a supported project image"}),
         );
     }
-    let mut cmd = Command::new("open");
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut cmd = Command::new(opener);
     cmd.arg(&path)
         .current_dir(&state.root)
         .stdin(Stdio::null())

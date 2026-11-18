@@ -506,6 +506,22 @@ async fn compile_document(root: &Path, force: bool) -> Value {
         cmd.args(latexmk_args(&basename, force));
     } else {
         cmd.args(tectonic_args(&basename));
+        #[cfg(target_os = "linux")]
+        if std::env::var_os("SSL_CERT_FILE").is_none() {
+            // Le binaire statique tectonic-*-linux-musl cherche /etc/ssl/cert.pem
+            // (absent sur Ubuntu/Debian/Fedora), ce qui fait échouer le TLS du bundle TeX.
+            for candidate in [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/ca-bundle.pem",
+                "/etc/ssl/cert.pem",
+            ] {
+                if Path::new(candidate).is_file() {
+                    cmd.env("SSL_CERT_FILE", candidate);
+                    break;
+                }
+            }
+        }
     }
     cmd.current_dir(cwd)
         .stdout(Stdio::piped())

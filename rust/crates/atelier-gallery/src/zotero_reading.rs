@@ -20,8 +20,14 @@ fn store_path() -> Result<PathBuf, String> {
         .filter(|dir| !dir.is_empty())
         .map(PathBuf::from)
         .or_else(|| {
-            std::env::var_os("HOME")
-                .map(|home| PathBuf::from(home).join("Library/Application Support/atelier-studio"))
+            std::env::var_os("HOME").map(|home| {
+                let sub = if cfg!(target_os = "macos") {
+                    "Library/Application Support/atelier-studio"
+                } else {
+                    ".local/share/atelier-studio"
+                };
+                PathBuf::from(home).join(sub)
+            })
         })
         .ok_or("Atelier data directory unavailable")?;
     Ok(app_dir.join("zotero-read.json"))

@@ -75,7 +75,14 @@ pub fn app_dir() -> PathBuf {
         .ok()
         .filter(|s| !s.is_empty())
         .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join("Library/Application Support/atelier-studio"))
+        .unwrap_or_else(|| {
+            let sub = if cfg!(target_os = "macos") {
+                "Library/Application Support/atelier-studio"
+            } else {
+                ".local/share/atelier-studio"
+            };
+            home_dir().join(sub)
+        })
 }
 
 pub fn file_path(app_dir: &Path) -> PathBuf {

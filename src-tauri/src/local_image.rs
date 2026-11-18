@@ -64,8 +64,7 @@ fn read_image_bytes(path: &str) -> Result<Vec<u8>, String> {
 #[tauri::command]
 pub async fn local_image_save_to_gallery(path: String, thread_id: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let directory = dirs::home_dir().ok_or("Dossier utilisateur introuvable")?
-            .join("Library/Application Support/atelier-studio");
+        let directory = crate::atelier_data_dir().ok_or("Dossier utilisateur introuvable")?;
         let threads = atelier_store::ThreadStore::open(directory.join("threads.json"));
         let thread = threads.get(&thread_id).ok_or("Conversation introuvable")?;
         if thread.project_root.is_empty() { return Err("Ce chat n’est associé à aucun projet".into()); }

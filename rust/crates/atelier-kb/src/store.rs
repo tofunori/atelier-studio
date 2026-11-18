@@ -32,7 +32,11 @@ const TABLE_EXTS: &[&str] = &[".csv", ".tsv"];
 /// défaut `~/Library/Application Support/atelier-studio/knowledge`.
 pub fn default_knowledge_dir() -> PathBuf {
     let app_dir = std::env::var("ATELIER_APP_DIR").ok().filter(|s| !s.is_empty()).map(PathBuf::from).unwrap_or_else(|| {
-        dirs_home().join("Library").join("Application Support").join("atelier-studio")
+        if cfg!(target_os = "macos") {
+            dirs_home().join("Library").join("Application Support").join("atelier-studio")
+        } else {
+            dirs_home().join(".local").join("share").join("atelier-studio")
+        }
     });
     app_dir.join("knowledge")
 }

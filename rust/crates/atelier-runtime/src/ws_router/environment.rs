@@ -11,11 +11,20 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+const LINUX_CODEX_INSTALL: &str = r#"mkdir -p "$HOME/.local/bin" && A="$(uname -m)-unknown-linux-musl" && curl -fsSL "https://github.com/openai/codex/releases/latest/download/codex-${A}.tar.gz" | tar -xzO "codex-${A}" > "$HOME/.local/bin/codex" && chmod +x "$HOME/.local/bin/codex""#;
+
 /// Installation officielle des CLI d'agents (premier lancement).
 pub(super) fn agent_install_command(id: &str) -> Option<&'static str> {
     match id {
         "claude" => Some("curl -fsSL https://claude.ai/install.sh | bash"),
-        "codex" => Some("brew install --cask codex"),
+        "codex" => {
+            if cfg!(target_os = "macos") {
+                Some("brew install --cask codex")
+            } else {
+                Some(LINUX_CODEX_INSTALL)
+            }
+        }
+        "opencode" => Some("curl -fsSL https://opencode.ai/install | bash"),
         // antigravity.google/docs/cli : installe `agy` dans ~/.local/bin.
         "antigravity" => Some("curl -fsSL https://antigravity.google/cli/install.sh | bash"),
         _ => None,
@@ -23,6 +32,18 @@ pub(super) fn agent_install_command(id: &str) -> Option<&'static str> {
 }
 
 const HOMEBREW_INSTALL: &str = r#"/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)""#;
+
+fn linux_tex_install_command() -> Option<&'static str> {
+    if Path::new("/usr/bin/apt-get").is_file() {
+        Some("sudo apt install -y latexmk texlive-latex-extra texlive-science texlive-bibtex-extra biber texlive-lang-french")
+    } else if Path::new("/usr/bin/dnf").is_file() {
+        Some("sudo dnf install -y latexmk texlive-scheme-medium biber")
+    } else if Path::new("/usr/bin/pacman").is_file() {
+        Some("sudo pacman -S --needed latexmk texlive-latexextra texlive-science biber")
+    } else {
+        None
+    }
+}
 
 /// Dossiers fouillés après le PATH : l'app lancée depuis le Finder n'a pas
 /// toujours ceux de Homebrew ni de MacTeX.
@@ -43,6 +64,10 @@ impl ProbeContext {
         let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
             .map(|path| std::env::split_paths(&path).collect())
             .unwrap_or_default();
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            dirs.push(home.join(".local/bin"));
+            dirs.push(home.join(".opencode/bin"));
+        }
         dirs.extend(EXTRA_DIRS.iter().map(PathBuf::from));
         let command_line_tools = cfg!(target_os = "macos").then(|| {
             std::process::Command::new("xcode-select")
@@ -124,30 +149,46 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
     };
 
     let zotero_found = ctx.zotero_dir.join("zotero.sqlite").is_file();
+    let is_macos_like = ctx.command_line_tools.is_some();
 
-    vec![
-        tool(
+    let mut out = Vec::new();
+    if is_macos_like {
+        out.push(tool(
             "homebrew",
             brew.as_deref(),
             brew.is_some(),
             None,
             Some(HOMEBREW_INSTALL),
             "https://brew.sh",
-        ),
+        ));
+    }
+    out.extend([
         tool(
             "git",
             git.as_deref(),
             git.is_some(),
             None,
-            Some("xcode-select --install"),
-            "https://developer.apple.com/xcode/resources/",
+            Some(if is_macos_like {
+                "xcode-select --install"
+            } else {
+                "sudo apt install -y git"
+            }),
+            if is_macos_like {
+                "https://developer.apple.com/xcode/resources/"
+            } else {
+                "https://git-scm.com/download/linux"
+            },
         ),
         tool(
             "tex",
             tex.as_deref(),
             tex.is_some(),
             Some(tex_variant),
-            None,
+            if !is_macos_like && tex_variant != "latexmk" {
+                linux_tex_install_command()
+            } else {
+                None
+            },
             "https://tectonic-typesetting.github.io/",
         ),
         tool(
@@ -158,7 +199,8 @@ fn probe_tools(ctx: &ProbeContext) -> Vec<Value> {
             None,
             "https://www.zotero.org/download/",
         ),
-    ]
+    ]);
+    out
 }
 
 /// `environmentStatus` : relu à chaque demande (quelques `stat`, un
@@ -280,9 +322,19 @@ mod tests {
         assert!(agent_install_command("claude")
             .unwrap()
             .contains("https://claude.ai/install.sh"));
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                agent_install_command("codex"),
+                Some("brew install --cask codex")
+            );
+        } else {
+            assert!(agent_install_command("codex")
+                .unwrap()
+                .contains("openai/codex/releases/latest"));
+        }
         assert_eq!(
-            agent_install_command("codex"),
-            Some("brew install --cask codex")
+            agent_install_command("opencode"),
+            Some("curl -fsSL https://opencode.ai/install | bash")
         );
         assert_eq!(
             agent_install_command("antigravity"),

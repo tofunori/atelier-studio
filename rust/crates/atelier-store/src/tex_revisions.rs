@@ -65,10 +65,15 @@ pub fn default_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ATELIER_APP_DIR").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
     }
+    let sub = if cfg!(target_os = "macos") {
+        "Library/Application Support/atelier-studio"
+    } else {
+        ".local/share/atelier-studio"
+    };
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
-        .join("Library/Application Support/atelier-studio")
+        .join(sub)
 }
 
 pub fn store_path(dir: &Path) -> PathBuf {

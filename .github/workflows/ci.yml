@@ -87,6 +87,55 @@ jobs:
             playwright-report
           if-no-files-found: ignore
 
+  # Linux (règle de Thierry, 2026-11-18 : chaque modification doit marcher sur
+  # Mac ET sur Linux). Mêmes tests Rust que `verify` (app Tauri, protocole,
+  # espace rust/), compilés et lancés sous Ubuntu avec WebKitGTK : un appel
+  # propre au Mac sans équivalent Linux casse ce job dès la PR.
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux Tauri dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential file xdg-utils rsync \
+            libssl-dev libxdo-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            gallery/package-lock.json
+            gallery/notes-src/package-lock.json
+            gallery/whiteboard-src/package-lock.json
+            packages/atelier-protocol/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            rust
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Fetch PDFium
+        run: bash scripts/fetch-pdfium.sh
+      - name: Install npm dependencies
+        run: |
+          npm ci
+          npm --prefix gallery ci
+          npm --prefix gallery/notes-src ci
+          npm --prefix gallery/whiteboard-src ci
+          npm --prefix packages/atelier-protocol ci
+      - name: Stage bundled resources and build the web UI
+        run: |
+          bash scripts/stage-gallery.sh
+          bash scripts/stage-appsnap.sh
+          npm run build:web
+      - name: Rust tests on Linux (app, protocol, rust/ workspace)
+        run: npm run test:rust-all
+
   # App iPhone SwiftUI (mobile-native/). Swift ne compile pas sur Linux : ce job
   # est la seule vérification automatique du client mobile. Indépendant de
   # `verify` : un échec de l'un ne masque pas l'autre.

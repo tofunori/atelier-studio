@@ -130,11 +130,19 @@ pub fn parse_lock(raw: &str) -> Result<(u16, String), String> {
 
 fn default_lock_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
-    Path::new(&home)
-        .join("Library")
-        .join("Application Support")
-        .join("atelier-studio")
-        .join("sidecar.lock")
+    if cfg!(target_os = "macos") {
+        Path::new(&home)
+            .join("Library")
+            .join("Application Support")
+            .join("atelier-studio")
+            .join("sidecar.lock")
+    } else {
+        Path::new(&home)
+            .join(".local")
+            .join("share")
+            .join("atelier-studio")
+            .join("sidecar.lock")
+    }
 }
 
 /// UUID v4 sans dépendance dédiée (le serveur ne l'utilise que comme

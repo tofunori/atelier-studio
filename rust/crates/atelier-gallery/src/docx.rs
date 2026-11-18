@@ -452,9 +452,15 @@ fn word_command(path: &Path) -> tokio::process::Command {
             cmd
         }
         None => {
-            let mut cmd = tokio::process::Command::new("open");
-            cmd.args(["-b", "com.microsoft.Word"]).arg(path);
-            cmd
+            if cfg!(target_os = "macos") {
+                let mut cmd = tokio::process::Command::new("open");
+                cmd.args(["-b", "com.microsoft.Word"]).arg(path);
+                cmd
+            } else {
+                let mut cmd = tokio::process::Command::new("xdg-open");
+                cmd.arg(path);
+                cmd
+            }
         }
     }
 }
@@ -1291,9 +1297,15 @@ mod tests {
         let cmd = word_command(Path::new("/tmp/a b.docx"));
         let std = cmd.as_std();
         if std::env::var_os("ATELIER_WORD_OPENER").is_none() {
-            assert_eq!(std.get_program(), "open");
             let args: Vec<_> = std.get_args().collect();
-            assert_eq!(args, ["-b", "com.microsoft.Word", "/tmp/a b.docx"]);
+            if cfg!(target_os = "macos") {
+                assert_eq!(std.get_program(), "open");
+                assert_eq!(args, ["-b", "com.microsoft.Word", "/tmp/a b.docx"]);
+            } else {
+                // Hors Mac : l'application associée aux .docx (LibreOffice, Word en ligne…).
+                assert_eq!(std.get_program(), "xdg-open");
+                assert_eq!(args, ["/tmp/a b.docx"]);
+            }
         }
         assert!(word_missing("LSOpenURLsWithRole() failed… Unable to find application with identifier com.microsoft.Word"));
         assert!(!word_missing(""));

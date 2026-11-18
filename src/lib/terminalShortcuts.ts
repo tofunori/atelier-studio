@@ -25,6 +25,25 @@ type TerminalKeyEvent = Pick<
  * etc. `key` remains a fallback for bracket navigation generated with Option.
  */
 export function terminalShortcutFor(event: TerminalKeyEvent): TerminalShortcut | null {
+  // Linux/Windows standard terminal chord: Ctrl+Shift+<Key> leaves plain Ctrl+<Key> for shell signals.
+  if (!event.metaKey && event.ctrlKey && event.shiftKey && !event.altKey) {
+    switch (event.code) {
+      case "KeyC": return { kind: "copy" };
+      case "KeyV": return { kind: "paste" };
+      case "KeyT": return { kind: "new-tab" };
+      case "KeyW": return { kind: "close-tab" };
+      case "KeyD": return { kind: "split-vertical" };
+      case "KeyK": return { kind: "clear" };
+      case "Equal":
+      case "NumpadAdd": return { kind: "font-increase" };
+      case "Minus":
+      case "NumpadSubtract": return { kind: "font-decrease" };
+      case "BracketLeft": return { kind: "previous-tab" };
+      case "BracketRight": return { kind: "next-tab" };
+      default: return null;
+    }
+  }
+
   if (!event.metaKey || event.ctrlKey) return null;
 
   const digit = /^Digit([1-9])$/.exec(event.code);

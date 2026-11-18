@@ -140,10 +140,15 @@ fn project_key(root: &Path) -> String {
 }
 
 fn paths(root: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let sub = if cfg!(target_os = "macos") {
+        "Library/Application Support/Atelier/agent-inbox"
+    } else {
+        ".local/share/Atelier/agent-inbox"
+    };
     let base = env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("Library/Application Support/Atelier/agent-inbox");
+        .join(sub);
     let key = project_key(root);
     (
         base.join(format!("{key}.json")),

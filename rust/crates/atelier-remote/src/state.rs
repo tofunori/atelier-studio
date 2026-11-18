@@ -40,7 +40,11 @@ impl Default for GatewayConfig {
         let codex_home = std::env::var_os("CODEX_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(&home).join(".codex"));
-        let atelier = PathBuf::from(format!("{home}/Library/Application Support/atelier-studio"));
+        let atelier = if cfg!(target_os = "macos") {
+            PathBuf::from(format!("{home}/Library/Application Support/atelier-studio"))
+        } else {
+            PathBuf::from(format!("{home}/.local/share/atelier-studio"))
+        };
         Self {
             data_dir: atelier.join("remote"),
             atelier_dir: atelier,

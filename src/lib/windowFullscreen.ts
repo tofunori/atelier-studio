@@ -9,6 +9,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
  */
 export function trackWindowFullscreen(root: HTMLElement = document.documentElement): () => void {
   if (!isTauri()) return () => {};
+  if (typeof navigator !== "undefined" && !/Mac/i.test(navigator.platform)) {
+    root.setAttribute("data-no-traffic-lights", "");
+  }
   const appWindow = getCurrentWindow();
   let disposed = false;
   let unlisten: (() => void) | null = null;

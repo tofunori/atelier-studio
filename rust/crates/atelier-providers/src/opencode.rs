@@ -30,6 +30,8 @@ struct AcpState {
     loaded_sessions: HashMap<String, u64>,
     /// sessionId → dernier modelId aligné/connu (currentValue de session/new).
     session_model: HashMap<String, String>,
+    /// sessionId → ensemble des modelId annoncés dans configOptions (quand non vide).
+    session_options: HashMap<String, HashSet<String>>,
 }
 
 struct CachedModelCatalog {
@@ -47,29 +49,235 @@ const MODEL_CATALOG_TTL: Duration = Duration::from_secs(5 * 60);
 const MODEL_CATALOG_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_CATALOG_MODELS: usize = 5_000;
 
-/// Itère les lignes valides d'une sortie `opencode models` : non vides, avec
-/// un slash, sans espace ni `://`, pas trop longues, dédoublonnées et
-/// plafonnées à `MAX_CATALOG_MODELS`. Partagé par `parse_model_catalog` et
-/// `parse_routed_models` pour que les deux vues du catalogue ne puissent
-/// jamais diverger.
+fn is_valid_route_line(line: &str) -> bool {
+    !line.is_empty()
+        && line.len() <= 512
+        && line.contains('/')
+        && !line.contains("://")
+        && !line.chars().any(char::is_whitespace)
+        && !line.starts_with(['{', '}', '"', '[', ']'])
+}
+
+/// Itère les lignes valides d'une sortie `opencode models` (simple ou `--verbose`) :
+/// non vides, hors blocs JSON, avec un slash, sans espace ni `://`, pas trop
+/// longues, dédoublonnées et plafonnées à `MAX_CATALOG_MODELS`. Partagé par
+/// `parse_model_catalog` et `parse_routed_models` pour que les deux vues du
+/// catalogue ne puissent jamais diverger.
 fn filtered_catalog_lines(output: &str) -> impl Iterator<Item = &str> {
     let mut seen = HashSet::new();
+    let mut json_depth: usize = 0;
+    let mut in_str = false;
+    let mut esc = false;
     output
         .lines()
-        .map(str::trim)
-        .filter(|line| {
-            !line.is_empty()
-                && line.len() <= 512
-                && line.contains('/')
-                && !line.contains("://")
-                && !line.chars().any(char::is_whitespace)
+        .filter_map(move |raw_line| {
+            let trimmed = raw_line.trim();
+            if json_depth > 0 || trimmed == "{" {
+                for ch in raw_line.chars() {
+                    if in_str {
+                        if esc {
+                            esc = false;
+                        } else if ch == '\\' {
+                            esc = true;
+                        } else if ch == '"' {
+                            in_str = false;
+                        }
+                    } else if ch == '"' {
+                        in_str = true;
+                    } else if ch == '{' {
+                        json_depth += 1;
+                    } else if ch == '}' {
+                        json_depth = json_depth.saturating_sub(1);
+                    }
+                }
+                return None;
+            }
+            Some(trimmed)
         })
+        .filter(|line| is_valid_route_line(line))
         .filter(move |line| seen.insert(*line))
         .take(MAX_CATALOG_MODELS)
 }
 
 fn parse_model_catalog(output: &str) -> Vec<String> {
     filtered_catalog_lines(output).map(str::to_string).collect()
+}
+
+/// Extrait les métadonnées JSON par route depuis `opencode models --verbose`.
+/// Chaque entrée est composée d'une ligne de route suivie d'un objet `{ ... }`.
+fn parse_verbose_metadata(output: &str) -> HashMap<String, Value> {
+    let lines: Vec<&str> = output.lines().collect();
+    let mut meta = HashMap::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if is_valid_route_line(trimmed) && lines.get(i + 1).is_some_and(|next| next.trim() == "{") {
+            let route = trimmed.to_string();
+            let mut j = i + 1;
+            let mut depth: usize = 0;
+            let mut in_str = false;
+            let mut esc = false;
+            let mut buf = String::new();
+            while j < lines.len() {
+                let line = lines[j];
+                if !buf.is_empty() {
+                    buf.push('\n');
+                }
+                buf.push_str(line);
+                for ch in line.chars() {
+                    if in_str {
+                        if esc {
+                            esc = false;
+                        } else if ch == '\\' {
+                            esc = true;
+                        } else if ch == '"' {
+                            in_str = false;
+                        }
+                    } else if ch == '"' {
+                        in_str = true;
+                    } else if ch == '{' {
+                        depth += 1;
+                    } else if ch == '}' {
+                        depth = depth.saturating_sub(1);
+                    }
+                }
+                j += 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            if let Ok(obj) = serde_json::from_str::<Value>(&buf) {
+                meta.entry(route).or_insert(obj);
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    meta
+}
+
+fn pretty_gateway_suffix(gateway: &str) -> &'static str {
+    match gateway {
+        "opencode-go" => "Go",
+        "kimi-for-coding" | "kimi-code-plan-global" | "kimi-code-plan-cn" => "For Coding",
+        "openrouter" => "OpenRouter",
+        "anthropic" => "Anthropic",
+        "openai" => "OpenAI",
+        "opencode" => "Zen",
+        _ => "",
+    }
+}
+
+fn is_zero_cost(meta: &Value) -> bool {
+    let Some(cost) = meta.get("cost") else {
+        return false;
+    };
+    let input = cost.get("input").and_then(Value::as_f64);
+    let output = cost.get("output").and_then(Value::as_f64);
+    matches!((input, output), (Some(i), Some(o)) if i == 0.0 && o == 0.0)
+}
+
+fn extract_supported_efforts(meta: &Value) -> Option<Vec<String>> {
+    let variants = meta.get("variants")?.as_object()?;
+    let canonical = ["minimal", "low", "medium", "high", "xhigh", "max"];
+    let mut ordered: Vec<String> = canonical
+        .iter()
+        .filter(|&&lvl| variants.contains_key(lvl))
+        .map(|&lvl| lvl.to_string())
+        .collect();
+    for k in variants.keys() {
+        if !ordered.iter().any(|existing| existing == k) {
+            ordered.push(k.clone());
+        }
+    }
+    Some(ordered)
+}
+
+/// Choisit un `defaultModel` garanti présent dans `models` :
+/// 1) modèle explicitement configuré dans `~/.config/opencode/opencode.json(c)` ;
+/// 2) `fallback` historique (`opencode-go/kimi-k3`) s'il est disponible ;
+/// 3) meilleur modèle authentifié non-gratuit (`opencode-go/*` d'abord, puis autres) ;
+/// 4) meilleur modèle gratuit disponible (`opencode/*-free`, `big-pickle`, etc.).
+fn choose_default_model(models: &[String], configured: Option<&str>, fallback: &str) -> String {
+    if models.is_empty() {
+        return fallback.to_string();
+    }
+    let has = |candidate: &str| models.iter().any(|m| m == candidate);
+    if let Some(cfg) = configured.map(str::trim).filter(|s| !s.is_empty()) {
+        if has(cfg) {
+            return cfg.to_string();
+        }
+    }
+    if has(fallback) {
+        return fallback.to_string();
+    }
+    const PREFERRED_PAID: &[&str] = &[
+        "opencode-go/kimi-k3.1-pro",
+        "opencode-go/glm-5.3",
+        "opencode-go/gpt-6-luna",
+        "opencode-go/gemini-4-argon",
+        "opencode-go/grok-4.7",
+        "opencode-go/deepseek-v4-pro",
+        "opencode-go/minimax-m3",
+    ];
+    for &cand in PREFERRED_PAID {
+        if has(cand) {
+            return cand.to_string();
+        }
+    }
+    let is_free_id = |id: &str| {
+        id.ends_with("-free") || id.ends_with(":free") || id == "opencode/big-pickle"
+    };
+    if let Some(go_paid) = models
+        .iter()
+        .find(|id| id.starts_with("opencode-go/") && !is_free_id(id))
+    {
+        return go_paid.clone();
+    }
+    if let Some(any_paid) = models.iter().find(|id| !is_free_id(id)) {
+        return any_paid.clone();
+    }
+    const PREFERRED_FREE: &[&str] = &[
+        "opencode/deepseek-v4.1-flash-free",
+        "opencode/mimo-v2.6-flash-free",
+        "opencode/nemotron-3.5-super-vl-free",
+        "opencode/big-pickle",
+    ];
+    for &cand in PREFERRED_FREE {
+        if has(cand) {
+            return cand.to_string();
+        }
+    }
+    models[0].clone()
+}
+
+fn read_configured_opencode_model() -> Option<String> {
+    let config_root = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    let dir = config_root.join("opencode");
+    for name in ["opencode.json", "opencode.jsonc"] {
+        let path = dir.join(name);
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let cleaned: String = raw
+            .lines()
+            .map(|l| {
+                let t = l.trim_start();
+                if t.starts_with("//") { "" } else { l }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Ok(val) = serde_json::from_str::<Value>(&cleaned) {
+            if let Some(m) = val.get("model").and_then(Value::as_str).filter(|s| s.contains('/')) {
+                return Some(m.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// Un identifiant de modèle renvoyé par opencode n'est pas un nom de modèle
@@ -123,32 +331,110 @@ fn split_routed_model(id: &str) -> RoutedModel {
 }
 
 pub fn parse_routed_models(output: &str) -> Vec<RoutedModel> {
+    let verbose = parse_verbose_metadata(output);
     filtered_catalog_lines(output)
-        .map(split_routed_model)
+        .map(|line| {
+            let mut r = split_routed_model(line);
+            if !r.free {
+                if let Some(meta) = verbose.get(&r.id) {
+                    if is_zero_cost(meta) {
+                        r.free = true;
+                    }
+                }
+            }
+            r
+        })
         .collect()
 }
 
 /// Construit la charge utile de `dynamic_models` à partir de la sortie brute
-/// d'`opencode models`. Factorisé hors de `dynamic_models` (qui spawn un
-/// process et n'est donc pas testable unitairement) pour que le test exerce
-/// exactement le même chemin de construction.
+/// d'`opencode models` (simple ou `--verbose`). Factorisé hors de `dynamic_models`
+/// pour que le test exerce exactement le même chemin de construction.
 ///
 /// Additif, jamais substitutif : `models` reste le tableau plat de chaînes
-/// déjà consommé par le picker et `Chat.tsx` — **inchangé**. `routes` est un
-/// champ voisin, nouveau, ignorable par tout frontend qui ne le connaît pas
-/// encore.
+/// déjà consommé par le picker et `Chat.tsx` — **inchangé**. `routes`,
+/// `modelLabels` et `modelReasoning` enrichissent l'affichage et les paliers
+/// d'effort modèle par modèle quand `--verbose` est disponible.
 fn build_dynamic_models_payload(output: &str, default_model: &str) -> Option<Value> {
     let models = parse_model_catalog(output);
     if models.is_empty() {
         return None;
     }
     let routes = parse_routed_models(output);
-    Some(json!({
+    let verbose = parse_verbose_metadata(output);
+
+    let mut base_name_counts: HashMap<String, usize> = HashMap::new();
+    let mut clean_names: HashMap<String, String> = HashMap::new();
+    for route in &routes {
+        if let Some(name) = verbose
+            .get(&route.id)
+            .and_then(|m| m.get("name"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let stripped = name.strip_prefix("OpenCode/").unwrap_or(name).trim().to_string();
+            *base_name_counts.entry(stripped.to_lowercase()).or_insert(0) += 1;
+            clean_names.insert(route.id.clone(), stripped);
+        }
+    }
+
+    let mut model_labels = serde_json::Map::new();
+    let mut model_reasoning = serde_json::Map::new();
+
+    for route in &routes {
+        if let Some(base_name) = clean_names.get(&route.id) {
+            let duplicate = base_name_counts
+                .get(&base_name.to_lowercase())
+                .copied()
+                .unwrap_or(0)
+                > 1;
+            let suffix = pretty_gateway_suffix(&route.gateway);
+            let always_tag = matches!(
+                route.gateway.as_str(),
+                "opencode-go" | "kimi-for-coding" | "kimi-code-plan-global" | "kimi-code-plan-cn"
+            );
+            let mut label = if (always_tag || duplicate) && !suffix.is_empty() {
+                format!("{base_name} · {suffix}")
+            } else if duplicate {
+                format!("{base_name} · {}", route.gateway)
+            } else {
+                base_name.clone()
+            };
+            if route.free && !label.to_lowercase().contains("free") && !always_tag {
+                label.push_str(" · Free");
+            }
+            model_labels.insert(route.id.clone(), Value::String(label));
+        }
+
+        if let Some(meta) = verbose.get(&route.id) {
+            if let Some(efforts) = extract_supported_efforts(meta) {
+                let default_effort = if efforts.iter().any(|e| e == "medium") {
+                    "medium"
+                } else {
+                    efforts.first().map(String::as_str).unwrap_or("")
+                };
+                model_reasoning.insert(
+                    route.id.clone(),
+                    json!({
+                        "supported_efforts": efforts,
+                        "default_effort": default_effort,
+                    }),
+                );
+            }
+        }
+    }
+
+    let mut payload = json!({
         "models": models,
         "routes": routes,
         "defaultModel": default_model,
-        "modelReasoning": {}
-    }))
+        "modelReasoning": Value::Object(model_reasoning),
+    });
+    if !model_labels.is_empty() {
+        payload["modelLabels"] = Value::Object(model_labels);
+    }
+    Some(payload)
 }
 
 pub struct OpenCodeProvider {
@@ -235,6 +521,24 @@ fn current_model_of(result: &Value) -> Option<String> {
         .and_then(|o| o.get("currentValue"))
         .and_then(|v| v.as_str())
         .map(str::to_string)
+}
+
+fn session_model_options_of(result: &Value) -> HashSet<String> {
+    result
+        .get("configOptions")
+        .and_then(Value::as_array)
+        .and_then(|arr| {
+            arr.iter()
+                .find(|o| o.get("category").and_then(Value::as_str) == Some("model"))
+        })
+        .and_then(|o| o.get("options"))
+        .and_then(Value::as_array)
+        .map(|opts| {
+            opts.iter()
+                .filter_map(|opt| opt.get("value").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 impl OpenCodeProvider {
@@ -427,6 +731,10 @@ impl OpenCodeProvider {
                     if let Some(m) = current_model_of(&result) {
                         st.session_model.insert(sid.clone(), m);
                     }
+                    let opts = session_model_options_of(&result);
+                    if !opts.is_empty() {
+                        st.session_options.insert(sid.clone(), opts);
+                    }
                     return Ok(sid.clone());
                 }
                 Err(e) => {
@@ -459,6 +767,10 @@ impl OpenCodeProvider {
         if let Some(m) = current_model_of(&result) {
             st.session_model.insert(sid.clone(), m);
         }
+        let opts = session_model_options_of(&result);
+        if !opts.is_empty() {
+            st.session_options.insert(sid.clone(), opts);
+        }
         Ok(sid)
     }
 
@@ -468,8 +780,23 @@ impl OpenCodeProvider {
         let Some(model) = model.filter(|m| !m.is_empty()) else {
             return;
         };
-        let known = self.acp_state.lock().await.session_model.get(sid).cloned();
+        let (known, allowed) = {
+            let st = self.acp_state.lock().await;
+            let known = st.session_model.get(sid).cloned();
+            let allowed = st
+                .session_options
+                .get(sid)
+                .map(|opts| opts.is_empty() || opts.contains(model))
+                .unwrap_or(true);
+            (known, allowed)
+        };
         if known.as_deref() == Some(model) {
+            return;
+        }
+        if !allowed {
+            // Ex. repli statique `opencode-go/kimi-k3` avant que `dynamic_models`
+            // n'ait répondu ou après déconnexion d'une passerelle : conserver le
+            // `currentValue` valide déjà posé par `session/new`.
             return;
         }
         match request_model_alignment(&self.acp, sid, model).await {
@@ -534,12 +861,13 @@ fn resolve_bin() -> Option<PathBuf> {
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from)?;
-    let p = home.join(".opencode/bin/opencode");
-    if p.is_file() {
-        Some(p)
-    } else {
-        None
+    for rel in [".opencode/bin/opencode", ".local/bin/opencode"] {
+        let p = home.join(rel);
+        if p.is_file() {
+            return Some(p);
+        }
     }
+    None
 }
 
 fn map_effort(effort: Option<&str>) -> Option<&'static str> {
@@ -555,6 +883,9 @@ fn map_effort(effort: Option<&str>) -> Option<&'static str> {
 impl Provider for OpenCodeProvider {
     fn id(&self) -> &str {
         "opencode"
+    }
+    async fn setup_probe(&self) -> Option<Value> {
+        Some(crate::cli_login::opencode_probe(&self.bin).await)
     }
     fn label(&self) -> &str {
         "OpenCode"
@@ -604,26 +935,57 @@ impl Provider for OpenCodeProvider {
             }
         }
 
-        let mut command = Command::new(&self.bin);
-        command
-            .arg("models")
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        let output = tokio::time::timeout(MODEL_CATALOG_TIMEOUT, command.output())
-            .await
-            .ok()?
-            .ok()?;
-        if !output.status.success() {
-            return None;
+        // Tente d'abord `--refresh --verbose` pour tirer automatiquement les
+        // nouveaux modèles depuis models.dev + lire les passerelles authentifiées,
+        // avec repli immédiat hors-ligne sur le cache local (`--verbose` puis `models`).
+        let candidates: &[&[&str]] = &[
+            &["models", "--refresh", "--verbose"],
+            &["models", "--verbose"],
+            &["models"],
+        ];
+        let mut raw_catalog: Option<String> = None;
+        for args in candidates {
+            let mut command = Command::new(&self.bin);
+            command
+                .args(*args)
+                .stdin(Stdio::null())
+                .stderr(Stdio::null())
+                .kill_on_drop(true);
+            let Ok(Ok(output)) = tokio::time::timeout(MODEL_CATALOG_TIMEOUT, command.output()).await else {
+                continue;
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let raw = String::from_utf8_lossy(&output.stdout).into_owned();
+            if !parse_model_catalog(&raw).is_empty() {
+                raw_catalog = Some(raw);
+                break;
+            }
         }
-        let raw = String::from_utf8_lossy(&output.stdout);
-        let value = build_dynamic_models_payload(&raw, &self.default_model())?;
+        let raw = raw_catalog?;
+        let available = parse_model_catalog(&raw);
+        let chosen_default = choose_default_model(
+            &available,
+            read_configured_opencode_model().as_deref(),
+            &self.default_model(),
+        );
+        let value = build_dynamic_models_payload(&raw, &chosen_default)?;
         *self.model_catalog.lock().await = Some(CachedModelCatalog {
             fetched_at: Instant::now(),
             value: value.clone(),
         });
         Some(value)
+    }
+
+    async fn invalidate_models(&self) {
+        *self.model_catalog.lock().await = None;
+        // Si aucun tour n'est actif, redémarrer `opencode acp` au prochain envoi
+        // pour qu'il recharge `auth.json` (ex. nouvelle clé OpenCode Go) et
+        // `models.json` rafraîchi.
+        if self.active_turns.lock().await.is_empty() {
+            self.acp.shutdown().await;
+        }
     }
 
     async fn send(&self, req: SendRequest) -> SendResult {
@@ -1413,5 +1775,68 @@ mod tests {
         request_model_alignment(&server, &sid, "grok-test")
             .await
             .expect("session/set_model v1 accepté");
+    }
+
+    #[test]
+    fn verbose_catalog_extrait_labels_efforts_et_cout_gratuit() {
+        let sortie = "\
+Models cache refreshed\n\
+opencode/big-pickle\n\
+{\n\
+  \"id\": \"big-pickle\",\n\
+  \"providerID\": \"opencode\",\n\
+  \"name\": \"Big Pickle\",\n\
+  \"cost\": { \"input\": 0, \"output\": 0 },\n\
+  \"variants\": { \"low\": {}, \"medium\": {}, \"high\": {} }\n\
+}\n\
+opencode-go/gpt-6-luna\n\
+{\n\
+  \"id\": \"gpt-6-luna\",\n\
+  \"providerID\": \"opencode-go\",\n\
+  \"name\": \"GPT-6 Luna\",\n\
+  \"cost\": { \"input\": 2.0, \"output\": 8.0 },\n\
+  \"variants\": { \"high\": {}, \"max\": {} }\n\
+}\n";
+        let chosen = choose_default_model(
+            &parse_model_catalog(sortie),
+            None,
+            "opencode-go/kimi-k3",
+        );
+        assert_eq!(chosen, "opencode-go/gpt-6-luna");
+        let payload = build_dynamic_models_payload(sortie, &chosen).expect("payload");
+        assert_eq!(
+            payload["models"],
+            json!(["opencode/big-pickle", "opencode-go/gpt-6-luna"])
+        );
+        assert_eq!(payload["routes"][0]["free"], json!(true));
+        assert_eq!(payload["routes"][1]["free"], json!(false));
+        assert_eq!(
+            payload["modelLabels"]["opencode/big-pickle"],
+            json!("Big Pickle · Free")
+        );
+        assert_eq!(
+            payload["modelLabels"]["opencode-go/gpt-6-luna"],
+            json!("GPT-6 Luna · Go")
+        );
+        assert_eq!(
+            payload["modelReasoning"]["opencode-go/gpt-6-luna"]["supported_efforts"],
+            json!(["high", "max"])
+        );
+    }
+
+    #[test]
+    fn choose_default_model_evite_une_route_absente_du_catalogue() {
+        let free_only = vec![
+            "opencode/beam-free".to_string(),
+            "opencode/mimo-v2.6-flash-free".to_string(),
+        ];
+        assert_eq!(
+            choose_default_model(&free_only, None, "opencode-go/kimi-k3"),
+            "opencode/mimo-v2.6-flash-free"
+        );
+        assert_eq!(
+            choose_default_model(&free_only, Some("opencode/beam-free"), "opencode-go/kimi-k3"),
+            "opencode/beam-free"
+        );
     }
 }

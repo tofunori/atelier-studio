@@ -3,17 +3,21 @@ import { discussionMarkdownFile, discussionWorkspaceId, isDiscussionRoot, isFree
 import { deriveProjectNavigatorModel } from "../components/sidebar/projectNavigatorModel";
 import { makeThread } from "../test/fixtures";
 const root = "/Users/test/Library/Application Support/atelier-studio/discussions/12345678-1234-4321-abcd-123456789012";
+const linuxRoot = "/home/test/.local/share/atelier-studio/discussions/12345678-1234-4321-abcd-123456789012";
 const other = root.replace("12345678", "87654321");
 describe("Discussions", () => {
   it("recognizes only reserved workspace roots", () => {
     expect(isDiscussionRoot(root)).toBe(true);
-    for (const path of ["/tmp/discussions", root + "/nested", root + "/../escape", "/Users/test/Documents/discussions/12345678", "", null]) {
+    expect(isDiscussionRoot(linuxRoot)).toBe(true);
+    for (const path of ["/tmp/discussions", root + "/nested", linuxRoot + "/nested", root + "/../escape", "/Users/test/Documents/discussions/12345678", "", null]) {
       expect(isDiscussionRoot(path)).toBe(false);
     }
   });
   it("extracts only the managed workspace UUID", () => {
     expect(discussionWorkspaceId(root)).toBe("12345678-1234-4321-abcd-123456789012");
+    expect(discussionWorkspaceId(linuxRoot)).toBe("12345678-1234-4321-abcd-123456789012");
     expect(discussionWorkspaceId("/Users/test/Library/Application Support/atelier-studio/discussions/not-an-id")).toBeNull();
+    expect(discussionWorkspaceId("/home/test/.local/share/atelier-studio/discussions/not-an-id")).toBeNull();
     expect(discussionWorkspaceId(`${root}/nested`)).toBeNull();
   });
   it("keeps legacy free threads separate from linked children", () => {

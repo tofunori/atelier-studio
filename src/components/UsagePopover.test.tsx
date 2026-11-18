@@ -28,3 +28,21 @@ it('keeps usage received before first mount and updates while closed', () => {
   expect(wsSend).not.toHaveBeenCalled();
   view.unmount();
 });
+
+it('displays OpenCode token, turn and cost usage', () => {
+  writeUsageSnapshot({
+    providers: {
+      opencode: {
+        kind: 'tokens',
+        ts: Date.now(),
+        data: { input: 120_000, output: 8_000, turns: 5, cost: 0.42, period: 'today' },
+      },
+    },
+    models: { 'opencode-go/gpt-6-luna': { turns: 5, output: 8_000 } },
+  });
+  const view = render(<UsagePopover open onClose={() => {}} />);
+  expect(screen.getByText('OpenCode')).toBeTruthy();
+  expect(screen.getByText(/128 k tok · 5 .* · \$0\.42/)).toBeTruthy();
+  expect(screen.getByText('opencode-go/gpt-6-luna')).toBeTruthy();
+  view.unmount();
+});

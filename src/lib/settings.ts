@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   // Opus · 1M en xhigh reste un choix d'un clic dans le sélecteur. Un profil
   // existant garde ses valeurs enregistrées : aucune promotion ne l'accompagne.
   defaultModel: { claude: "claude-sonnet-5-5", codex: "gpt-5.6-sol" },
-  defaultEffort: { claude: "high", codex: "medium", grok: "high" },
+  defaultEffort: { claude: "high", codex: "medium", grok: "high", opencode: "medium" },
   defaultPermissionMode: "acceptEdits",
   threadOrder: "recent",
   chatFontSize: 13.5,

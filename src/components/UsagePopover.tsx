@@ -107,15 +107,17 @@ function ProviderRow({ name, p }: { name: string; p: ProviderUsage }) {
   }
   if (p?.kind === "tokens") {
     const d = p.data;
+    const costPart = d.cost != null && d.cost > 0 ? ` · $${d.cost.toFixed(2)}` : "";
+    const periodLabel = d.period === "7d" ? t("usage.7d") : t("usage.today");
     return (
       <div className="ur-row">
         <div className="ur-head">
           <span className="ur-name">{name}</span>
           <span className="ur-tok">
-            {fmtTok(d.input + d.output)} tok · {d.turns} {t("usage.turns")}
+            {fmtTok(d.input + d.output)} tok · {d.turns} {t("usage.turns")}{costPart}
           </span>
         </div>
-        <div className="ur-sub"><span>{t("usage.no-quota")}</span></div>
+        <div className="ur-sub"><span>{periodLabel} · {t("usage.no-quota")}</span></div>
       </div>
     );
   }
@@ -156,9 +158,9 @@ export default function UsagePopover({ open, onClose }: { open: boolean; onClose
   const anyData = Object.values(providers).some((p) => p != null && p.kind !== "ledger");
   const models = Object.entries(usage?.models ?? {}).sort((a, b) => b[1].output - a[1].output);
 
-  // ancre = bouton usage du Rail (déclencheur découplé via l'événement
-  // "usage-toggle") ; résolue paresseusement à l'ouverture
-  const anchor = () => document.querySelector<HTMLElement>(".usage-ib");
+  // ancre = bouton usage du pied de colonne ou du Rail (déclencheur découplé
+  // via l'événement "usage-toggle") ; résolue paresseusement à l'ouverture
+  const anchor = () => document.querySelector<HTMLElement>(".scol-usage, .rail-usage, .usage-ib");
 
   return (
     <Popover

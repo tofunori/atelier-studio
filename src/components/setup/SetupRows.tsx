@@ -6,15 +6,20 @@
 // projet est ouvert (App ferme alors ce qui le couvre), sinon elle s'affiche
 // ici, à copier dans Terminal de macOS — c'est le cas du tout premier
 // lancement, sans projet.
-import { useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { X } from "lucide-react";
 import { Row } from "../settings/primitives/Row";
 import { Button, IconButton, StatusBadge, type BadgeStatus } from "../ui";
 import { t } from "../../lib/i18n";
+import { wsReady, wsSend } from "../../lib/wsBus";
 import {
+  OPENCODE_GO_LOGIN_COMMAND,
+  OPENCODE_PROVIDER_LOGIN_COMMAND,
   agentLabel,
+  consumePendingAgentCommand,
   installPlan,
+  recheckAll,
   runSetupCommand,
   withResolvedBinary,
   type EnvironmentTool,
@@ -25,10 +30,16 @@ import {
   type SetupProviderStatus,
 } from "../../lib/setupEnvironment";
 
+const LazyTerminal = lazy(() => import("../Terminal"));
+
 /** Terminal de macOS, ouvert à côté de la commande à coller. */
 export const MACOS_TERMINAL_APP = "/System/Applications/Utilities/Terminal.app";
 
-const AGENT_DESC = { claude: "setup.agent-claude", codex: "setup.agent-codex" } as const;
+const AGENT_DESC = {
+  claude: "setup.agent-claude",
+  codex: "setup.agent-codex",
+  opencode: "setup.agent-opencode",
+} as const;
 
 const TOOL_DESC = {
   homebrew: "setup.tool-homebrew",
@@ -46,16 +57,81 @@ function toolTitle(id: EnvironmentToolId): string {
   }
 }
 
-/** Commande en attente d'être copiée, par rangée. */
-function useSetupCommand(origin: SetupOrigin) {
+/** Commande en attente d'être lancée ou copiée, par rangée. */
+export function useSetupCommand(origin: SetupOrigin) {
   const [fallback, setFallback] = useState<string | null>(null);
+  const [inlineRun, setInlineRun] = useState<{ command: string; nonce: number } | null>(null);
   return {
     fallback,
-    hide: () => setFallback(null),
+    inlineRun,
+    hide: () => {
+      setFallback(null);
+      setInlineRun(null);
+    },
     run(command: string, kind: SetupCommandKind) {
-      setFallback(runSetupCommand(command, { kind, origin }) === "copy" ? command : null);
+      if (runSetupCommand(command, { kind, origin }) === "terminal") {
+        setFallback(null);
+        setInlineRun(null);
+        return;
+      }
+      if (wsReady()) {
+        setFallback(null);
+        setInlineRun((prev) => ({ command, nonce: (prev?.nonce ?? 0) + 1 }));
+        return;
+      }
+      setInlineRun(null);
+      setFallback(command);
     },
   };
+}
+
+/** Terminal PTY intégré directement sous la rangée quand aucun projet n'est
+ *  encore ouvert (premier lancement) : lance la commande en direct et relance
+ *  automatiquement `recheckAll()` dès que le processus réussit. */
+export function SetupInlineTerminal(p: { command: string; onClose: () => void }) {
+  const [termId] = useState(() => `setup-${crypto.randomUUID()}`);
+  const sent = useRef(false);
+  const onCloseRef = useRef(p.onClose);
+  useEffect(() => { onCloseRef.current = p.onClose; }, [p.onClose]);
+
+  useEffect(() => {
+    const onExit = () => {
+      recheckAll();
+      window.setTimeout(() => onCloseRef.current(), 600);
+    };
+    window.addEventListener(`term-exit:${termId}`, onExit);
+    return () => {
+      window.removeEventListener(`term-exit:${termId}`, onExit);
+      wsSend({ type: "termClose", termId });
+    };
+  }, [termId]);
+
+  const handleReady = (id: string) => {
+    if (sent.current) return;
+    sent.current = true;
+    window.setTimeout(() => {
+      wsSend({ type: "termInput", termId: id, data: `{ ${p.command}; } && exit\r` });
+    }, 150);
+  };
+
+  return (
+    <div className="setup-fallback setup-inline-term" role="group" aria-label={t("setup.inline-term-running")}>
+      <div className="setup-inline-term-head">
+        <span className="setup-fallback-hint">{t("setup.inline-term-running")}</span>
+        <IconButton size="s" label={t("setup.hide-command")} onClick={p.onClose}>
+          <X aria-hidden="true" />
+        </IconButton>
+      </div>
+      <div
+        className="setup-inline-term-box"
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <Suspense fallback={<code className="setup-fallback-cmd">{p.command}</code>}>
+          <LazyTerminal termId={termId} cwd="" ws={null} visible onReady={handleReady} />
+        </Suspense>
+      </div>
+    </div>
+  );
 }
 
 /** Commande à coller dans Terminal quand le terminal intégré n'existe pas. */
@@ -101,7 +177,7 @@ function agentBadge(provider: SetupProviderStatus | null): { status: BadgeStatus
   return { status: "warning", label: t("settings.setup-auth-unknown") };
 }
 
-/** Claude Code ou Codex : prêt, connexion requise ou non installé. */
+/** Claude Code, Codex ou OpenCode : prêt, connexion requise ou non installé. */
 export function AgentSetupRow(p: {
   id: SetupAgentId;
   providers: readonly SetupProviderStatus[] | null;
@@ -114,6 +190,14 @@ export function AgentSetupRow(p: {
   const login = provider?.auth === "login_needed" ? provider.loginCommand : null;
   const install = provider?.auth === "not_installed" ? provider.installCommand : null;
   const plan = install ? installPlan(install, p.tools) : null;
+
+  useEffect(() => {
+    const pending = consumePendingAgentCommand(p.id);
+    if (pending) {
+      command.run(withResolvedBinary(pending.command, provider?.binPath), pending.kind);
+    }
+  });
+
   return (
     <>
       <Row title={agentLabel(p.id, provider)} desc={t(AGENT_DESC[p.id])}>
@@ -121,6 +205,14 @@ export function AgentSetupRow(p: {
           <span className="setup-version">{provider.version}</span>
         )}
         <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
+        {p.id === "opencode" && login && (
+          <Button
+            variant="secondary"
+            onClick={() => command.run(withResolvedBinary(OPENCODE_GO_LOGIN_COMMAND, provider?.binPath), "login")}
+          >
+            {t("setup.connect-opencode-go")}
+          </Button>
+        )}
         {login && (
           <Button
             variant="secondary"
@@ -129,12 +221,37 @@ export function AgentSetupRow(p: {
             {t("setup.sign-in")}
           </Button>
         )}
+        {p.id === "opencode" && provider?.auth === "ready" && (
+          <>
+            <Button
+              variant="ghost"
+              className="set-btn quiet"
+              onClick={() => command.run(withResolvedBinary(OPENCODE_GO_LOGIN_COMMAND, provider.binPath), "login")}
+            >
+              {t("setup.connect-opencode-go")}
+            </Button>
+            <Button
+              variant="ghost"
+              className="set-btn quiet"
+              onClick={() => command.run(withResolvedBinary(OPENCODE_PROVIDER_LOGIN_COMMAND, provider.binPath), "login")}
+            >
+              {t("setup.add-provider")}
+            </Button>
+          </>
+        )}
         {plan && (
           <Button variant="secondary" onClick={() => command.run(plan.command, "install")}>
             {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
           </Button>
         )}
       </Row>
+      {command.inlineRun && (
+        <SetupInlineTerminal
+          key={`${command.inlineRun.nonce}:${command.inlineRun.command}`}
+          command={command.inlineRun.command}
+          onClose={command.hide}
+        />
+      )}
       {command.fallback && (
         <SetupCommandFallback key={command.fallback} command={command.fallback} onHide={command.hide} />
       )}
@@ -176,12 +293,26 @@ export function ToolSetupRow(p: {
   const { tool } = p;
   const command = useSetupCommand(p.origin);
   const badge = toolBadge(tool);
-  const plan = !tool.found && tool.installCommand ? installPlan(tool.installCommand, p.tools) : null;
+  const plan = !tool.found && tool.installCommand && !onDemand(tool)
+    ? installPlan(tool.installCommand, p.tools)
+    : null;
+  const texUpgrade = tool.id === "tex" && tool.detail !== "latexmk" && tool.installCommand
+    ? tool.installCommand
+    : null;
   const download = !tool.found && !tool.installCommand && !onDemand(tool) ? tool.installUrl : null;
   return (
     <>
       <Row title={toolTitle(tool.id)} desc={toolDesc(tool)}>
         <StatusBadge status={badge.status}>{badge.label}</StatusBadge>
+        {texUpgrade && (
+          <Button
+            variant="ghost"
+            className="set-btn quiet"
+            onClick={() => command.run(texUpgrade, "install")}
+          >
+            {t("setup.install-texlive")}
+          </Button>
+        )}
         {plan && (
           <Button variant="secondary" onClick={() => command.run(plan.command, "install")}>
             {plan.homebrewFirst ? t("setup.install-homebrew-first") : t("setup.install")}
@@ -193,6 +324,13 @@ export function ToolSetupRow(p: {
           </Button>
         )}
       </Row>
+      {command.inlineRun && (
+        <SetupInlineTerminal
+          key={`${command.inlineRun.nonce}:${command.inlineRun.command}`}
+          command={command.inlineRun.command}
+          onClose={command.hide}
+        />
+      )}
       {command.fallback && (
         <SetupCommandFallback key={command.fallback} command={command.fallback} onHide={command.hide} />
       )}

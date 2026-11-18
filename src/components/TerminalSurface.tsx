@@ -4,6 +4,7 @@ function useRefBool() {
   return useRef(false);
 }
 import Terminal from "./Terminal";
+import { isDiscussionContext } from "../lib/discussions";
 import { wsSend } from "../lib/wsBus";
 import { t } from "../lib/i18n";
 import { PlusIcon } from "./icons";
@@ -63,9 +64,16 @@ export default function TerminalSurface(p: {
 
   function closeTerm(termId: string) {
     wsSend({ type: "termClose", termId });
+    readyTerms.current.delete(termId);
     setTerms((l) => {
       const next = l.filter((t) => t.id !== termId);
-      setActiveId(next.length ? next[next.length - 1].id : null);
+      if (next.length === 0) {
+        const fresh = { id: crypto.randomUUID(), n: 1 };
+        setActiveId(fresh.id);
+        setLayout("single");
+        return [fresh];
+      }
+      setActiveId(next[next.length - 1].id);
       if (next.length < 2) setLayout("single");
       return next;
     });
@@ -151,7 +159,7 @@ export default function TerminalSurface(p: {
           >
             <Terminal
               termId={t.id}
-              cwd={p.cwd}
+              cwd={isDiscussionContext(p.cwd) ? "" : p.cwd}
               ws={p.ws}
               visible={p.visible && (layout !== "single" || activeId === t.id)}
               onShortcut={runShortcut}

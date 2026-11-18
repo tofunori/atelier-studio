@@ -21,8 +21,8 @@ fn workspace_at(base: &Path, thread_id: &str) -> Result<PathBuf, String> {
 }
 
 fn base_dir() -> Result<PathBuf, String> {
-    Ok(dirs::home_dir().ok_or("Dossier personnel introuvable")?
-        .join("Library/Application Support/atelier-studio/discussions"))
+    Ok(crate::atelier_data_dir().ok_or("Dossier personnel introuvable")?
+        .join("discussions"))
 }
 
 #[tauri::command]

@@ -40,7 +40,7 @@ struct ConnectorLock {
 }
 
 fn app_dir() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join("Library/Application Support/atelier-studio"))
+    crate::atelier_data_dir()
 }
 
 fn dir() -> Option<PathBuf> {
@@ -109,16 +109,30 @@ fn healthy() -> bool {
 /// Un connecteur à nous : même utilisateur, exécutable `atelier-annots-mcp`
 /// (lancé par Atelier ou, avant, à la main dans le Terminal).
 fn managed(pid: u32) -> bool {
-    let output = Command::new("/bin/ps")
-        .args(["-p", &pid.to_string(), "-o", "uid=,comm="])
-        .output();
-    let Ok(output) = output else { return false };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut parts = text.trim().splitn(2, char::is_whitespace);
-    let uid = parts.next().and_then(|s| s.parse::<u32>().ok());
-    let path = parts.next().unwrap_or("").trim();
-    uid == Some(unsafe { libc::geteuid() })
-        && Path::new(path).file_name().is_some_and(|s| s == BINARY)
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(meta) = std::fs::metadata(format!("/proc/{pid}")) else { return false };
+        let Ok(exe) = std::fs::read_link(format!("/proc/{pid}/exe")) else { return false };
+        return meta.uid() == unsafe { libc::geteuid() }
+            && exe.file_name().is_some_and(|s| {
+                let name = s.to_string_lossy();
+                name == BINARY || name == format!("{BINARY} (deleted)")
+            });
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let output = Command::new("/bin/ps")
+            .args(["-p", &pid.to_string(), "-o", "uid=,comm="])
+            .output();
+        let Ok(output) = output else { return false };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut parts = text.trim().splitn(2, char::is_whitespace);
+        let uid = parts.next().and_then(|s| s.parse::<u32>().ok());
+        let path = parts.next().unwrap_or("").trim();
+        uid == Some(unsafe { libc::geteuid() })
+            && Path::new(path).file_name().is_some_and(|s| s == BINARY)
+    }
 }
 
 fn terminate(pid: u32) {

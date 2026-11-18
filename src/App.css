@@ -2778,6 +2778,10 @@ button.kernel-file:hover { color: var(--text-primary); }
   font-size: var(--fs-body-s); line-height: 1.5; overflow-wrap: anywhere; user-select: text; }
 .setup-fallback-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .set-card > .setup-fallback + .set-row { border-top: 1px solid var(--border-subtle); }
+.setup-inline-term-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.setup-inline-term-box { height: 212px; border-radius: var(--radius-control); overflow: hidden;
+  border: 1px solid var(--border-subtle); background: var(--surface-inset); padding: 6px; }
+.setup-inline-term-box .term-host { width: 100%; height: 100%; }
 @media (prefers-reduced-motion: reduce) { .setup-fallback { animation: none; } }
 /* Boutons des Réglages = variantes de Button, sans géométrie locale (rayon 6,
    12 px, poids 500) : l'ancien .set-btn (rayon 10, 13 px, plein bordé)
