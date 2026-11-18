@@ -694,6 +694,9 @@ button.kernel-file:hover { color: var(--text-primary); }
 .kernel-empty p { margin: 0; max-width: 320px; }
 /* La capsule de sélection partagée ; pas d'annotation durable sur une cellule. */
 .kernel-selection button[aria-label="Annoter"] { display: none; }
+/* Sans « Annoter » devant, pas de filet de séparation avant « Ajouter au chat ». */
+.kernel-selection > [data-act="add"] { margin-left: 0; }
+.kernel-selection > [data-act="add"]::after { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .kernel-dot, .kernel-reveal, .kernel-more svg, .kernel-vars-head svg, .kernel-cell-body, .kernel-resume-head > svg { transition: none; animation: none; }
 }

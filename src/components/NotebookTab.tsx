@@ -29,6 +29,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { createSelectionActions } from "../../gallery/src/studio/features/annotation_ui";
+import { selectionPillPosition } from "../../gallery/src/studio/features/latex/selection_pill";
 import { getResolvedLanguage, t } from "../lib/i18n";
 import {
   applyNotebookEvent,
@@ -97,12 +98,28 @@ type CompletionState = {
 };
 
 type PickedSelection = {
-  x: number;
-  y: number;
+  /** Zone de lecture et fin de la sélection, pour placer la bulle comme les éditeurs. */
+  box: Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">;
+  caret: { left: number; top: number; bottom: number };
   text: string;
   cellIndex: number;
   part: "code" | "output";
+  lines: [number, number];
 };
+
+/** Lignes (à partir de 1) couvertes par la sélection dans le bloc de code ou de sortie. */
+function selectedLines(part: HTMLElement, range: Range): [number, number] {
+  const before = document.createRange();
+  before.selectNodeContents(part);
+  try {
+    before.setEnd(range.startContainer, range.startOffset);
+  } catch {
+    return [1, 1];
+  }
+  const from = before.toString().split("\n").length;
+  const span = range.toString().replace(/\n+$/, "").split("\n").length;
+  return [from, from + span - 1];
+}
 
 function initialModeFromUrl(url: string): NotebookMode {
   try {
@@ -166,6 +183,7 @@ function NotebookSelectionBar({
       picked.cellIndex,
       picked.part,
       picked.text,
+      picked.lines,
     );
     const finish = () => {
       window.getSelection()?.removeAllRanges();
@@ -191,13 +209,23 @@ function NotebookSelectionBar({
         finish();
       },
     });
+    // Placée comme dans les éditeurs LaTeX et code : centrée dans la colonne,
+    // sous la fin de la sélection (au-dessus si la place manque).
+    const at = selectionPillPosition(picked.box, picked.caret, {
+      width: host.offsetWidth,
+      height: host.offsetHeight,
+    });
+    if (at) {
+      host.style.left = `${at.left}px`;
+      host.style.top = `${at.top}px`;
+    }
   }, [notebookName, picked, onDone]);
 
   return (
     <div
       ref={hostRef}
       className="sel-toolbar kernel-selection"
-      style={{ left: picked.x, top: Math.max(12, picked.y - 44) }}
+      style={{ left: picked.caret.left, top: picked.caret.bottom + 10 }}
     />
   );
 }
@@ -766,11 +794,13 @@ export default function NotebookTab({
   }, [sheetReady]);
 
   // Sélection de texte pour « Ajouter au chat » et « Question rapide ».
+  // Écoutée sur tout le document : un geste qui finit hors de la cellule
+  // (bord de la fenêtre, gouttière) ou une sélection au clavier comptent aussi.
   useEffect(() => {
     const root = scrollerRef.current;
     if (!root) return;
     let timer = 0;
-    const onMouseUp = () => {
+    const pick = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         const sel = window.getSelection();
@@ -780,35 +810,39 @@ export default function NotebookTab({
           return;
         }
         const range = sel.getRangeAt(0);
-        const anchor =
-          range.commonAncestorContainer instanceof Element
-            ? range.commonAncestorContainer
-            : range.commonAncestorContainer.parentElement;
-        if (!anchor || anchor.closest("textarea")) {
+        const start =
+          range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
+        const cellEl = start?.closest<HTMLElement>(".nb-cell[data-cell-index]");
+        const partEl = start?.closest<HTMLElement>("[data-part]");
+        if (!start || start.closest("textarea") || !cellEl || !partEl || !root.contains(cellEl)) {
           setPicked(null);
           return;
         }
-        const cellEl = anchor.closest<HTMLElement>(".nb-cell[data-cell-index]");
-        if (!cellEl || !root.contains(cellEl)) {
-          setPicked(null);
-          return;
-        }
-        const partEl = anchor.closest<HTMLElement>("[data-part]");
-        const part: "code" | "output" = partEl?.dataset.part === "code" ? "code" : "output";
-        const rect = range.getBoundingClientRect();
+        const rects = Array.from(range.getClientRects()).filter((r) => r.width || r.height);
+        const end = rects[rects.length - 1] ?? range.getBoundingClientRect();
+        const part: "code" | "output" = partEl.dataset.part === "code" ? "code" : "output";
+        // Colonne de la cellule en largeur, zone de défilement en hauteur.
+        const view = root.getBoundingClientRect();
+        const column = (cellEl.querySelector<HTMLElement>(".nb-cell-body") ?? cellEl).getBoundingClientRect();
         setPicked({
-          x: rect.left + rect.width / 2,
-          y: rect.top,
+          box: { left: column.left, right: column.right, width: column.width, top: view.top, bottom: view.bottom, height: view.height },
+          caret: { left: end.right, top: end.top, bottom: end.bottom },
           text,
           cellIndex: Number(cellEl.dataset.cellIndex) || 1,
           part,
+          lines: selectedLines(partEl, range),
         });
       }, 0);
     };
-    root.addEventListener("mouseup", onMouseUp);
+    const onKeyUp = (ev: KeyboardEvent) => {
+      if (ev.shiftKey || ev.key === "Shift") pick();
+    };
+    document.addEventListener("mouseup", pick);
+    document.addEventListener("keyup", onKeyUp);
     return () => {
       window.clearTimeout(timer);
-      root.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mouseup", pick);
+      document.removeEventListener("keyup", onKeyUp);
     };
   }, []);
 
@@ -1182,12 +1216,18 @@ export default function NotebookTab({
     }, 1200);
   }, []);
 
+  // Nom donné au chat : chemin dans le projet (comme les autres éditeurs).
+  const chatName = useMemo(() => {
+    const root = projectRoot?.replace(/\/+$/, "");
+    return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : title;
+  }, [path, projectRoot, title]);
+
   const citeCell = useCallback(
     (cell: UiCell) => {
-      const citation = formatNotebookSelectionCitation(title, cell.index, "code", cell.source);
+      const citation = formatNotebookSelectionCitation(chatName, cell.index, "code", cell.source);
       window.dispatchEvent(new CustomEvent("kernel-add-to-chat", { detail: { text: citation } }));
     },
-    [title],
+    [chatName],
   );
 
   const status = snapshot?.status ?? { state: "off" as const };
@@ -1853,7 +1893,7 @@ export default function NotebookTab({
 
         {picked ? (
           <NotebookSelectionBar
-            notebookName={title}
+            notebookName={chatName}
             picked={picked}
             onDone={() => setPicked(null)}
           />
