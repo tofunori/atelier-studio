@@ -110,7 +110,9 @@ export function SetupInlineTerminal(p: { command: string; onClose: () => void })
     if (sent.current) return;
     sent.current = true;
     window.setTimeout(() => {
-      wsSend({ type: "termInput", termId: id, data: `{ ${p.command}; } && exit\r` });
+      // pipefail : `curl … | bash` dont curl échoue rendrait sinon 0, le
+      // terminal se fermerait comme après un succès et l'erreur disparaîtrait.
+      wsSend({ type: "termInput", termId: id, data: `{ set -o pipefail 2>/dev/null; ${p.command}; } && exit\r` });
     }, 150);
   };
 
