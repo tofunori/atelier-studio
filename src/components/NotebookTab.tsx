@@ -355,6 +355,11 @@ function InputPrompt({
 }) {
   const [value, setValue] = useState("");
   const [sent, setSent] = useState(false);
+  // Le code attend : la case prend le focus dès qu'elle apparaît.
+  const fieldRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    fieldRef.current?.focus();
+  }, []);
   const submit = () => {
     if (sent) return;
     setSent(true);
@@ -375,9 +380,9 @@ function InputPrompt({
           type={request.password ? "password" : "text"}
           value={value}
           disabled={sent}
+          ref={fieldRef}
           autoComplete="off"
           spellCheck={false}
-          autoFocus
           onChange={(e) => setValue(e.target.value)}
         />
       </label>
