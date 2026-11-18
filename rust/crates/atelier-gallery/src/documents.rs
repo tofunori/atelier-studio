@@ -38,13 +38,29 @@ fn which(bin: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Ordre de fallback : chemin MacTeX Python → PATH → (compile) tectonic.
+/// Ordre de fallback : MacTeX → PATH → TeX Live de l'installeur officiel
+/// (Linux, hors PATH de l'app) → (compile) tectonic.
 fn latexmk_bin() -> Option<PathBuf> {
     const FIXED: &str = "/Library/TeX/texbin/latexmk";
     if Path::new(FIXED).is_file() {
         return Some(PathBuf::from(FIXED));
     }
-    which("latexmk")
+    which("latexmk").or_else(|| {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        atelier_integrations::tectonic::tex_bin_dirs(home.as_deref())
+            .into_iter()
+            .map(|dir| dir.join("latexmk"))
+            .find(|path| path.is_file())
+    })
+}
+
+/// PATH de la compilation : le dossier de latexmk en tête, pour qu'il
+/// trouve pdflatex, biber et les autres outils de la même TeX Live même
+/// quand ce dossier n'est pas dans le PATH de l'app.
+fn path_with(dir: &Path) -> std::ffi::OsString {
+    let rest = std::env::var_os("PATH").unwrap_or_default();
+    std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&rest)))
+        .unwrap_or(rest)
 }
 
 fn tectonic_bin() -> Option<PathBuf> {
@@ -501,9 +517,12 @@ async fn compile_document(root: &Path, force: bool) -> Value {
             });
         }
     };
-    let mut cmd = Command::new(compiler);
+    let mut cmd = Command::new(&compiler);
     if latexmk {
         cmd.args(latexmk_args(&basename, force));
+        if let Some(dir) = compiler.parent() {
+            cmd.env("PATH", path_with(dir));
+        }
     } else {
         cmd.args(tectonic_args(&basename));
         #[cfg(target_os = "linux")]
