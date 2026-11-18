@@ -2896,9 +2896,11 @@ export default function App() {
         })().catch((error) => void showError(String(error)));
         return;
       }
-      url = ext === "md" && !options.diff
-        ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
-        : `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
+      url = ext === "ipynb" && !options.source && !line
+        ? `${origin}/.fig_thumbs/ipynb_studio.html?path=${encodeURIComponent(outside)}${diffQ}${baseQ}`
+        : ext === "md" && !options.diff
+          ? `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(outside)}`
+          : `${origin}/.fig_thumbs/${ext === "md" || ext === "ipynb" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(outside)}${lineQ}${diffQ}${baseQ}`;
     } else if (ext === "pdf") {
       url = `${origin}/.fig_thumbs/pdf_viewer.html?file=${encodeURIComponent(rel)}${pageQ}`;
     } else if (ext === "svg") {
@@ -2906,6 +2908,8 @@ export default function App() {
     } else if (ext === "docx") {
       // `:13` = paragraphe p13 (bilan des commentaires de l'agent).
       url = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}`;
+    } else if (ext === "ipynb" && !options.source && !line) {
+      url = `${origin}/.fig_thumbs/ipynb_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${diffQ}${baseQ}`;
     } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
       url = `${origin}/${rel}`;
     } else if (renderHtml) {
@@ -2916,7 +2920,7 @@ export default function App() {
     } else if (ext === "md" && !options.diff) {
       url = `${origin}/.fig_thumbs/md_studio.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}`;
     } else {
-      const editor = ext === "md" ? "code_editor" : "latex_studio";
+      const editor = ext === "md" || ext === "ipynb" ? "code_editor" : "latex_studio";
       url = `${origin}/.fig_thumbs/${editor}.html?path=${encodeURIComponent(`${activeProject}/${rel}`)}${lineQ}${diffQ}${baseQ}`;
     }
     url = withAtelierNonce(url, atelierNonce);
@@ -2975,9 +2979,10 @@ export default function App() {
       }
     }
     else if (ext === "docx") target = `${origin}/.fig_thumbs/docx_studio.html?path=${encodeURIComponent(path)}${line ? `&line=${encodeURIComponent(line)}` : ""}`;
-    else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
-    if ((line || options.diff) && ext !== "docx") {
-      target = `${origin}/.fig_thumbs/${ext === "md" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
+    else if (ext === "ipynb" && !options.source && !line) target = `${origin}/.fig_thumbs/ipynb_studio.html?path=${encodeURIComponent(path)}${options.diff ? "&diff=1" : ""}`;
+    else if (!["png", "jpg", "jpeg", "webp", "gif", "html", "htm"].includes(ext)) target = `${origin}/.fig_thumbs/${ext === "md" ? "md_studio" : ext === "ipynb" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
+    if ((line || options.diff) && ext !== "docx" && !(ext === "ipynb" && !options.source && !line)) {
+      target = `${origin}/.fig_thumbs/${ext === "md" || ext === "ipynb" ? "code_editor" : "latex_studio"}.html?path=${encodeURIComponent(path)}`;
       if (line) target += `&line=${encodeURIComponent(line)}`;
       if (options.diff) target += "&diff=1";
       if (options.baseSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(options.baseSha)) target += `&base=${encodeURIComponent(options.baseSha)}`;

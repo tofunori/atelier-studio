@@ -82,6 +82,13 @@ impl ServerHandle {
         if let Some(join) = self.automation_join.take() {
             join.abort();
         }
+        // Noyaux Jupyter des cahiers : processus à part (groupe propre), ils
+        // ne meurent pas avec le serveur sans un arrêt explicite.
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.state.notebooks().shutdown_all(),
+        )
+        .await;
         // Abandon de la tâche → caffeinate tué (kill_on_drop).
         if let Some(join) = self.keep_awake.take() {
             join.abort();

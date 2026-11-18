@@ -30,6 +30,13 @@ jobs:
       - uses: ./.github/actions/setup-atelier
       - name: Backend policy (Rust default, soak gates)
         run: npm run check:backend-policy
+      # Vrai ipykernel pour rust/crates/atelier-notebook/tests/ipykernel_reel.rs :
+      # le pair ZMQ simulé des tests unitaires ne voit pas les écarts avec libzmq.
+      - name: ipykernel (test du moteur Jupyter)
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ipykernel-venv"
+          "$RUNNER_TEMP/ipykernel-venv/bin/pip" install --quiet --disable-pip-version-check ipykernel
+          echo "ATELIER_TEST_IPYKERNEL_PYTHON=$RUNNER_TEMP/ipykernel-venv/bin/python" >> "$GITHUB_ENV"
       - name: Verify (typecheck, build, frontend, gallery, Rust)
         run: npm run verify
       - name: Upload test results on failure

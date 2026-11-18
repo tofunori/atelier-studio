@@ -20,6 +20,7 @@ members = [
   "crates/atelier-pdf",
   "crates/atelier-codebook",
   "crates/atelier-kernel",
+  "crates/atelier-notebook",
   "crates/atelier-docx",
   "crates/atelier-cite",
   "crates/atelier-inbox",
@@ -46,6 +47,7 @@ atelier-integrations = { path = "crates/atelier-integrations" }
 atelier-pdf = { path = "crates/atelier-pdf" }
 atelier-codebook = { path = "crates/atelier-codebook" }
 atelier-kernel = { path = "crates/atelier-kernel" }
+atelier-notebook = { path = "crates/atelier-notebook" }
 atelier-docx = { path = "crates/atelier-docx" }
 atelier-cite = { path = "crates/atelier-cite" }
 atelier-inbox = { path = "crates/atelier-inbox" }

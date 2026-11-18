@@ -20,6 +20,8 @@ const CalculsSurface = lazyWithRetry(() => import("./CalculsSurface"));
 const KernelSurface = lazyWithRetry(() => import("./KernelSurface"));
 const DocumentsSurface = lazyWithRetry(() => import("./DocumentsSurface"));
 const EvidenceSurface = lazyWithRetry(() => import("./EvidenceSurface"));
+const NotebookTab = lazyWithRetry(() => import("./NotebookTab"));
+import { notebookPathFromTabUrl } from "../lib/notebook";
 import { t } from "../lib/i18n";
 import { loadGalleryFavorites, setGalleryFavorite } from "../lib/galleryFavorites";
 import { GallerySkeleton } from "./GallerySkeleton";
@@ -197,8 +199,16 @@ export function surfaceIcon(surface: Surface) {
   return SURFACES.find((candidate) => candidate.id === surface)?.icon ?? null;
 }
 
-function ownsNativeChrome(ref: WorkspaceTabRef | null): boolean {
-  return ref?.kind === "surface" && ref.surface !== "atelier";
+function ownsNativeChrome(
+  ref: WorkspaceTabRef | null,
+  documentById?: ReadonlyMap<string, AtelierTab>,
+): boolean {
+  if (ref?.kind === "surface" && ref.surface !== "atelier") return true;
+  if (ref?.kind === "document") {
+    const doc = documentById?.get(ref.tabId);
+    if (doc && notebookPathFromTabUrl(doc.url) !== null) return true;
+  }
+  return false;
 }
 
 export default function AtelierPane({
@@ -887,6 +897,27 @@ export default function AtelierPane({
     return () => window.removeEventListener(SURFACE_LIVE_CONTEXT_EVENT, onSurface);
   }, []);
 
+  // Documents rendus nativement en React (cahiers .ipynb) : publient leur
+  // contexte vivant (cellule active + taille du cahier) sous l'id de l'onglet.
+  useEffect(() => {
+    const onDocLive = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { tabId?: unknown; context?: unknown } | null;
+      const tabId = typeof detail?.tabId === "string" ? detail.tabId : "";
+      if (!tabId || !documentById.has(tabId)) return;
+      const context = parseLiveContext(detail?.context);
+      setLiveContexts((current) => {
+        if (!context && !current.has(tabId)) return current;
+        if (context && JSON.stringify(current.get(tabId)) === JSON.stringify(context)) return current;
+        const next = new Map(current);
+        if (context) next.set(tabId, context);
+        else next.delete(tabId);
+        return next;
+      });
+    };
+    window.addEventListener("atelier-doc-live-context", onDocLive);
+    return () => window.removeEventListener("atelier-doc-live-context", onDocLive);
+  }, [documentById]);
+
   // Onglet fermé : son contexte part avec lui.
   useEffect(() => {
     setLiveContexts((current) => {
@@ -1154,6 +1185,12 @@ export default function AtelierPane({
           });
         }
       }
+      if (relative && /\.ipynb$/i.test(relative)) {
+        const rendered = notebookPathFromTabUrl(documentById.get(ref.tabId)?.url ?? "") !== null;
+        documentItems.push(rendered
+          ? { key: "view-source", label: t("action.view-source"), onSelect: () => onOpenFile(relative, { source: true }) }
+          : { key: "view-rendered", label: t("action.view-rendered"), onSelect: () => onOpenFile(relative) });
+      }
       menuGroups.push({ key: "document-actions", items: documentItems, separatorBefore: true });
       navigationItems.push({
         key: "colors",
@@ -1250,6 +1287,25 @@ export default function AtelierPane({
     if (ref.kind === "document") {
       const current = documentById.get(ref.tabId);
       if (!current) return null;
+      const notebookPath = notebookPathFromTabUrl(current.url);
+      if (notebookPath) {
+        return (
+          <div key={workspaceTabId(ref)} className="workspace-tab-content surface-body" style={{ display }}>
+            <LazyBoundary fallback={<div className="pane-slot" />}>
+              <NotebookTab
+                tabId={current.id}
+                url={current.url}
+                title={current.title}
+                path={notebookPath}
+                projectRoot={current.projectRoot ?? projectRoot}
+                visible={active && layout !== "chat" && !overlayOpen}
+                galleryDir={galleryDir}
+                paneControls={renderPaneControls(paneNode, ref)}
+              />
+            </LazyBoundary>
+          </div>
+        );
+      }
       return (
         <iframe
           key={workspaceTabId(ref)}
@@ -1443,7 +1499,7 @@ export default function AtelierPane({
 
   function renderPane(paneNode: WorkspacePaneNode) {
     const activeRef = paneNode.tabs.find((ref) => workspaceTabId(ref) === paneNode.activeTabId) ?? null;
-    const nativeChrome = ownsNativeChrome(activeRef);
+    const nativeChrome = ownsNativeChrome(activeRef, documentById);
     return (
       <section
         key={paneNode.id}

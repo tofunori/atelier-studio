@@ -337,6 +337,27 @@ tool `atelier_annotate` (action=pages, page, to): never judge a figure from the 
     )
 }
 
+/// Cahier Jupyter `.ipynb` en jeu : l'agent lit l'ensemble du cahier via
+/// `atelier_notebook` (sans toucher au JSON brut sur disque), tient compte de
+/// tout l'amont (imports déjà chargés, variables en mémoire) et de tout l'aval
+/// (cellules consommatrices), et propose ses modifications en mini-diff inline.
+fn with_notebook_instruction(prompt: String, provider: &str) -> String {
+    if !crate::agent_mcp::is_mcp_compatible_provider(provider) || !prompt.to_lowercase().contains(".ipynb") {
+        return prompt;
+    }
+    format!(
+        "{prompt}\n\n<atelier-notebook>\nFor any Jupyter `.ipynb` notebook, use the MCP tool `atelier_notebook` \
+(call `action=read` first to inspect all cells `1..N`, `importsInNotebook`, `outOfOrderCells` and `liveVariables`). \
+Never read or rewrite raw `.ipynb` JSON with shell, Python or file-edit tools: raw `.ipynb` carries base64 outputs \
+and bypasses the user's open notebook session. Before proposing an edit to cell `[k]`, check everything BEFORE `[k]` \
+and AFTER `[k]` (`action=neighborhood` if needed): NEVER re-import in cell `[k]` a library or alias already imported \
+in an earlier cell (if a genuinely new package is needed, also propose adding its import to the imports cell at the \
+top of the notebook), reuse upstream variables already in memory, and preserve every variable name and structure \
+consumed by downstream cells `[k+1..N]`. Propose edits with `action=propose_edit` or `action=propose_insert`: \
+they appear as an inline cell diff in Atelier that only the user accepts and executes.\n</atelier-notebook>"
+    )
+}
+
 /// Atelier mis à jour depuis le tour précédent de cette conversation : les
 /// fiches d'outils déjà lues peuvent manquer des actions. `stamp_before`
 /// absent = fil d'avant ce suivi, qu'on prévient aussi une fois.
@@ -1600,6 +1621,7 @@ pub async fn handle_send(state: &AppState, msg: &Value) -> Vec<String> {
     let reply_voice = atelier_docx::marks::preferred_reply_voice(std::path::Path::new(&project_root));
     let provider_prompt = with_docx_instruction(provider_prompt, &provider, reply_voice.as_deref());
     let provider_prompt = with_pdf_pages_instruction(provider_prompt, &provider);
+    let provider_prompt = with_notebook_instruction(provider_prompt, &provider);
     let turn_tools_stamp = crate::agent_mcp::should_launch_mcp(&provider)
         .then(|| crate::agent_mcp::tools_stamp(state.server_dir()))
         .flatten();

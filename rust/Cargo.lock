@@ -358,6 +358,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "atelier-notebook"
+version = "0.1.0"
+dependencies = [
+ "atelier-core",
+ "atelier-kernel",
+ "chrono",
+ "hex",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "atelier-pdf"
 version = "0.1.0"
 dependencies = [
@@ -445,6 +464,7 @@ dependencies = [
  "atelier-integrations",
  "atelier-kb",
  "atelier-kernel",
+ "atelier-notebook",
  "atelier-pdf",
  "atelier-protocol",
  "atelier-providers",

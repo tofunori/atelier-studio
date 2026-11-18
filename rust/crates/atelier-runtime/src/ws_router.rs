@@ -96,6 +96,8 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "computeHosts",
     "computeHostSave",
     "computeHostsImport",
+    "notebookCommand",
+    "notebookInterrupt",
     "listCommands",
     "listPlugins",
     "listCodexApps",
@@ -746,6 +748,8 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
         "kernelCells" => crate::kernel::handle_cells(state, &msg).await,
         "kernelStop" => crate::kernel::handle_stop(state, &msg).await,
         "kernelCommand" => crate::kernel::handle_command(state, &msg).await,
+        "notebookCommand" => crate::notebook_tool::handle_ws_command(state, &msg).await,
+        "notebookInterrupt" => crate::notebook_tool::handle_ws_interrupt(state, &msg).await,
         "upsertThread" => {
             let patch = msg.get("thread").cloned().unwrap_or(msg.clone());
             let result = {

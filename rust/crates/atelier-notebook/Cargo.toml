@@ -1,0 +1,23 @@
+[package]
+name = "atelier-notebook"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cahiers Jupyter (.ipynb nbformat v4), client ZeroMQ 5 canaux (ZMTP 3.x), contexte amont/aval et révisions inline"
+
+[dependencies]
+atelier-core = { path = "../atelier-core" }
+atelier-kernel = { path = "../atelier-kernel" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+sha2 = "0.10"
+hex = "0.4"
+libc = "0.2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
