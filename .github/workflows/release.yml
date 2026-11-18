@@ -62,6 +62,7 @@ jobs:
             cat "docs/releases/${{ github.ref_name }}.md"
             printf '\n---\n\n'
             echo '**Platform:** macOS on Apple Silicon.'
+            echo 'Linux packages (.deb and AppImage, x86_64 and arm64) are attached when their build succeeds.'
             printf '\n'
             echo 'The packaged app includes the Rust backend and gallery runtime. No'
             echo 'separate Node.js or Python installation is required for the app.'
@@ -114,12 +115,25 @@ jobs:
             exit 1
           fi
       - name: Publish verified release
-        if: false # Published after Linux bundle completes
-        run: echo "Deferred to publish-release"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Pas de --latest : l'app n'est pas encore notariée/signée Developer ID,
+        # on ne veut pas la pousser comme "latest" par défaut tant que ce n'est
+        # pas le cas (voir plan 064).
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
 
-  build-linux-x64:
+  # Paquets Linux ajoutés à la release déjà publiée par build-macos : un échec
+  # ici n'empêche jamais la sortie de la version Mac. Ubuntu 22.04 (glibc 2.35)
+  # pour que les paquets s'installent aussi sur les distributions plus anciennes.
+  build-linux:
     needs: build-macos
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Linux Tauri dependencies
@@ -133,6 +147,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
+          key: linux-${{ matrix.arch }}
           workspaces: |
             src-tauri
             rust
@@ -147,11 +162,13 @@ jobs:
           npm --prefix gallery/notes-src ci
           npm --prefix gallery/whiteboard-src ci
           npm --prefix packages/atelier-protocol ci
-      - name: Build Linux x86_64 .deb
+      - name: Build Linux .deb + AppImage (${{ matrix.arch }})
         run: npm run tauri:build:app
-      - name: Upload Linux .deb and publish release
+      - name: Upload Linux packages to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "$GITHUB_REF_NAME" src-tauri/target/release/bundle/deb/*.deb --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          gh release upload "$GITHUB_REF_NAME" \
+            src-tauri/target/release/bundle/deb/*.deb \
+            src-tauri/target/release/bundle/appimage/*.AppImage \
+            --clobber
