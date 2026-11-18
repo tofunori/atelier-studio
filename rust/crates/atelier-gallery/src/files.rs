@@ -249,6 +249,14 @@ pub async fn snippet(
         };
         return snippet_response(&String::from_utf8_lossy(&bytes), n);
     };
+    // Cahier Jupyter : le texte de ses cellules, pas son JSON.
+    if src
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("ipynb"))
+    {
+        return snippet_response(&crate::notebook_preview::preview_text(&raw), n);
+    }
     snippet_response(&raw, n)
 }
 

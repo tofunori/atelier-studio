@@ -180,14 +180,9 @@ fn event_row(full: &Path, rel: &str) -> Value {
 }
 
 fn format_local(secs: i64) -> String {
-    std::process::Command::new("date")
-        .args(["-r", &secs.to_string(), "+%Y-%m-%d %H:%M"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "1970-01-01 00:00".into())
+    // `date -r <secondes>` est propre à macOS : sous Linux, `-r` attend un
+    // fichier et la date tombait à 1970 pour chaque fichier vu en direct.
+    atelier_core::gallery_builder::local_date(secs.max(0) as u64)
 }
 
 fn agent_mode(state: &AppState) -> bool {
@@ -444,6 +439,32 @@ pub async fn thumb(
     let td = state.root.join(".fig_thumbs");
     let _ = fs::create_dir_all(&td);
     let out = td.join(format!("imgthumb_{key}.png"));
+
+    // Cahier Jupyter : sa première figure, extraite du fichier sans outil
+    // externe (macOS et Linux). Sans figure, la carte montre ses cellules.
+    let is_notebook = src
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("ipynb"));
+    if is_notebook {
+        if !out.exists() {
+            let Ok(raw) = tokio::fs::read_to_string(&src).await else {
+                return json_error(StatusCode::NOT_FOUND, "not found");
+            };
+            let png =
+                tokio::task::spawn_blocking(move || crate::notebook_preview::first_png(&raw))
+                    .await
+                    .ok()
+                    .flatten();
+            let Some(png) = png else {
+                return json_error(StatusCode::NOT_FOUND, "no figure in notebook");
+            };
+            if atelier_core::atomic_write(&out, &png).is_err() {
+                return json_error(StatusCode::INTERNAL_SERVER_ERROR, "write failed");
+            }
+        }
+        return serve_bytes(&out, "max-age=86400");
+    }
 
     if !out.exists() {
         let ext = src
