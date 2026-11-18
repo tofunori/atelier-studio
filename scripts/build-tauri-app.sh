@@ -52,7 +52,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   npm run tauri -- build --bundles app ${SIGNING_ARGS[@]+"${SIGNING_ARGS[@]}"} "$@"
 else
   # Sur Linux, fenêtre sans barre GTK grise (decorations: false, contrôles dans TopBar)
-  # et paquet .deb léger par défaut.
+  # paquets .deb (Debian, Ubuntu) et AppImage (toute distribution).
   LINUX_CONFIG='{"app":{"windows":[{"title":"Atelier","width":1280,"height":820,"minWidth":720,"minHeight":480,"maximized":true,"decorations":false,"dragDropEnabled":false}]}}'
-  npm run tauri -- build --bundles deb --config "$LINUX_CONFIG" "$@"
+  npm run tauri -- build --bundles deb,appimage --config "$LINUX_CONFIG" "$@"
 fi

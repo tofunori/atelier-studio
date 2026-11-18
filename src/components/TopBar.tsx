@@ -33,14 +33,14 @@ function LinuxWindowControls() {
     <div className="topbar-linux-win-controls">
       <IconButton
         size="s"
-        label="Minimize"
+        label={t("action.window-minimize")}
         onClick={() => withWin((w) => w.minimize())}
       >
         <MinusIcon size={14} />
       </IconButton>
       <IconButton
         size="s"
-        label="Maximize"
+        label={t("action.window-maximize")}
         onClick={() => withWin((w) => w.toggleMaximize())}
       >
         <SquareIcon size={12} />

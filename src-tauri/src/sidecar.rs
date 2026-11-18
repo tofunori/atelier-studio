@@ -171,7 +171,10 @@ fn with_lifecycle(mut info: SidecarInfo, lifecycle: &str) -> SidecarInfo {
 }
 
 fn process_alive(pid: u32) -> bool {
+    // Un PID au-delà de i32::MAX n'existe pas ; sous Linux, `kill -0 4294967295`
+    // le lit comme -1 (« tous les processus ») et réussit.
     pid > 0
+        && pid <= i32::MAX as u32
         && Command::new("kill")
             .args(["-0", &pid.to_string()])
             .stdout(Stdio::null())
