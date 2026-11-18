@@ -68,7 +68,8 @@ import {
   type CellRunState,
   type ErrorLocation,
 } from "../lib/notebookRun";
-import { NotebookCodeEditor, caretOffsetAt } from "./NotebookCodeEditor";
+import { caretOffsetAt } from "../lib/caretOffset";
+import { NotebookCodeEditor } from "./NotebookCodeEditor";
 import { MD_COMPONENTS, MdBody, highlightCode, useMdPlugins } from "./chat/md";
 import {
   Button,
@@ -2110,10 +2111,21 @@ export default function NotebookTab({
                                 ) : null}
                               </>
                             ) : (
-                              <pre
-                                className="nb-well"
-                                data-part="code"
+                              <div
+                                className="nb-well-zone"
                                 data-editable={mode === "live" ? "true" : undefined}
+                                // Zone de code éditable : un clic ou Entrée
+                                // (au clavier) ouvre l'édition.
+                                role="textbox"
+                                aria-multiline="true"
+                                aria-readonly={mode !== "live"}
+                                aria-label={t("notebook.cell", { n: cell.index })}
+                                tabIndex={mode === "live" ? 0 : undefined}
+                                onKeyDown={(e) => {
+                                  if (mode !== "live" || e.key !== "Enter" || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+                                  e.preventDefault();
+                                  void startEditing(cell);
+                                }}
                                 onMouseDown={(e) => {
                                   pressAtRef.current = { x: e.clientX, y: e.clientY };
                                 }}
@@ -2130,15 +2142,17 @@ export default function NotebookTab({
                                   void startEditing(cell, caretOffsetAt(e.currentTarget, e.clientX, e.clientY));
                                 }}
                               >
-                                {errLoc ? (
-                                  <span
-                                    className="nb-err-line"
-                                    aria-hidden="true"
-                                    style={{ top: `calc(var(--nb-well-pad-y) + ${errLoc.line - 1} * var(--nb-well-line))` }}
-                                  />
-                                ) : null}
-                                <HighlightedCode html={highlighted} />
-                              </pre>
+                                <pre className="nb-well" data-part="code">
+                                  {errLoc ? (
+                                    <span
+                                      className="nb-err-line"
+                                      aria-hidden="true"
+                                      style={{ top: `calc(var(--nb-well-pad-y) + ${errLoc.line - 1} * var(--nb-well-line))` }}
+                                    />
+                                  ) : null}
+                                  <HighlightedCode html={highlighted} />
+                                </pre>
+                              </div>
                             )}
 
                             {cell.outputs.length > 0 || isRunningCell ? (

@@ -817,7 +817,7 @@
   box-shadow: none;
 }
 
-.nb-well[data-editable="true"] {
+.nb-well-zone[data-editable="true"] .nb-well {
   cursor: text;
 }
 
@@ -1066,4 +1066,13 @@
 
 .nb-cell[data-editing="true"] .nb-cell-actions {
   opacity: 1;
+}
+
+/* Au clavier, la zone de code reçoit le focus (Entrée ouvre l'édition). */
+.nb-well-zone:focus-visible {
+  outline: none;
+}
+
+.nb-well-zone:focus-visible .nb-well {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
 }
