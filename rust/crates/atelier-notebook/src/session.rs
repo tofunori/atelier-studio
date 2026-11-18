@@ -2996,11 +2996,18 @@ mod tests {
     #[tokio::test]
     async fn le_premier_noyau_cree_l_env_atelier_par_pixi() {
         use std::os::unix::fs::PermissionsExt;
-        let Some(python) = std::env::var_os("PATH").and_then(|p| {
-            std::env::split_paths(&p)
-                .map(|d| d.join("python3"))
-                .find(|p| p.is_file())
-        }) else {
+        // Le vrai exécutable, pas le lanceur trouvé dans PATH : sur macOS,
+        // /usr/bin/python3 est le relais d'Apple vers Xcode, qui ne marche
+        // pas appelé sous le nom « python » (et propose d'installer les
+        // outils de ligne de commande).
+        let Some(python) = std::process::Command::new("python3")
+            .args(["-c", "import sys; print(sys.executable)"])
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+            .filter(|p| p.is_file())
+        else {
             return;
         };
         let tmp = tempfile::tempdir().unwrap();
@@ -3010,7 +3017,8 @@ mod tests {
             format!(
                 "#!/bin/sh\nwhile [ $# -gt 0 ]; do [ \"$1\" = --manifest-path ] && projet=\"$2\"; shift; done\n\
                  mkdir -p \"$projet/.pixi/envs/default/bin\" \"$projet/.pixi/envs/default/conda-meta\"\n\
-                 ln -sf {} \"$projet/.pixi/envs/default/bin/python\"\n: > \"$projet/pixi.lock\"\n",
+                 printf '#!/bin/sh\\nexec \"%s\" \"$@\"\\n' '{}' > \"$projet/.pixi/envs/default/bin/python\"\n\
+                 chmod 755 \"$projet/.pixi/envs/default/bin/python\"\n: > \"$projet/pixi.lock\"\n",
                 python.display()
             ),
         )
