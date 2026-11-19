@@ -965,7 +965,11 @@ impl FallbackPythonHandle {
     ) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(runtime_dir).map_err(|e| e.to_string())?;
         let driver_path = runtime_dir.join("atelier_noyau.py");
-        if !driver_path.is_file() {
+        // Réécrit à chaque version : un pilote resté d'une version plus
+        // ancienne priverait le cahier de ses corrections (display…).
+        if std::fs::read_to_string(&driver_path).ok().as_deref()
+            != Some(atelier_kernel::DRIVER_SOURCE)
+        {
             std::fs::write(&driver_path, atelier_kernel::DRIVER_SOURCE)
                 .map_err(|e| format!("écriture pilote Python : {e}"))?;
         }
@@ -983,7 +987,8 @@ impl FallbackPythonHandle {
             .current_dir(cwd)
             .envs(&spec.env_vars)
             .env("PYTHONUNBUFFERED", "1")
-            .env("MPLBACKEND", "Agg")
+            // Figures en ligne, comme le backend inline de Jupyter.
+            .env("MPLBACKEND", "module://atelier_inline")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
@@ -1059,6 +1064,46 @@ impl FallbackPythonHandle {
                             }
                         }
                     }
+                    "display" => {
+                        let pending = pending_loop
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .as_ref()
+                            .map(|p| (p.cell_id.clone(), p.seq));
+                        let data = val.get("data").and_then(Value::as_object).cloned();
+                        // `result` : valeur de la dernière ligne (execute_result),
+                        // envoyée avant les figures de fin de cellule.
+                        let is_result = val.get("result").and_then(Value::as_bool).unwrap_or(false);
+                        if let (Some((cid, seq)), Some(data), Some(ws)) =
+                            (pending, data, workspace.upgrade())
+                        {
+                            let found = {
+                                let mut doc = ws.doc.lock().await;
+                                if let Some(idx) = doc.cells.iter().position(|c| c.id == cid) {
+                                    if is_result {
+                                        doc.cells[idx].apply_iopub_output(
+                                            "execute_result",
+                                            &json!({ "data": data, "metadata": {}, "execution_count": seq }),
+                                            None,
+                                        );
+                                    } else {
+                                        doc.cells[idx].apply_iopub_output(
+                                            "display_data",
+                                            &json!({ "data": data, "metadata": {} }),
+                                            None,
+                                        );
+                                    }
+                                    true
+                                } else {
+                                    false
+                                }
+                            };
+                            if found {
+                                ws.mark_dirty();
+                                ws.queue_cell_push(&nb_path, &cid, listener.clone());
+                            }
+                        }
+                    }
                     "done" => {
                         let finished = pending_loop
                             .lock()
@@ -1071,7 +1116,13 @@ impl FallbackPythonHandle {
                                     doc.cells.iter().position(|c| c.id == fin.cell_id)
                                 {
                                     doc.cells[idx].execution_count = Some(fin.seq);
-                                    if let Some(res) = val
+                                    if val
+                                        .get("result_data")
+                                        .and_then(Value::as_object)
+                                        .is_some_and(|d| !d.is_empty())
+                                    {
+                                        // Résultat riche déjà reçu par un message `display`.
+                                    } else if let Some(res) = val
                                         .get("result")
                                         .and_then(Value::as_str)
                                         .filter(|s| !s.is_empty())
@@ -1174,6 +1225,8 @@ impl FallbackPythonHandle {
             "id": seq,
             "code": code,
             "figdir": self.fig_dir.display().to_string(),
+            // display(), rendus riches et figures en ligne, comme IPython.
+            "rich": true,
         }))
         .map_err(|e| e.to_string())?
             + "\n";

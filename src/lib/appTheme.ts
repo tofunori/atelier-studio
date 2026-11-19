@@ -75,6 +75,7 @@ export function applyAppearance(settings: Settings, atelierNonce: string): () =>
   r.setProperty("--chat-fs", `${settings.chatFontSize}px`);
   r.setProperty("--chat-w", `${settings.chatWidth}px`);
   r.setProperty("--chat-lh", String(settings.chatLineHeight));
+  r.setProperty("--code-lift", `${settings.codeContrast ?? 9}%`);
   // One resolver serves the shell and its embedded views.
   const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
   const applyPalette = () => {

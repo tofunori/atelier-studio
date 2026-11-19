@@ -11,13 +11,15 @@
 #
 # Protocole : une ligne JSON par message.
 #   Rust -> pilote (stdin d'origine) :
-#     {"op": "exec", "id": N, "code": "...", "figdir": "..."}
+#     {"op": "exec", "id": N, "code": "...", "figdir": "...", "rich": bool}
 #     {"op": "vars", "id": N}
 #     {"op": "shutdown"}
 #   pilote -> Rust (stdout d'origine, dupliqué avant toute exécution) :
 #     {"t": "ready", ...}
 #     {"t": "stream", "id": N, "name": "stdout"|"stderr", "text": "..."}
+#     {"t": "display", "id": N, "data": {mime: valeur}}   (seulement si "rich")
 #     {"t": "done", "id": N, "status": "ok"|"error", "figures": [...],
+#      "result_data": {mime: valeur} (si "rich"),
 #      "imports": [...], "lineage": {"created", "modified", "deleted", "used"}, ...}
 #     {"t": "vars", "id": N, "vars": [...]}
 #
@@ -26,11 +28,14 @@
 # rattache à la cellule en cours.
 
 import ast
+import base64
 import builtins
 import io
 import json
 import linecache
 import os
+import shlex
+import subprocess
 import sys
 import tempfile
 import threading
@@ -234,6 +239,354 @@ def _capturer_figures(dossier, ident):
     return chemins
 
 
+# ---------------------------------------------------------------------------
+# Affichage riche, comme IPython. Le cahier (op exec avec "rich": true) reçoit
+# display(), les rendus _repr_*_ (tableaux pandas en HTML…) et les figures
+# matplotlib en ligne, dans l'ordre où la cellule les produit. Sans "rich"
+# (l'outil Python du chat), display() écrit simplement le texte.
+# ---------------------------------------------------------------------------
+RICHE_MAX = 4 * 1024 * 1024
+_RICHE = {"actif": False, "ipython": False}
+_ETAT = [None]
+
+_REPRS = (
+    ("_repr_html_", "text/html"),
+    ("_repr_markdown_", "text/markdown"),
+    ("_repr_svg_", "image/svg+xml"),
+    ("_repr_png_", "image/png"),
+    ("_repr_jpeg_", "image/jpeg"),
+    ("_repr_latex_", "text/latex"),
+    ("_repr_json_", "application/json"),
+)
+
+
+def _est_figure(objet):
+    module = type(objet).__module__ or ""
+    return module.startswith("matplotlib.figure") and hasattr(objet, "savefig")
+
+
+def _png_figure(figure):
+    tampon = io.BytesIO()
+    figure.savefig(tampon, format="png", bbox_inches="tight")
+    return base64.b64encode(tampon.getvalue()).decode("ascii")
+
+
+def _texte_figure(figure):
+    try:
+        largeur, hauteur = figure.get_size_inches() * figure.dpi
+        return "<Figure size %dx%d with %d Axes>" % (largeur, hauteur, len(figure.axes))
+    except Exception:
+        return "<Figure>"
+
+
+def _paquet(objet):
+    """Paquet MIME d'un objet, comme le formateur d'IPython."""
+    donnees = {}
+    if _est_figure(objet):
+        try:
+            donnees["image/png"] = _png_figure(objet)
+        except Exception:
+            pass
+    if not isinstance(objet, type):
+        methode = getattr(objet, "_repr_mimebundle_", None)
+        if callable(methode):
+            try:
+                try:
+                    paquet = methode(include=None, exclude=None)
+                except TypeError:
+                    paquet = methode()
+            except Exception:
+                paquet = None
+            if isinstance(paquet, tuple):
+                paquet = paquet[0]
+            if isinstance(paquet, dict):
+                for mime, valeur in paquet.items():
+                    donnees.setdefault(mime, valeur)
+        for nom, mime in _REPRS:
+            if mime in donnees:
+                continue
+            methode = getattr(objet, nom, None)
+            if not callable(methode):
+                continue
+            try:
+                valeur = methode()
+            except Exception:
+                continue
+            if isinstance(valeur, tuple):
+                valeur = valeur[0]
+            if valeur is not None:
+                donnees[mime] = valeur
+    propre = {}
+    for mime, valeur in donnees.items():
+        if isinstance(valeur, (bytes, bytearray)):
+            if mime.startswith("image/") and mime != "image/svg+xml":
+                valeur = base64.b64encode(bytes(valeur)).decode("ascii")
+            else:
+                valeur = bytes(valeur).decode("utf-8", "replace")
+        if mime == "application/json":
+            try:
+                if len(json.dumps(valeur)) > RICHE_MAX:
+                    continue
+            except Exception:
+                continue
+        elif not isinstance(valeur, str):
+            valeur = str(valeur)
+        if isinstance(valeur, str) and len(valeur) > RICHE_MAX:
+            continue
+        propre[mime] = valeur
+    propre["text/plain"] = _texte_figure(objet) if _est_figure(objet) else _repr_borne(objet, RESULT_MAX)
+    return propre
+
+
+def _emettre(donnees):
+    etat = _ETAT[0]
+    if etat is None or etat.cellule is None:
+        return
+    if _RICHE["actif"]:
+        etat.envoyer({"t": "display", "id": etat.cellule, "data": donnees})
+    else:
+        etat.flux("stdout", str(donnees.get("text/plain", "")) + "\n")
+
+
+def display(*objets, **options):
+    """display() d'IPython : chaque objet devient une sortie de la cellule."""
+    brut = options.get("raw", False)
+    for objet in objets:
+        if brut and isinstance(objet, dict):
+            donnees = dict(objet)
+            donnees.setdefault("text/plain", "")
+        else:
+            donnees = _paquet(objet)
+        _emettre(donnees)
+
+
+def _vider_figures(*_args, **_kwargs):
+    """plt.show() et fin de cellule : les figures ouvertes deviennent des
+    sorties (PNG) puis sont fermées, comme le backend inline de Jupyter."""
+    plt = sys.modules.get("matplotlib.pyplot")
+    if plt is None:
+        return
+    try:
+        numeros = list(plt.get_fignums())
+    except Exception:
+        return
+    for numero in numeros[:FIGURES_MAX]:
+        try:
+            figure = plt.figure(numero)
+            _emettre({"image/png": _png_figure(figure), "text/plain": _texte_figure(figure)})
+        except Exception:
+            pass
+    try:
+        plt.close("all")
+    except Exception:
+        pass
+
+
+class _BackendEnLigne(object):
+    """MPLBACKEND=module://atelier_inline : Agg pour dessiner, et show()
+    affiche dans la cellule au lieu d'avertir « non interactive »."""
+    NOM = "atelier_inline"
+
+    def find_spec(self, nom, chemin=None, cible=None):
+        if nom != self.NOM:
+            return None
+        import importlib.util
+        return importlib.util.spec_from_loader(nom, self)
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        module.FigureCanvas = FigureCanvasAgg
+        module.show = _vider_figures
+        module.backend_version = "atelier"
+
+
+class _ObjetAffiche(object):
+    binaire = False
+
+    def __init__(self, data=None, url=None, filename=None, **options):
+        if data is None and filename:
+            with open(filename, "rb" if self.binaire else "r") as fichier:
+                data = fichier.read()
+        self.data = data
+        self.url = url
+        self.options = options
+
+    def __repr__(self):
+        return "<IPython.display.%s object>" % type(self).__name__
+
+
+def _ipython_minimal():
+    """IPython absent : un module IPython.display réduit (display, HTML,
+    Markdown, Image…) pour que `from IPython.display import display` marche."""
+    ipython = types.ModuleType("IPython")
+    module = types.ModuleType("IPython.display")
+
+    class HTML(_ObjetAffiche):
+        def _repr_html_(self):
+            return self.data
+
+    class Markdown(_ObjetAffiche):
+        def _repr_markdown_(self):
+            return self.data
+
+    class Latex(_ObjetAffiche):
+        def _repr_latex_(self):
+            return self.data
+
+    class Math(_ObjetAffiche):
+        def _repr_latex_(self):
+            texte = (self.data or "").strip()
+            return texte if texte.startswith("$") else "$\\displaystyle %s$" % texte
+
+    class SVG(_ObjetAffiche):
+        def _repr_svg_(self):
+            return self.data
+
+    class JSON(_ObjetAffiche):
+        def _repr_json_(self):
+            return self.data
+
+    class Image(_ObjetAffiche):
+        binaire = True
+
+        def _format(self):
+            nom = (self.options.get("format") or self.url or "").lower()
+            return "jpeg" if nom.endswith(("jpg", "jpeg")) else "png"
+
+        def _repr_html_(self):
+            if self.url and self.data is None:
+                return '<img src="%s"/>' % self.url
+            return None
+
+        def _repr_png_(self):
+            return self.data if self.data is not None and self._format() == "png" else None
+
+        def _repr_jpeg_(self):
+            return self.data if self.data is not None and self._format() == "jpeg" else None
+
+    def clear_output(wait=False):
+        return None
+
+    for nom, valeur in (("display", display), ("HTML", HTML), ("Markdown", Markdown), ("Latex", Latex),
+                        ("Math", Math), ("SVG", SVG), ("JSON", JSON), ("Image", Image),
+                        ("clear_output", clear_output)):
+        setattr(module, nom, valeur)
+    ipython.display = module
+    ipython.get_ipython = lambda: None
+    # Lu par matplotlib (pyplot, backend_bases) dès que IPython est importé :
+    # une version récente lui évite les chemins d'IPython < 8.24.
+    ipython.version_info = (9, 0, 0, "atelier")
+    ipython.__version__ = "9.0.0+atelier"
+    return {"IPython": ipython, "IPython.display": module}
+
+
+class _IPythonReduit(object):
+    """IPython absent : sert le module réduit à `import IPython` seulement.
+    Placé en fin de sys.meta_path, il ne masque jamais un vrai IPython, et
+    rien n'est inscrit dans sys.modules tant que la cellule ne l'importe pas
+    (pandas, tqdm… y cherchent IPython pour se croire dans Jupyter)."""
+
+    def __init__(self):
+        self.modules = None
+
+    def find_spec(self, nom, chemin=None, cible=None):
+        if nom not in ("IPython", "IPython.display"):
+            return None
+        import importlib.util
+        return importlib.util.spec_from_loader(nom, self, is_package=nom == "IPython")
+
+    def create_module(self, spec):
+        if self.modules is None:
+            self.modules = _ipython_minimal()
+        return self.modules[spec.name]
+
+    def exec_module(self, module):
+        return None
+
+
+def _preparer_ipython():
+    """Une fois, au premier passage riche : display d'IPython (s'il est
+    installé sans ipykernel) passe par nos sorties ; sinon module réduit."""
+    if _RICHE["ipython"]:
+        return
+    _RICHE["ipython"] = True
+    try:
+        import IPython.display as reel
+    except ImportError:
+        sys.meta_path.append(_IPythonReduit())
+        return
+    except Exception:
+        return
+    reel.display = display
+    for nom in ("IPython.core.display_functions", "IPython.core.display"):
+        module = sys.modules.get(nom)
+        if module is not None and hasattr(module, "display"):
+            module.display = display
+
+
+# Commandes magiques courantes. Elles ne sont traduites que si la cellule
+# n'est pas du Python valide : un vrai code n'est jamais réécrit.
+_MAGIES_MUETTES = frozenset(("matplotlib", "config", "load_ext", "reload_ext", "autoreload", "aimport"))
+
+
+def _magie(nom, arguments):
+    if nom == "!" or nom == "sx" or nom == "system":
+        return _lancer(arguments, True)
+    if nom in ("pip", "conda"):
+        if nom == "conda":
+            raise RuntimeError("%conda n'est pas disponible dans ce noyau : utilise %pip.")
+        return _lancer([sys.executable, "-m", "pip"] + shlex.split(arguments), False)
+    if nom == "cd":
+        os.chdir(os.path.expanduser(arguments.strip() or "~"))
+        print(os.getcwd())
+        return None
+    if nom == "pwd":
+        print(os.getcwd())
+        return None
+    raise RuntimeError(
+        "La commande magique %%%s demande IPython : installe ipykernel dans cet environnement "
+        "(pip install ipykernel) pour un noyau Jupyter complet." % nom
+    )
+
+
+def _lancer(commande, coquille):
+    processus = subprocess.Popen(
+        commande, shell=coquille, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL, universal_newlines=True, bufsize=1,
+    )
+    try:
+        for ligne in processus.stdout:
+            sys.stdout.write(ligne)
+        processus.wait()
+    except KeyboardInterrupt:
+        processus.kill()
+        raise
+    return None
+
+
+def _traduire_magies(code):
+    """Lignes %magie et !commande en appels Python, même numéro de ligne."""
+    lignes = code.split("\n")
+    sortie = []
+    for ligne in lignes:
+        corps = ligne.lstrip()
+        retrait = ligne[: len(ligne) - len(corps)]
+        if corps.startswith("!"):
+            sortie.append("%s_atelier_magie(%r, %r)" % (retrait, "!", corps[1:]))
+        elif corps.startswith("%") and not corps.startswith("%%"):
+            nom, _, arguments = corps[1:].partition(" ")
+            if nom in _MAGIES_MUETTES:
+                sortie.append(retrait + "pass")
+            else:
+                sortie.append("%s_atelier_magie(%r, %r)" % (retrait, nom, arguments))
+        else:
+            sortie.append(ligne)
+    return "\n".join(sortie)
+
+
 # Méthodes qui modifient leur objet en place : `l.append(x)` modifie `l`.
 # Les méthodes pandas qui rendent une copie ne comptent qu'avec inplace=True.
 _MUTANTES = frozenset((
@@ -325,8 +678,11 @@ class Pilote(object):
             vues[nom] = (id(valeur), _forme(valeur))
         return vues
 
-    def executer(self, ident, code, dossier_figures=None):
+    def executer(self, ident, code, dossier_figures=None, riche=False):
         etat = self.etat
+        _RICHE["actif"] = bool(riche)
+        if riche:
+            _preparer_ipython()
         etat.cellule = ident
         etat.envoye = 0
         etat.coupe = 0
@@ -342,10 +698,32 @@ class Pilote(object):
         erreur = None
         avant = self._visibles()
         lus, mutes = set(), set()
+        donnees_resultat = None
+        chrono = False
         try:
-            arbre = ast.parse(code, nom, "exec")
+            source = code
+            # Magie de cellule en tête (%%time…) : la première ligne devient
+            # vide, les numéros de ligne restent ceux de la cellule.
+            premiere, _, reste = code.partition("\n")
+            if premiere.lstrip().startswith("%%"):
+                magie = premiere.strip()[2:].split(" ")[0]
+                if magie == "time":
+                    chrono = True
+                    source = "\n" + reste
+                else:
+                    source = "_atelier_magie(%r, '')\n" % ("%" + magie) + reste
+            try:
+                arbre = ast.parse(source, nom, "exec")
+            except SyntaxError as erreur_syntaxe:
+                # Pas du Python : peut-être %matplotlib, !pip… (comme IPython).
+                try:
+                    arbre = ast.parse(_traduire_magies(source), nom, "exec")
+                except SyntaxError:
+                    raise erreur_syntaxe
             lus, mutes = _lire_arbre(arbre)
             dernier = None
+            # « ; » en fin de cellule masque le résultat, comme dans Jupyter.
+            muet = code.rstrip().endswith(";")
             if arbre.body and isinstance(arbre.body[-1], ast.Expr):
                 dernier = ast.Expression(arbre.body.pop().value)
             exec(compile(arbre, nom, "exec"), self.espace)
@@ -353,7 +731,23 @@ class Pilote(object):
                 valeur = eval(compile(dernier, nom, "eval"), self.espace)
                 if valeur is not None:
                     self.espace["_"] = valeur
-                    resultat = _repr_borne(valeur, RESULT_MAX)
+                    plt = sys.modules.get("matplotlib.pyplot")
+                    figure_ouverte = (
+                        riche and plt is not None and _est_figure(valeur)
+                        and getattr(valeur, "number", None) in plt.get_fignums()
+                    )
+                    if muet or figure_ouverte:
+                        # une figure encore ouverte s'affiche en fin de cellule
+                        pass
+                    else:
+                        resultat = _repr_borne(valeur, RESULT_MAX)
+                        if riche:
+                            # Envoyé tout de suite : comme Jupyter, le
+                            # résultat précède les figures de fin de cellule.
+                            donnees_resultat = _paquet(valeur)
+                            etat.envoyer({"t": "display", "id": ident, "data": donnees_resultat, "result": True})
+            if chrono:
+                print("Wall time: %.2f s" % (time.time() - debut))
         except BaseException as e:  # KeyboardInterrupt et SystemExit compris
             if isinstance(e, SystemExit) and e.code in (None, 0):
                 pass
@@ -364,6 +758,9 @@ class Pilote(object):
                     "traceback": _traceback_utilisateur(e)[-RESULT_MAX:],
                 }
         finally:
+            if riche:
+                # figures restées ouvertes : affichées en ligne, comme Jupyter
+                _vider_figures()
             try:
                 sys.stdout.flush()
             except Exception:
@@ -371,7 +768,7 @@ class Pilote(object):
             sys.stdout, sys.stderr = stdout, stderr
             etat.cellule = None
         # Hors cellule : les PNG des figures ne comptent pas comme fichiers écrits.
-        figures = _capturer_figures(dossier_figures, ident)
+        figures = [] if riche else _capturer_figures(dossier_figures, ident)
         apres = self._visibles()
         crees = sorted(n for n, (ident_obj, _) in apres.items() if n not in avant or avant[n][0] != ident_obj)
         modifies = sorted(
@@ -389,6 +786,7 @@ class Pilote(object):
             "id": ident,
             "status": "error" if erreur else "ok",
             "result": resultat,
+            "result_data": donnees_resultat,
             "error": erreur,
             "truncated": etat.coupe,
             "files": {"read": sorted(etat.lus), "written": sorted(etat.ecrits)},
@@ -443,7 +841,13 @@ def main():
     sys.path[:] = [p for p in sys.path if os.path.abspath(p or ".") != ici]
 
     etat = _Etat(sortie)
+    _ETAT[0] = etat
+    # display() existe partout, comme dans IPython ; le backend matplotlib
+    # « module://atelier_inline » n'est chargé que si on le demande.
+    builtins.display = display
+    sys.meta_path.insert(0, _BackendEnLigne())
     espace = sys.modules["__main__"].__dict__
+    espace["_atelier_magie"] = _magie
     pilote = Pilote(etat, espace)
     _installer_suivi_fichiers(etat)
     etat.envoyer({
@@ -476,6 +880,7 @@ def main():
                     int(requete.get("id", 0)),
                     str(requete.get("code", "")),
                     requete.get("figdir") or None,
+                    bool(requete.get("rich")),
                 )
             elif op == "vars":
                 pilote.variables(int(requete.get("id", 0)))

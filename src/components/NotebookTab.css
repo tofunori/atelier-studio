@@ -813,6 +813,12 @@
   color: var(--text-primary);
 }
 
+/* Thème sombre : le code a son propre fond, plus clair que la page (réglable
+   dans Réglages, Apparence ; --code-lift posé par applyAppearance). */
+:root[data-theme="dark"] .nb-cell[data-kind="code"] .nb-well {
+  background: color-mix(in srgb, var(--text-primary) var(--code-lift, 9%), var(--surface-app));
+}
+
 .nb-cell[data-kind="code"][data-focused="true"] .nb-well {
   box-shadow: none;
 }
@@ -1076,3 +1082,11 @@
 .nb-well-zone:focus-visible .nb-well {
   outline: var(--focus-ring-width) solid var(--focus-ring-color);
 }
+
+/* Surlignages et notes des cellules (Custom Highlight API, comme le chat) :
+   mêmes teintes que la bulle partagée (annotationColors). */
+::highlight(nb-hl-amber) { background: rgba(255, 213, 74, .40); }
+::highlight(nb-hl-green) { background: rgba(120, 220, 140, .40); }
+::highlight(nb-hl-blue) { background: rgba(120, 170, 255, .40); }
+::highlight(nb-hl-red) { background: rgba(255, 140, 160, .40); }
+::highlight(nb-note) { text-decoration: underline dotted var(--text-muted); text-underline-offset: 3px; }

@@ -22,6 +22,9 @@ export type Settings = {
   chatFontSize: number;
   chatWidth: number;
   chatLineHeight: number;
+  /** Thème sombre : éclaircissement du fond du code (cellules du cahier),
+   *  en % de la couleur du texte mêlée au fond de la page. 0 = comme la page. */
+  codeContrast?: number;
   galleryPath: string;
   galleryExts: string; // extensions par défaut de la galerie ("" = liste intégrée)
   galleryExtsByProject: Record<string, string>; // racine projet -> extensions
@@ -102,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatFontSize: 13.5,
   chatWidth: 760,
   chatLineHeight: 1.7,
+  codeContrast: 9,
   galleryPath: "", // vide = galerie embarquée (gallery/ du repo ou ressource bundlée)
   galleryExts: "",
   galleryExtsByProject: {},

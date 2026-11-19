@@ -5,7 +5,7 @@ Teste l'onglet cahier comme dans l'app : le **vrai** serveur Rust
 un **vrai** noyau ipykernel, piloté par Playwright (Chromium). Mac et Linux.
 
 ```sh
-cargo build --manifest-path rust/Cargo.toml -p atelier-studio-server
+cargo build --manifest-path rust/Cargo.toml --bin atelier-studio-server
 npm run test:notebook:e2e
 ```
 
@@ -21,7 +21,14 @@ Ce qui est vérifié : exécution simple et enchaînée, sortie progressive d'un
 cellule longue, erreur Python lisible, figure matplotlib, la vue qui reste sur
 la cellule relancée (ancrage du défilement coupé, comme WKWebView sur Mac),
 sélection envoyée au chat avec la capsule commune, `input()`, interruption,
-redémarrage, « Tout exécuter » qui s'arrête à l'erreur, aucune erreur JS.
+redémarrage, « Tout exécuter » qui s'arrête à l'erreur, `display(HTML)`,
+aucune erreur JS.
+
+Puis un second projet dont le `.venv` n'a ni ipykernel ni IPython (ses paquets
+sont reliés à ceux du premier) : Atelier y prend son noyau de secours
+(`atelier_noyau.py`), qui doit se comporter comme Jupyter : `display()` sans
+import, `IPython.display` (HTML, Markdown), `plt.show()` en ligne, figure
+restée ouverte affichée en fin de cellule, `_repr_html_`, `;` final, `!commande`.
 
 Le noyau qui ne démarre pas est couvert côté Rust
 (`rust/crates/atelier-notebook/tests/noyau_qui_ne_demarre_pas.rs`).

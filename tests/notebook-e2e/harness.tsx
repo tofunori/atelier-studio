@@ -26,7 +26,8 @@ const root = q.get("root") ?? "";
 const theme = (q.get("theme") ?? "dark") as "dark" | "light";
 setLanguage("fr");
 document.documentElement.dataset.theme = theme;
-try { applyAppearance({ ...DEFAULT_SETTINGS, theme } as never, "bench"); } catch (e) { console.warn("theme", e); }
+const preset = q.get("preset");
+try { applyAppearance({ ...DEFAULT_SETTINGS, theme, ...(preset ? { themePreset: preset } : {}) } as never, "bench"); } catch (e) { console.warn("theme", e); }
 setSidecarInfo({ port, token });
 // WKWebView (Atelier sur Mac) n'a pas d'ancrage de défilement : on le coupe
 // pour voir ce que voit Thierry.
