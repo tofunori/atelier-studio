@@ -154,7 +154,9 @@ export function useNotebookAnnotations({
   const [annots, setAnnots] = useState<NotebookAnnotation[]>([]);
   const knownRef = useRef<string[]>([]);
   const annotsRef = useRef(annots);
-  annotsRef.current = annots;
+  useLayoutEffect(() => {
+    annotsRef.current = annots;
+  }, [annots]);
   const [draft, setDraft] = useState<NoteDraft | null>(null);
 
   useEffect(() => {
@@ -177,6 +179,7 @@ export function useNotebookAnnotations({
   const persist = useCallback(
     async (next: NotebookAnnotation[]) => {
       const before = annotsRef.current;
+      annotsRef.current = next;
       setAnnots(next);
       try {
         const res = await notebookCommand<{ annots: NotebookAnnotation[] }>(
@@ -255,10 +258,10 @@ export function useNotebookAnnotations({
 
   const highlight = useCallback(
     (passage: NotebookPassage, color: string) => {
-      const others = annotsRef.current.filter(
-        (a) => !(a.cellId === passage.cellId && a.part === passage.part && a.from === passage.from && a.to === passage.to),
-      );
-      const same = annotsRef.current.find((a) => !others.includes(a));
+      const isSame = (a: NotebookAnnotation) =>
+        a.cellId === passage.cellId && a.part === passage.part && a.from === passage.from && a.to === passage.to;
+      const same = annotsRef.current.find(isSame);
+      const others = annotsRef.current.filter((a) => !isSame(a));
       void persist([...others, { ...(same ?? { id: newId(), kind: "hl", created: Date.now() }), ...passage, color }]);
     },
     [persist],

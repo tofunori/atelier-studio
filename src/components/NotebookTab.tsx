@@ -204,7 +204,9 @@ function NotebookSelectionBar({
   // lus par référence, ils ne reconstruisent pas la bulle, qui refermait sa
   // palette de couleurs sous le doigt.
   const actions = useRef({ onDone, onHighlight, onAnnotate });
-  actions.current = { onDone, onHighlight, onAnnotate };
+  useLayoutEffect(() => {
+    actions.current = { onDone, onHighlight, onAnnotate };
+  });
   const canMark = Boolean(onHighlight && onAnnotate);
   useLayoutEffect(() => {
     const host = hostRef.current;
