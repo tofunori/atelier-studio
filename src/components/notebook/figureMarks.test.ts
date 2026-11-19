@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arrowHead, createMark, figureNotesText, pinAt } from "./NotebookFigure";
+import { arrowHead, createMark, figureNotesText, pinAt } from "./figureMarks";
 
 describe("createMark", () => {
   it("range un cadre du coin haut gauche au coin bas droit, en fractions", () => {
