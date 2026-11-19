@@ -813,6 +813,12 @@
   color: var(--text-primary);
 }
 
+/* Thème sombre : le code a son propre fond, plus clair que la page (réglable
+   dans Réglages, Apparence ; --code-lift posé par applyAppearance). */
+:root[data-theme="dark"] .nb-cell[data-kind="code"] .nb-well {
+  background: color-mix(in srgb, var(--text-primary) var(--code-lift, 9%), var(--surface-app));
+}
+
 .nb-cell[data-kind="code"][data-focused="true"] .nb-well {
   box-shadow: none;
 }

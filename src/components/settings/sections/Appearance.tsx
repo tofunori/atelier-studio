@@ -160,6 +160,10 @@ export default function Appearance(p: SectionProps) {
           <SettingSlider label={t("settings.interline")} min={1.4} max={2.0} step={0.05} value={s.chatLineHeight} onChange={(v) => save({ chatLineHeight: v })} />
           <span className="set-val">{s.chatLineHeight.toFixed(2)}</span>
         </Row>
+        <Row title={t("settings.code-contrast")} desc={t("settings.code-contrast-desc")}>
+          <SettingSlider label={t("settings.code-contrast")} min={0} max={16} step={1} value={s.codeContrast ?? 9} onChange={(v) => save({ codeContrast: v })} />
+          <span className="set-val">{s.codeContrast ?? 9}</span>
+        </Row>
       </Group>
       <Advanced label={t("settings.personalize")}>
         <Group label={t("settings.group.theme")}>
