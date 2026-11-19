@@ -3263,11 +3263,13 @@ export default function App() {
   // lib/tourDriver) : l'App publie de quoi ouvrir le projet d'exemple et
   // préparer chaque arrêt, relu à chaque appel.
   const tourContext = useRef<TourAppContext | null>(null);
-  tourContext.current = {
-    activeProject, atelierUrl, openFileTab, selectProject, selectSurfaceFromBar, switchToSurface, addProject,
-    closeOverlays: () => { setShowSettings(false); setProjectsHome(null); setPaletteOpen(false); setGalleryFullscreen(false); closeSetupWelcome(); },
-    setProjects, setActiveView, setLayout, setActiveTab,
-  };
+  useLayoutEffect(() => {
+    tourContext.current = {
+      activeProject, atelierUrl, openFileTab, selectProject, selectSurfaceFromBar, switchToSurface, addProject,
+      closeOverlays: () => { setShowSettings(false); setProjectsHome(null); setPaletteOpen(false); setGalleryFullscreen(false); closeSetupWelcome(); },
+      setProjects, setActiveView, setLayout, setActiveTab,
+    };
+  });
   useEffect(() => provideTourContext(() => tourContext.current), []);
 
   // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à

@@ -74,19 +74,12 @@ function isEditable(target: EventTarget | null): boolean {
   return el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
 }
 
-export default function GuidedTour() {
-  const tour = useGuidedTour();
-  const stepId = tour.phase === "step" ? TOUR_STEPS[tour.step] : null;
-  const spec = stepId ? STEPS[stepId] : null;
+/** Boîtes des cibles de l'arrêt, relevées régulièrement : les panneaux
+ *  s'ouvrent, les onglets changent, la fenêtre se redimensionne. L'état
+ *  ne change que si une boîte a bougé. */
+function useTargets(spec: StepSpec | null) {
   const [rects, setRects] = useState<TourRect[]>([]);
   const [view, setView] = useState({ w: window.innerWidth, h: window.innerHeight });
-  const [cardSize, setCardSize] = useState({ w: 272, h: 160 });
-  const cardRef = useRef<HTMLDivElement>(null);
-  const key = tour.phase === "step" ? `step-${tour.step}` : tour.phase;
-  const shown = useShown(key);
-
-  // Les cibles bougent (panneaux qui s'ouvrent, onglets, redimensionnement) :
-  // relevé régulier, état mis à jour seulement quand une boîte a changé.
   useEffect(() => {
     if (!spec) { setRects([]); return; }
     const tick = () => {
@@ -105,27 +98,22 @@ export default function GuidedTour() {
       window.removeEventListener("resize", tick);
     };
   }, [spec]);
+  return { rects, view };
+}
 
-  useLayoutEffect(() => {
-    const el = cardRef.current;
-    if (!el) return;
-    const next = { w: el.offsetWidth, h: el.offsetHeight };
-    setCardSize((current) => (current.w === next.w && current.h === next.h ? current : next));
-  });
-
+/** Échap ferme ; →, Entrée (hors carte) et ← parcourent les arrêts. */
+function useTourKeys(phase: string, cardRef: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       const inCard = cardRef.current?.contains(event.target as Node) ?? false;
+      if (!inCard && isEditable(event.target)) return;
       if (event.key === "Escape") {
-        if (!inCard && isEditable(event.target)) return;
         event.preventDefault();
         closeGuidedTour();
+      } else if (phase !== "step") {
         return;
-      }
-      if (tour.phase !== "step") return;
-      if (!inCard && isEditable(event.target)) return;
-      if (event.key === "ArrowRight" || (event.key === "Enter" && !inCard)) {
+      } else if (event.key === "ArrowRight" || (event.key === "Enter" && !inCard)) {
         event.preventDefault();
         nextTourStep();
       } else if (event.key === "ArrowLeft") {
@@ -135,75 +123,99 @@ export default function GuidedTour() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tour.phase]);
+  }, [phase, cardRef]);
+}
+
+function InviteBody({ loading, error }: { loading: boolean; error: string | null }) {
+  return (
+    <>
+      <h2 id="tour-title" className="tour-title">{t("tour.invite-title")}</h2>
+      <p className="tour-text">{t("tour.invite-text")}</p>
+      {error && <p className="tour-error" role="alert">{t("tour.example-failed", { error })}</p>}
+      <div className="tour-actions">
+        <Button variant="ghost" onClick={closeGuidedTour}>{t("tour.later")}</Button>
+        <Button variant="secondary" loading={loading} onClick={() => { void startGuidedTour(); }}>
+          {t("tour.start")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+function EndBody() {
+  return (
+    <>
+      <h2 id="tour-title" className="tour-title">{t("tour.end-title")}</h2>
+      <p className="tour-text">{t("tour.end-text")}</p>
+      <div className="tour-actions">
+        <Button variant="ghost" onClick={openOwnFolderFromTour}>{t("tour.open-own")}</Button>
+        <Button variant="secondary" onClick={closeGuidedTour}>{t("tour.stay")}</Button>
+      </div>
+    </>
+  );
+}
+
+function StepBody({ id, step }: { id: TourStepId; step: number }) {
+  const total = TOUR_STEPS.length;
+  return (
+    <>
+      <div className="tour-count">{t("tour.count", { n: step + 1, total })}</div>
+      <h2 id="tour-title" className="tour-title">{t(`tour.${id}-title` as I18nKey)}</h2>
+      <p className="tour-text">{t(`tour.${id}-text` as I18nKey)}</p>
+      <div className="tour-actions">
+        {step > 0 && (
+          <IconButton className="tour-back" label={t("tour.back")} title={t("tour.back")} onClick={previousTourStep}>
+            <ChevronLeftIcon size={14} aria-hidden="true" />
+          </IconButton>
+        )}
+        <Button variant="ghost" onClick={closeGuidedTour}>{t("tour.skip")}</Button>
+        <Button variant="secondary" onClick={nextTourStep}>
+          {step === total - 1 ? t("tour.finish") : t("tour.next")}
+        </Button>
+      </div>
+    </>
+  );
+}
+
+export default function GuidedTour() {
+  const tour = useGuidedTour();
+  const stepId = tour.phase === "step" ? TOUR_STEPS[tour.step] : null;
+  const spec = stepId ? STEPS[stepId] : null;
+  const { rects, view } = useTargets(spec);
+  const [cardSize, setCardSize] = useState({ w: 272, h: 160 });
+  const cardRef = useRef<HTMLDialogElement>(null);
+  const key = tour.phase === "step" ? `step-${tour.step}` : tour.phase;
+  const shown = useShown(key);
+  useTourKeys(tour.phase, cardRef);
+
+  useLayoutEffect(() => {
+    const el = cardRef.current;
+    if (!el) return;
+    const next = { w: el.offsetWidth, h: el.offsetHeight };
+    setCardSize((current) => (current.w === next.w && current.h === next.h ? current : next));
+  });
 
   if (tour.phase === "idle") return null;
 
-  const anchor = spec && rects.length > 0 ? rects[0] : null;
-  const pos = placeCard(anchor, spec?.sides ?? [], view, cardSize);
+  const pos = placeCard(rects[0] ?? null, spec?.sides ?? [], view, cardSize);
   const cardStyle: CSSProperties = { left: pos.left, top: pos.top };
-  const total = TOUR_STEPS.length;
+  const body = stepId
+    ? <StepBody id={stepId} step={tour.step} />
+    : tour.phase === "end"
+      ? <EndBody />
+      : <InviteBody loading={tour.phase === "loading"} error={tour.error} />;
 
-  let body;
-  if (tour.phase === "invite" || tour.phase === "loading") {
-    body = (
-      <>
-        <h2 id="tour-title" className="tour-title">{t("tour.invite-title")}</h2>
-        <p className="tour-text">{t("tour.invite-text")}</p>
-        {tour.error && <p className="tour-error" role="alert">{t("tour.example-failed", { error: tour.error })}</p>}
-        <div className="tour-actions">
-          <Button variant="ghost" onClick={closeGuidedTour}>{t("tour.later")}</Button>
-          <Button variant="secondary" loading={tour.phase === "loading"}
-            onClick={() => { void startGuidedTour(); }}>
-            {t("tour.start")}
-          </Button>
-        </div>
-      </>
-    );
-  } else if (tour.phase === "end") {
-    body = (
-      <>
-        <h2 id="tour-title" className="tour-title">{t("tour.end-title")}</h2>
-        <p className="tour-text">{t("tour.end-text")}</p>
-        <div className="tour-actions">
-          <Button variant="ghost" onClick={openOwnFolderFromTour}>{t("tour.open-own")}</Button>
-          <Button variant="secondary" onClick={closeGuidedTour}>{t("tour.stay")}</Button>
-        </div>
-      </>
-    );
-  } else {
-    const id = stepId!;
-    const last = tour.step === total - 1;
-    body = (
-      <>
-        <div className="tour-count">{t("tour.count", { n: tour.step + 1, total })}</div>
-        <h2 id="tour-title" className="tour-title">{t(`tour.${id}-title` as I18nKey)}</h2>
-        <p className="tour-text">{t(`tour.${id}-text` as I18nKey)}</p>
-        <div className="tour-actions">
-          {tour.step > 0 && (
-            <IconButton className="tour-back" label={t("tour.back")} title={t("tour.back")} onClick={previousTourStep}>
-              <ChevronLeftIcon size={14} aria-hidden="true" />
-            </IconButton>
-          )}
-          <Button variant="ghost" onClick={closeGuidedTour}>{t("tour.skip")}</Button>
-          <Button variant="secondary" onClick={nextTourStep}>
-            {last ? t("tour.finish") : t("tour.next")}
-          </Button>
-        </div>
-      </>
-    );
-  }
-
+  // <dialog open> non modal : l'app reste utilisable pendant la visite.
   return createPortal(
     <div className="tour-layer">
       {rects.map((r, i) => (
         <div key={`${key}-${i}`} className="tour-ring" data-shown={shown ? "" : undefined} aria-hidden="true"
           style={{ left: r.left - 4, top: r.top - 4, width: r.width + 8, height: r.height + 8 }} />
       ))}
-      <div key={key} ref={cardRef} className="tour-card" role="dialog" aria-modal="false"
-        aria-labelledby="tour-title" data-phase={tour.phase} data-shown={shown ? "" : undefined} style={cardStyle}>
+      <dialog open key={key} ref={cardRef} className="tour-card" aria-labelledby="tour-title"
+        data-phase={tour.phase} data-shown={shown ? "" : undefined} style={cardStyle}>
         {body}
-      </div>
+      </dialog>
     </div>,
     document.body,
   );

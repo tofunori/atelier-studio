@@ -12,7 +12,8 @@
 .tour-ring[data-shown] { opacity: 1; }
 
 .tour-card {
-  position: fixed; width: 272px; padding: 16px; pointer-events: auto;
+  position: fixed; inset: auto; margin: 0; border: 0; max-width: none; max-height: none;
+  width: 272px; padding: 16px; pointer-events: auto;
   background: var(--bg-pop); border-radius: var(--r-m); box-shadow: var(--elev);
   color: var(--fg); font-size: 12px; line-height: 1.5;
   opacity: 0; transform: translateY(var(--enter-offset));
