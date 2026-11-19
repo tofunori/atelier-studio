@@ -11,6 +11,7 @@ import { t } from "../../../lib/i18n";
 import { SETUP_AGENTS, openSetupWelcome, recheckAll, useSetupEnvironment } from "../../../lib/setupEnvironment";
 import { AgentSetupRow, ToolSetupRow } from "../../setup/SetupRows";
 import { Button, InlineNotice } from "../../ui";
+import { launchGuidedTour } from "../../../lib/guidedTour";
 
 export default function Environment(p: SectionProps) {
   const env = useSetupEnvironment();
@@ -57,6 +58,11 @@ export default function Environment(p: SectionProps) {
         <Row title={t("setup.welcome-row")} desc={t("setup.welcome-row-desc")}>
           <Button variant="ghost" className="set-btn quiet" onClick={openSetupWelcome}>
             {t("setup.welcome-open")}
+          </Button>
+        </Row>
+        <Row title={t("tour.row")} desc={t("tour.row-desc")}>
+          <Button variant="ghost" className="set-btn quiet" onClick={launchGuidedTour}>
+            {t("tour.launch")}
           </Button>
         </Row>
       </Group>

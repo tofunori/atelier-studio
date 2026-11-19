@@ -684,6 +684,7 @@ mod tests {
             "memorySave",
             "memoryDelete",
             "createProject",
+            "createExampleProject",
             "projectHistoryRestore",
             "projectHistorySaveVersion",
             "projectHistoryDeleteVersion",

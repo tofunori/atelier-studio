@@ -20,6 +20,7 @@ import {
   useSetupEnvironment,
 } from "../../lib/setupEnvironment";
 import { AgentSetupRow, ToolSetupRow } from "./SetupRows";
+import { offerGuidedTour } from "../../lib/guidedTour";
 
 // LaTeX n'y figure plus : faute de MacTeX, la première compilation télécharge
 // tectonic d'elle-même. Les PDF se lisent sans rien installer.
@@ -83,6 +84,8 @@ export default function SetupWelcomeDialog(p: { open: boolean }) {
             onClick={() => {
               markWelcomeDone();
               closeSetupWelcome();
+              // la visite guidée se propose une fois, juste après
+              offerGuidedTour();
             }}
           >
             {t("setup.finish")}

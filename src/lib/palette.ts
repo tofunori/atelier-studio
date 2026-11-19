@@ -39,6 +39,8 @@ export type PaletteContext = {
     openSettings: () => void;
     /** accueil des projets (⇧⌘P) */
     allProjects?: () => void;
+    /** visite guidée (Réglages › Environnement aussi) */
+    guidedTour?: () => void;
     retitleAll: () => void;
     nextTheme: () => void;
     openFile: (rel: string) => void;
@@ -104,6 +106,15 @@ export function buildItems(ctx: PaletteContext): PaletteItem[] {
           hint: "⇧⌘P",
           section: "actions" as const,
           run: actions.allProjects,
+        }]
+      : []),
+    ...(actions.guidedTour
+      ? [{
+          id: "action:guided-tour",
+          label: t("tour.row"),
+          hint: t("palette.hint.app"),
+          section: "actions" as const,
+          run: actions.guidedTour,
         }]
       : []),
     {
