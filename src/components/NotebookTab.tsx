@@ -22,8 +22,6 @@ import {
   HistoryIcon,
   MessageSquareIcon,
   DownloadIcon,
-  Maximize2Icon,
-  MessageSquarePlusIcon,
   PencilIcon,
   PlayIcon,
   PlusIcon,
@@ -70,6 +68,7 @@ import {
 } from "../lib/notebookRun";
 import { caretOffsetAt } from "../lib/caretOffset";
 import { passageFromRange, useNotebookAnnotations, type NotebookPassage } from "./notebook/notebookAnnotations";
+import { NotebookFigure } from "./notebook/NotebookFigure";
 import { NotebookCodeEditor } from "./NotebookCodeEditor";
 import { MD_COMPONENTS, MdBody, highlightCode, useMdPlugins } from "./chat/md";
 import {
@@ -650,6 +649,7 @@ function ErrorOutput({
 const OutputBlock = memo(function OutputBlock({
   output,
   cellIndex,
+  cellCount,
   notebookName,
   mdRemark,
   mdRehype,
@@ -659,6 +659,8 @@ const OutputBlock = memo(function OutputBlock({
 }: {
   output: UiOutput;
   cellIndex: number;
+  /** Numéro d'exécution de la cellule : celui de « Out[n] » dans Jupyter. */
+  cellCount?: number | null;
   notebookName: string;
   mdRemark: any[];
   mdRehype: any[];
@@ -714,8 +716,9 @@ const OutputBlock = memo(function OutputBlock({
   const figKey = figure ? `${cellIndex}:${figure.format}:${figure.payload.slice(0, 32)}` : "";
   const isSaved = figKey ? savedKeySet.has(figKey) : false;
 
+  const outLabel = `Out[${output.executionCount ?? cellCount ?? cellIndex}]`;
   const citeFigure = () => {
-    const label = `${notebookName} · Out[${cellIndex}]`;
+    const label = `${notebookName} · ${outLabel}`;
     window.dispatchEvent(
       new CustomEvent("kernel-add-to-chat", {
         detail: { text: `${t("notebook.figure-cite", { label })}\n` },
@@ -766,52 +769,16 @@ const OutputBlock = memo(function OutputBlock({
       ) : null}
 
       {hasFigure && figure ? (
-        <figure className="nb-figure">
-          <div className="nb-figure-bar">
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => onOpenLightbox(figure)}
-              title={t("notebook.expand-fig")}
-            >
-              <Maximize2Icon size={12} />
-              <span>{t("notebook.expand-fig")}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => onSaveFigure(figure, figKey)}
-              title={t("notebook.save-fig")}
-            >
-              {isSaved ? <CheckIcon size={12} /> : <DownloadIcon size={12} />}
-              <span>{isSaved ? t("notebook.saved-fig") : t("notebook.save-fig")}</span>
-            </Button>
-            <Button variant="ghost" size="xs" onClick={citeFigure} title={t("notebook.cite")}>
-              <MessageSquarePlusIcon size={12} />
-              <span>{t("notebook.cite")}</span>
-            </Button>
-          </div>
-
-          <RowButton
-            className="nb-figure-stage"
-            onClick={() => onOpenLightbox(figure)}
-            aria-label={t("notebook.expand-fig")}
-          >
-            {figure.format === "svg" && figure.safeSvg ? (
-              <div dangerouslySetInnerHTML={{ __html: figure.safeSvg }} />
-            ) : (
-              <img
-                src={`data:image/${figure.format};base64,${figure.payload}`}
-                alt={t("notebook.figure-alt", { n: cellIndex })}
-              />
-            )}
-          </RowButton>
-
-          <figcaption className="nb-figure-caption">
-            <span>Out[{output.executionCount ?? cellIndex}]</span>
-            <span>{figure.format.toUpperCase()}</span>
-          </figcaption>
-        </figure>
+        <NotebookFigure
+          figure={figure}
+          label={`${notebookName} · ${outLabel}`}
+          outLabel={outLabel}
+          alt={t("notebook.figure-alt", { n: cellIndex })}
+          saved={isSaved}
+          onExpand={() => onOpenLightbox(figure)}
+          onSave={() => onSaveFigure(figure, figKey)}
+          onCite={citeFigure}
+        />
       ) : null}
 
       {!safeHtml && !output.textMarkdown && !output.textLatex && !hasFigure && output.textPlain ? (
@@ -1071,7 +1038,7 @@ export default function NotebookTab({
     const pick = (ev?: Event) => {
       // Un clic dans la bulle (palette de couleurs) ou dans une fiche de
       // note ne refait pas la sélection : la bulle se reconstruirait.
-      if (ev?.target instanceof Element && ev.target.closest(".sel-toolbar, .nb-note-editor")) return;
+      if (ev?.target instanceof Element && ev.target.closest(".sel-toolbar, .nb-note-editor, .nb-figure[data-annotating]")) return;
       if (ev instanceof MouseEvent) point = { x: ev.clientX, y: ev.clientY };
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -2227,6 +2194,7 @@ export default function NotebookTab({
                                     key={oi}
                                     output={out}
                                     cellIndex={cell.index}
+                                    cellCount={cell.executionCount}
                                     notebookName={title}
                                     mdRemark={mdPlugins.remark}
                                     mdRehype={mdPlugins.rehype}

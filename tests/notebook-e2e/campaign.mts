@@ -228,6 +228,69 @@ async function campagneAnnotations(browser: import("@playwright/test").Browser, 
   }
 }
 
+// Annotation d'une figure : actions dans la légende, cadre et point numérotés,
+// notes sous la figure, envoi au chat de la figure annotée.
+async function annoterFigure(page: import("@playwright/test").Page) {
+  const fig = cell(page, C.figure).locator(".nb-figure");
+  check("figure : plus de barre flottante, actions dans la légende",
+    (await page.locator(".nb-figure-bar").count()) === 0 &&
+    (await fig.locator(".nb-figure-caption button", { hasText: "Annoter" }).count()) === 1);
+  await fig.locator(".nb-figure-caption button", { hasText: "Annoter" }).click();
+  const layer = fig.locator(".nb-fig-layer");
+  await layer.waitFor({ timeout: 3000 });
+  check("annoter : outils affichés", (await fig.locator('.nb-fig-tools button[aria-pressed="true"]').count()) === 1);
+  // La note qui prend la main fait défiler la page : la figure se remesure.
+  const at = async (fx: number, fy: number) => {
+    const box = (await layer.boundingBox())!;
+    return { x: box.x + box.width * fx, y: box.y + box.height * fy };
+  };
+  const drag = async (a: [number, number], b: [number, number]) => {
+    const p = await at(...a), q = await at(...b);
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    await page.mouse.move(q.x, q.y, { steps: 6 });
+    await page.mouse.up();
+  };
+  await drag([0.3, 0.3], [0.55, 0.6]);
+  const notes = fig.locator(".nb-fig-notes textarea");
+  check("annoter : cadre tracé, numéro 1, note prête", await until(async () =>
+    (await fig.locator(".nb-fig-pin").count()) === 1 && (await fig.locator(".nb-fig-marks rect").count()) === 1 &&
+    (await page.evaluate(() => document.activeElement?.tagName)) === "TEXTAREA", 3000));
+  await page.keyboard.type("pente trop forte");
+  await page.keyboard.press("Enter");
+  await fig.locator('.nb-fig-tools button[aria-label="Point"]').click();
+  const pt = await at(0.8, 0.75);
+  await page.mouse.click(pt.x, pt.y);
+  await until(async () => (await notes.count()) === 2, 3000);
+  await page.keyboard.type("ici");
+  await page.keyboard.press("Enter");
+  // Une marque laissée sans note disparaît quand on la quitte.
+  await fig.locator('.nb-fig-tools button[aria-label="Cadre"]').click();
+  await drag([0.1, 0.1], [0.2, 0.2]);
+  await until(async () => (await notes.count()) === 3, 3000);
+  await page.keyboard.press("Escape");
+  check("annoter : marque sans note retirée", await until(async () => (await fig.locator(".nb-fig-pin").count()) === 2, 3000));
+  const editing = (await cell(page, C.figure).locator("textarea.nb-code-input").count()) > 0;
+  check("annoter : la cellule n'est pas passée en édition", !editing);
+
+  await fig.locator(".nb-fig-notes-head button", { hasText: "Envoyer au chat" }).click();
+  const sent = await until(async () => (await page.evaluate(() => (window as any).__figures.length)) === 1, 5000);
+  const env = await page.evaluate(() => (window as any).__figures[0] ?? {});
+  const size = sent ? await page.evaluate(async (src: string) => {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    return { w: img.naturalWidth, h: img.naturalHeight };
+  }, env.dataURL) : { w: 0, h: 0 };
+  check("envoyer : figure annotée jointe au chat avec ses notes",
+    sent && String(env.dataURL).startsWith("data:image/png") && size.w >= 400 &&
+    String(env.text).includes("1. pente trop forte") && String(env.text).includes("2. ici") && String(env.name).includes("annotée"),
+    `${size.w}×${size.h} ${String(env.text).slice(0, 120)}`);
+  check("envoyer : marques effacées, pastille dans la légende", await until(async () =>
+    (await fig.locator(".nb-fig-layer").count()) === 0 &&
+    (await fig.locator(".nb-figure-sent", { hasText: "2 notes envoyées au chat" }).count()) === 1, 3000));
+}
+
 async function campagneSecours(browser: import("@playwright/test").Browser, vitePort: number, port: number, work: string, errors: string[]) {
   const project = path.join(work, "projet-secours");
   fs.mkdirSync(project, { recursive: true });
@@ -346,6 +409,7 @@ async function main() {
       await run(page, C.figure);
       const fig = await until(async () => (await cell(page, C.figure).locator("img").count()) > 0, 60000);
       check("figure matplotlib rendue", fig, fig ? "" : (await outputs(page, C.figure)).slice(0, 120));
+      if (fig) await annoterFigure(page);
     } else skip("figure matplotlib rendue", "matplotlib absent");
     await run(page, C.display);
     check("display(HTML) rendu", await until(async () => (await cell(page, C.display).locator("b#riche").count()) > 0, 15000), (await outputs(page, C.display)).slice(0, 120));
