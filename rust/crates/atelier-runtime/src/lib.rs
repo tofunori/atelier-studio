@@ -8,6 +8,7 @@ pub mod automations;
 pub mod compute_jobs;
 pub mod delegation;
 pub mod docx_tool;
+pub mod notebook_annots;
 pub mod notebook_tool;
 mod codex_history;
 pub mod evidence;
