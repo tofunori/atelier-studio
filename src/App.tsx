@@ -387,6 +387,8 @@ export default function App() {
   // `saveImage` ne porte pas de corrélation — un seul collage est en vol à la
   // fois, comme pour `pendingPaste` juste au-dessus.
   const pendingPasteOrigin = useRef<"chat" | "qa">("chat");
+  // Figure annotée d'un cahier : la même sauvegarde que le collage, avec ses notes.
+  const pendingFigure = useRef<{ name: string; text: string } | null>(null);
   const pendingZoteroDigest = useRef(new Map<string, ZoteroPaletteItem>()); // clé Zotero -> item en attente du digest
   const pendingAgentMentions = useRef(new Map<string, { threadId: string; provider: string }>());
   const pendingLinkedCreations = useRef(new Map<string, {
@@ -2067,11 +2069,13 @@ export default function App() {
           }));
           return;
         }
+        const fig = pendingFigure.current;
+        pendingFigure.current = null;
         setAttachments((l) =>
           addAttachment(l, {
-            name,
+            name: fig?.name ?? name,
             lines: null,
-            text: `Image collée par l'utilisateur : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
+            text: `${fig ? `${fig.text}\nFigure annotée` : "Image collée par l'utilisateur"} : ${msg.path}\nLis ce fichier image (outil Read) avant de répondre.`,
             imageUrl: pendingPaste.current ?? undefined,
             path: msg.path,
           }),
@@ -2416,6 +2420,15 @@ export default function App() {
       pendingPasteOrigin.current = "qa";
       ws.current.send(JSON.stringify({ type: "saveImage", dataURL }));
     };
+    const onNotebookFigure = (e: Event) => {
+      const d = (e as CustomEvent).detail ?? {};
+      if (typeof d.dataURL !== "string" || ws.current?.readyState !== 1) return;
+      pendingPaste.current = d.dataURL;
+      pendingPasteOrigin.current = "chat";
+      pendingFigure.current = { name: String(d.name ?? ""), text: String(d.text ?? "") };
+      ws.current.send(JSON.stringify({ type: "saveImage", dataURL: d.dataURL }));
+      d.accepted = true;
+    };
     const onOpenPalette = () => setPaletteOpen(true);
     const onUsageToggle = () => setUsageOpen((v) => !v);
     // Carte « Proposition de spécialiste » (propose_specialist) : rien n'est
@@ -2461,6 +2474,7 @@ export default function App() {
       "open-palette": onOpenPalette,
       "quick-ask-toggle": onQaToggle,
       "qa-paste-image": onQaPasteImage,
+      "notebook-figure-to-chat": onNotebookFigure,
       "usage-toggle": onUsageToggle,
     });
   }

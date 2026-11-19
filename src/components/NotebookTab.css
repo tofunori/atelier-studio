@@ -545,7 +545,7 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Figures et barre flottante */
+/* Figures : actions dans la légende (la barre flottante cachait le titre) */
 .nb-figure {
   position: relative;
   margin: 0;
@@ -555,27 +555,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-}
-
-.nb-figure-bar {
-  position: absolute;
-  top: var(--sp-3);
-  right: var(--sp-3);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: var(--sp-1);
-  border-radius: var(--radius-control);
-  background: var(--surface-overlay);
-  box-shadow: var(--elevation-overlay);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-out);
-  z-index: var(--z-sticky);
-}
-
-.nb-figure:hover .nb-figure-bar,
-.nb-figure-bar:focus-within {
-  opacity: 1;
+  /* Puce sur le fond de la figure : --bg-ctl s'y confond en thème clair. */
+  --nb-fig-chip: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .nb-figure-stage {
@@ -584,8 +565,19 @@
   cursor: zoom-in;
 }
 
+.nb-figure-stage.is-annotating {
+  cursor: default;
+}
+
+.nb-figure-media {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+
 .nb-figure-stage img,
-.nb-figure-stage svg {
+.nb-figure-stage svg:not(.nb-fig-marks) {
   display: block;
   max-width: 100%;
   height: auto;
@@ -593,10 +585,236 @@
 
 .nb-figure-caption {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-2);
+  min-height: 24px;
   font-size: var(--fs-label);
   color: var(--text-muted);
+}
+
+.nb-figure-out,
+.nb-figure-format {
+  font-variant-numeric: tabular-nums;
+}
+
+.nb-figure-format {
+  min-width: 28px;
+  text-align: right;
+}
+
+.nb-figure-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-left: auto;
+}
+
+.nb-figure-actions [aria-pressed="true"] {
+  background: var(--nb-fig-chip);
+  color: var(--text-primary);
+}
+
+.nb-figure-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  background: var(--nb-fig-chip);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Mode Annoter : outils, marques numérotées, notes sous la figure */
+.nb-fig-tools {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--sp-1);
+  border-radius: var(--radius-surface);
+  background: var(--surface-overlay);
+  box-shadow: var(--elevation-overlay);
+}
+
+.nb-fig-tool {
+  color: var(--text-secondary);
+}
+
+.nb-fig-tool.is-on {
+  background: var(--bg-ctl);
+  color: var(--text-primary);
+}
+
+.nb-fig-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--sp-1);
+  background: var(--border-subtle);
+}
+
+.nb-fig-layer {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.nb-fig-marks {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.nb-fig-marks rect,
+.nb-fig-marks ellipse {
+  fill: color-mix(in srgb, var(--accent) 8%, transparent);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.nb-fig-marks line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.nb-fig-marks polygon {
+  fill: var(--accent);
+}
+
+.nb-fig-marks .is-on {
+  fill: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.nb-fig-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--surface-inset);
+  cursor: pointer;
+}
+
+.nb-fig-notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.nb-fig-notes-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-m);
+}
+
+.nb-fig-notes-title {
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-control);
+  background: var(--nb-fig-chip);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.nb-fig-notes-title em {
+  margin-left: var(--sp-1);
+  font-style: normal;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.nb-fig-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-label);
+  color: var(--text-muted);
+}
+
+.nb-fig-notes-head kbd {
+  margin-left: var(--sp-1);
+  font: inherit;
+  color: var(--text-muted);
+}
+
+.nb-fig-notes ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nb-fig-notes li {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  gap: var(--sp-2);
+  align-items: start;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-control);
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.nb-fig-notes li.is-on {
+  background: var(--nb-fig-chip);
+}
+
+.nb-fig-notes li i {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.nb-fig-notes textarea {
+  width: 100%;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+}
+
+.nb-fig-notes textarea::placeholder {
+  color: var(--text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nb-fig-notes li {
+    transition: none;
+  }
 }
 
 /* Pied d'ajout de cellule */

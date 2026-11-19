@@ -43,6 +43,13 @@ w.__quickAsk = [] as unknown[];
 w.__wsLog = [] as unknown[];
 window.addEventListener("kernel-add-to-chat", (e) => (w.__chat as string[]).push((e as CustomEvent).detail?.text));
 window.addEventListener("quick-ask-open", (e) => (w.__quickAsk as unknown[]).push((e as CustomEvent).detail));
+// Figure annotée envoyée au chat : l'hôte (App) l'accepte, le banc la garde.
+w.__figures = [] as unknown[];
+window.addEventListener("notebook-figure-to-chat", (e) => {
+  const d = (e as CustomEvent).detail;
+  d.accepted = true;
+  (w.__figures as unknown[]).push({ ...d });
+});
 
 const ws = new WebSocket(`ws://127.0.0.1:${port}?token=${encodeURIComponent(token)}`);
 ws.onmessage = (e) => {

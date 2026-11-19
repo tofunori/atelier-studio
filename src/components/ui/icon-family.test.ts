@@ -26,6 +26,7 @@ const DRAWN: Record<string, number> = {
   "shadcn/checkbox.tsx": 1, // marque de la case
   "sidebar/ChatSeal.tsx": 1, // sceau de conversation
   "sidebar/ConversationFamilyMarker.tsx": 1, // marqueur de famille
+  "notebook/NotebookFigure.tsx": 1, // marques d'annotation tracées sur la figure
   "ui/Spinner.tsx": 1, // spinner
 };
 
