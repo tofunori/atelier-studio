@@ -370,6 +370,30 @@ pub async fn handle_ws_command(state: &AppState, msg: &Value) -> Vec<String> {
             .await
             .map(|snap| json!({ "snapshot": snap }))
             .map_err(|e| e.to_string()),
+        // Surlignages et notes des cellules : store partagé des éditeurs,
+        // jamais le fichier .ipynb (voir `notebook_annots`).
+        "annotations" => {
+            let root = project_root_str.map(str::to_string);
+            let nb = path.clone();
+            tokio::task::spawn_blocking(move || crate::notebook_annots::load(root.as_deref(), &nb))
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r)
+                .map(|annots| json!({ "annots": annots }))
+        }
+        "saveAnnotations" => {
+            let root = project_root_str.map(str::to_string);
+            let nb = path.clone();
+            let annots = msg.get("annots").cloned().unwrap_or(Value::Null);
+            let known = msg.get("known").cloned();
+            tokio::task::spawn_blocking(move || {
+                crate::notebook_annots::save(root.as_deref(), &nb, &annots, known.as_ref())
+            })
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r)
+            .map(|annots| json!({ "annots": annots }))
+        }
         "sendInput" => {
             let value = msg.get("value").and_then(Value::as_str).unwrap_or("");
             state

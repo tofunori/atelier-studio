@@ -145,6 +145,89 @@ function cahierSecours() {
   };
 }
 
+// Sélectionne `needle` dans le code de la cellule n et signale la fin du geste.
+const selectInCode = (p: Page, n: number, needle: string) =>
+  p.evaluate(([n, needle]) => {
+    const pre = document.querySelector(`article.nb-cell[data-cell-index="${n}"] pre.nb-well`)!;
+    const text = pre.textContent ?? "";
+    const from = text.indexOf(needle as string);
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let seen = 0;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const len = (node as Text).data.length;
+      if (from >= seen && from <= seen + len) range.setStart(node, from - seen);
+      if (from + (needle as string).length <= seen + len) { range.setEnd(node, from + (needle as string).length - seen); break; }
+      seen += len;
+    }
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const r = range.getBoundingClientRect();
+    document.dispatchEvent(new MouseEvent("mouseup", { clientX: r.right, clientY: r.bottom, bubbles: true }));
+  }, [n, needle] as const);
+const highlightSizes = (p: Page) =>
+  p.evaluate(() => {
+    const reg = (CSS as unknown as { highlights?: Map<string, Set<Range>> }).highlights;
+    const size = (k: string) => reg?.get(k)?.size ?? 0;
+    return { amber: size("nb-hl-amber"), green: size("nb-hl-green"), note: size("nb-note") };
+  });
+
+// Surlignage et note dans une cellule : la même bulle que les fichiers
+// Python, gardée dans le store partagé et retrouvée à la réouverture.
+async function campagneAnnotations(browser: import("@playwright/test").Browser, url: string, project: string, errors: string[]) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(url);
+  await page.waitForSelector(".nb-cell[data-cell-index]", { timeout: 30000 });
+  try {
+    await place(page, C.set, 200);
+    await selectInCode(page, C.set, "x = 21");
+    const bar = page.locator(".sel-toolbar.nb-selection");
+    await bar.waitFor({ timeout: 3000 }).catch(() => {});
+    const has = async (label: string) => (await bar.locator(`button[aria-label="${label}"]`).count()) > 0;
+    check("bulle du cahier : surligneur, couleurs et note", (await has("Surligner")) && (await has("Choisir la couleur du surlignage")) && (await has("Annoter")) && (await has("Ajouter au chat")));
+    await bar.locator('button[aria-label="Choisir la couleur du surlignage"]').click();
+    await bar.locator('button[aria-label="Surligner en vert"]').click();
+    check("surligner : passage peint", await until(async () => (await highlightSizes(page)).green === 1, 5000), JSON.stringify(await highlightSizes(page)));
+
+    await selectInCode(page, C.set, "x * 2");
+    await page.locator('.sel-toolbar.nb-selection button[aria-label="Annoter"]').click();
+    const note = page.locator(".nb-note-editor textarea.atelier-note-input");
+    await note.waitFor({ timeout: 3000 });
+    await note.fill("pourquoi doubler ?");
+    await note.press("Enter");
+    const store = path.join(project, ".fig_thumbs", "pdf_annots.json");
+    const saved = await until(async () => fs.readFileSync(store, "utf8").includes("pourquoi doubler ?"), 5000);
+    check("note : enregistrée dans le store partagé", saved && !fs.readFileSync(path.join(project, "essai.ipynb"), "utf8").includes("pourquoi"));
+    const key = Object.keys(JSON.parse(fs.readFileSync(store, "utf8")));
+    check("note : clé du cahier", key.includes("nb-comments:essai.ipynb"), key.join(", "));
+
+    // Réouverture : les marques reviennent ; un clic sur la note la rouvre.
+    await page.reload();
+    await page.waitForSelector(".nb-cell[data-cell-index]", { timeout: 30000 });
+    await place(page, C.set, 200);
+    const back = await until(async () => {
+      const h = await highlightSizes(page);
+      return h.green === 1 && h.note === 1;
+    }, 8000);
+    check("réouverture : surlignage et note retrouvés", back, JSON.stringify(await highlightSizes(page)));
+    const at = await page.evaluate(() => {
+      const reg = (CSS as unknown as { highlights: Map<string, Set<Range>> }).highlights;
+      const r = [...reg.get("nb-note")!][0].getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.mouse.click(at.x, at.y);
+    const reopened = await until(async () => (await note.inputValue().catch(() => "")) === "pourquoi doubler ?", 3000);
+    const editing = (await cell(page, C.set).locator("textarea.nb-code-input").count()) > 0;
+    check("clic sur la note : fiche rouverte, pas d'édition", reopened && !editing, `édition ${editing}`);
+    await page.locator('.nb-note-editor button[aria-label="Supprimer l’annotation"]').first().click();
+    check("note supprimée", await until(async () => (await highlightSizes(page)).note === 0 && !fs.readFileSync(store, "utf8").includes("pourquoi"), 5000));
+  } finally {
+    await page.close();
+  }
+}
+
 async function campagneSecours(browser: import("@playwright/test").Browser, vitePort: number, port: number, work: string, errors: string[]) {
   const project = path.join(work, "projet-secours");
   fs.mkdirSync(project, { recursive: true });
@@ -342,6 +425,9 @@ async function main() {
     check("Tout exécuter : s'arrête à la cellule en erreur", (await count(page, C.last)) === lastBefore && (await outputs(page, C.print)).includes("y = 42"));
 
     await page.screenshot({ path: path.join(work, "fin.png") });
+
+    // 10 bis. Surlignage et note dans une cellule (store partagé).
+    await campagneAnnotations(browser, `http://localhost:${vitePort}/tests/notebook-e2e/harness.html?${q}`, project, errors);
 
     // 11. Noyau de secours (.venv sans ipykernel ni IPython, comme chez
     // Thierry) : display, rendus riches, figures en ligne, !commande.

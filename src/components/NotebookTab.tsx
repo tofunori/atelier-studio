@@ -69,6 +69,7 @@ import {
   type ErrorLocation,
 } from "../lib/notebookRun";
 import { caretOffsetAt } from "../lib/caretOffset";
+import { passageFromRange, useNotebookAnnotations, type NotebookPassage } from "./notebook/notebookAnnotations";
 import { NotebookCodeEditor } from "./NotebookCodeEditor";
 import { MD_COMPONENTS, MdBody, highlightCode, useMdPlugins } from "./chat/md";
 import {
@@ -123,6 +124,8 @@ type PickedSelection = {
   cellIndex: number;
   part: "code" | "output";
   lines: [number, number];
+  /** Passage repérable (cellule, partie, décalages) pour surligner et noter. */
+  passage: NotebookPassage | null;
 };
 
 /** Lignes (à partir de 1) couvertes par la sélection dans le bloc de code ou de sortie. */
@@ -187,15 +190,26 @@ function NotebookSelectionBar({
   notebookName,
   picked,
   onDone,
+  onHighlight,
+  onAnnotate,
 }: {
   notebookName: string;
   picked: PickedSelection;
   onDone: () => void;
+  onHighlight?: (passage: NotebookPassage, color: string) => void;
+  onAnnotate?: (passage: NotebookPassage, at: { x: number; y: number }) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  // Les rappels changent à chaque rendu de l'onglet (chrono, état du noyau) :
+  // lus par référence, ils ne reconstruisent pas la bulle, qui refermait sa
+  // palette de couleurs sous le doigt.
+  const actions = useRef({ onDone, onHighlight, onAnnotate });
+  actions.current = { onDone, onHighlight, onAnnotate };
+  const canMark = Boolean(onHighlight && onAnnotate);
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    const { onDone, onHighlight, onAnnotate } = actions.current;
     const citation = formatNotebookSelectionCitation(
       notebookName,
       picked.cellIndex,
@@ -212,7 +226,19 @@ function NotebookSelectionBar({
         window.dispatchEvent(new CustomEvent("kernel-add-to-chat", { detail: { text: citation } }));
         finish();
       },
-      onAnnotate: () => {},
+      // Même bulle que les fichiers Python : surligneur et couleurs, note.
+      onAnnotate: () => {
+        if (!picked.passage || !onAnnotate) return;
+        onAnnotate(picked.passage, { x: picked.caret.left, y: picked.caret.bottom + 8 });
+        finish();
+      },
+      onHighlight:
+        picked.passage && onHighlight
+          ? (color) => {
+              onHighlight(picked.passage!, color);
+              finish();
+            }
+          : undefined,
       onAsk: () => {
         window.dispatchEvent(
           new CustomEvent("quick-ask-open", {
@@ -237,12 +263,12 @@ function NotebookSelectionBar({
       host.style.left = `${at.left}px`;
       host.style.top = `${at.top}px`;
     }
-  }, [notebookName, picked, onDone]);
+  }, [notebookName, picked, canMark]);
 
   return (
     <div
       ref={hostRef}
-      className="sel-toolbar kernel-selection"
+      className={picked.passage && onAnnotate ? "sel-toolbar nb-selection" : "sel-toolbar kernel-selection"}
       // Position calculée comme les éditeurs (bord gauche), pas centrée par
       // le translateX(-50 %) de .sel-toolbar.
       style={{ left: picked.caret.left, top: picked.caret.bottom + 10, transform: "none" }}
@@ -1041,6 +1067,9 @@ export default function NotebookTab({
     let timer = 0;
     let point: { x: number; y: number } | null = null;
     const pick = (ev?: Event) => {
+      // Un clic dans la bulle (palette de couleurs) ou dans une fiche de
+      // note ne refait pas la sélection : la bulle se reconstruirait.
+      if (ev?.target instanceof Element && ev.target.closest(".sel-toolbar, .nb-note-editor")) return;
       if (ev instanceof MouseEvent) point = { x: ev.clientX, y: ev.clientY };
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -1067,6 +1096,22 @@ export default function NotebookTab({
               cellIndex: Number(cellEl.dataset.cellIndex) || 1,
               part: "code",
               lines: [from, from + span - 1],
+              passage: cellEl.dataset.cellId
+                ? (() => {
+                    const lead = chosen.length - chosen.trimStart().length;
+                    const start = area.selectionStart + lead;
+                    return {
+                      cellId: cellEl.dataset.cellId,
+                      cellIndex: Number(cellEl.dataset.cellIndex) || 1,
+                      part: "code" as const,
+                      partIndex: 0,
+                      from: start,
+                      to: start + chosen.trim().length,
+                      text: chosen.trim(),
+                      lines: [from, from + span - 1] as [number, number],
+                    };
+                  })()
+                : null,
             });
             return;
           }
@@ -1099,6 +1144,7 @@ export default function NotebookTab({
           cellIndex: Number(cellEl.dataset.cellIndex) || 1,
           part,
           lines: selectedLines(partEl, range),
+          passage: passageFromRange(cellEl, partEl, range, selectedLines(partEl, range)),
         });
       }, 0);
     };
@@ -1503,6 +1549,15 @@ export default function NotebookTab({
     const root = projectRoot?.replace(/\/+$/, "");
     return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : title;
   }, [path, projectRoot, title]);
+
+  // Surlignages et notes des cellules (même bulle que les fichiers Python).
+  const notes = useNotebookAnnotations({
+    path,
+    projectRoot,
+    notebookName: chatName,
+    scrollerRef,
+    enabled: Boolean(snapshot) && mode !== "diff",
+  });
 
   const citeCell = useCallback(
     (cell: UiCell) => {
@@ -2236,8 +2291,11 @@ export default function NotebookTab({
             notebookName={chatName}
             picked={picked}
             onDone={() => setPicked(null)}
+            onHighlight={mode === "diff" ? undefined : notes.highlight}
+            onAnnotate={mode === "diff" ? undefined : notes.annotate}
           />
         ) : null}
+        {notes.noteEditor}
       </div>
 
       {lightbox ? (
