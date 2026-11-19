@@ -125,7 +125,7 @@ export default function TopBarSurfaces(p: SurfaceProps & { documentActive?: bool
   // nom court : « IDE — éditeurs et fichiers ouverts » → « IDE »
   const currentName = current?.label.split(" — ")[0];
   return <span className="topbar-surfaces" role="group" aria-label={t("topbar.surfaces")}>
-    <span className="topbar-gallery-tab document-tab-shell topbar-surface-drag" data-active={gallery.active} data-pinned=""
+    <span data-tour="gallery-button" className="topbar-gallery-tab document-tab-shell topbar-surface-drag" data-active={gallery.active} data-pinned=""
       {...dragProps("atelier")}
       onContextMenu={gallery.active ? (event) => requestWorkspacePaneMenu(event, { surface: "atelier" }) : undefined}>
       <RowButton className="topbar-gallery-main" aria-label={galleryLabel} title={galleryLabel}
@@ -161,7 +161,7 @@ export function SurfacesMenu(p: SurfaceProps) {
   });
   const rest = targets.filter((target) => target.id !== "atelier");
   return <LazyDropdownMenu open={open} onOpenChange={setOpen} align="end" label={t("topbar.surfaces")}
-    trigger={<IconButton className="topbar-surfaces-menu" label={t("topbar.surfaces")} aria-haspopup="menu" aria-expanded={open}>
+    trigger={<IconButton data-tour="surfaces" className="topbar-surfaces-menu" label={t("topbar.surfaces")} aria-haspopup="menu" aria-expanded={open}>
       <ChevronDownIcon size={12} />
     </IconButton>}
     groups={[

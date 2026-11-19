@@ -83,6 +83,7 @@ pub const ALL_MESSAGE_TYPES: &[&str] = &[
     "projectFolderCatalog",
     "projectCards",
     "createProject",
+    "createExampleProject",
     "narvalStatus",
     "narvalSnapshot",
     "narvalListDirectory",
@@ -800,6 +801,17 @@ pub async fn route_ws(state: &AppState, text: &str) -> Vec<String> {
             })
             .await
             .unwrap_or_else(|_| Err("Création impossible".into()));
+            vec![json_msg(match result {
+                Ok(root) => json!({"type":"projectCreated","requestId":request_id,"root":root}),
+                Err(error) => json!({"type":"projectCreated","requestId":request_id,"error":error}),
+            })]
+        }
+        "createExampleProject" => {
+            // visite guidée : crée ou retrouve ~/Documents/Atelier/Glacier-Exemple
+            let request_id = msg["requestId"].clone();
+            let result = crate::ws_dispatch::blocking(crate::example_project::create)
+                .await
+                .unwrap_or_else(|_| Err("Création impossible".into()));
             vec![json_msg(match result {
                 Ok(root) => json!({"type":"projectCreated","requestId":request_id,"root":root}),
                 Err(error) => json!({"type":"projectCreated","requestId":request_id,"error":error}),

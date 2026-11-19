@@ -59,6 +59,8 @@ import {
   useSetupWelcomeOpen,
 } from "./lib/setupEnvironment";
 import { SetupWelcomeHost } from "./components/setup/SetupWelcomeHost";
+import { launchGuidedTour, provideTourContext, useGuidedTourActive } from "./lib/guidedTour";
+import type { TourAppContext } from "./lib/tourDriver";
 import { usageFromHistory } from "./lib/historyUsage";
 import {
   archivedUserEvent,
@@ -94,7 +96,8 @@ const ContextInspector = lazyWithRetry<Parameters<(typeof import("./components/C
 const ReadingChatOverlay = lazyWithRetry<Parameters<(typeof import("./components/ReadingChatOverlay"))["ReadingChatOverlay"]>[0]>(
   () => import("./components/ReadingChatOverlay").then((module) => ({ default: module.ReadingChatOverlay })),
 );
-const CommandPalette = lazyWithRetry(() => import("./components/CommandPalette"));
+const CommandPalette = lazyWithRetry(() => import("./components/CommandPaletteFromContext"));
+const GuidedTour = lazyWithRetry(() => import("./components/tour/GuidedTour"));
 const AutomationsPanel = lazyWithRetry(() => import("./components/Automations"));
 const QuickAsk = lazyWithRetry(() => import("./components/QuickAsk"));
 const PluginPanel = lazyWithRetry(() => import("./components/PluginPanel"));
@@ -133,7 +136,7 @@ import { pushEvidencePins, requestEvidencePins } from "./lib/evidencePins";
 import { selectEvictableThreads } from "./lib/threadEviction";
 import { openFileRef } from "./components/chat/md";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { buildItems } from "./lib/palette";
+import type { PaletteContext } from "./lib/palette";
 import type { Automation } from "./lib/automations";
 import { setDockBadge } from "./lib/dockBadge";
 import { setReviewSession, type ChatReviewRef } from "./lib/reviewSession";
@@ -463,6 +466,7 @@ export default function App() {
   // par-dessus la feuille des réglages — deux modales empilées se disputeraient
   // le focus. « Revoir l'accueil » (Réglages > Environnement) ferme donc la feuille.
   const setupWelcomeOpen = useSetupWelcomeOpen();
+  const tourActive = useGuidedTourActive();
   useEffect(() => {
     if (setupWelcomeOpen) setShowSettings(false);
   }, [setupWelcomeOpen]);
@@ -3255,6 +3259,19 @@ export default function App() {
     return true;
   }, [markProjectOpened]);
 
+  // Visite guidée (lib/guidedTour, pilote chargé à la demande dans
+  // lib/tourDriver) : l'App publie de quoi ouvrir le projet d'exemple et
+  // préparer chaque arrêt, relu à chaque appel.
+  const tourContext = useRef<TourAppContext | null>(null);
+  useLayoutEffect(() => {
+    tourContext.current = {
+      activeProject, atelierUrl, openFileTab, selectProject, selectSurfaceFromBar, switchToSurface, addProject,
+      closeOverlays: () => { setShowSettings(false); setProjectsHome(null); setPaletteOpen(false); setGalleryFullscreen(false); closeSetupWelcome(); },
+      setProjects, setActiveView, setLayout, setActiveTab,
+    };
+  });
+  useEffect(() => provideTourContext(() => tourContext.current), []);
+
   // Task 25 (fix) : useCallback — passé nommé (`onNewChat`) à RailMemo et à
   // ResearchHome/CommandPalette. Dep exacte : activeProject (lu dans le
   // corps) ; setNewChatRequest (setter useState) omis, stable.
@@ -4379,7 +4396,7 @@ export default function App() {
     },
   };
 
-  const paletteItems = useMemo(() => buildItems({
+  const paletteContext = useMemo((): PaletteContext => ({
     files,
     threads: allThreads,
     zotero: zoteroItems,
@@ -4391,6 +4408,7 @@ export default function App() {
       setLayout,
       openSettings: () => openSettings(),
       allProjects: openProjectsHome,
+      guidedTour: launchGuidedTour,
       retitleAll: () => ws.current?.readyState === 1 && ws.current.send(JSON.stringify({ type: "retitleAll" })),
       nextTheme: () => {
         setSettings((current) => {
@@ -4893,10 +4911,15 @@ export default function App() {
         />
       </LazyBoundary>
       <SetupWelcomeHost />
+      {tourActive && (
+        <LazyBoundary fallback={null}>
+          <GuidedTour />
+        </LazyBoundary>
+      )}
       <UnsavedDocumentsGuard />
       {paletteOpen && (
         <LazyBoundary fallback={null}>
-          <CommandPalette open items={paletteItems} onClose={() => setPaletteOpen(false)} />
+          <CommandPalette context={paletteContext} onClose={() => setPaletteOpen(false)} />
         </LazyBoundary>
       )}
       {qaMode !== "closed" && (
@@ -5105,7 +5128,7 @@ export default function App() {
         <>
           <PanelResizeHandle id="chat-atelier-divider" className={layout === "atelier" ? "handle handle-idle" : "handle"} onDragging={setDragging} />
           <Panel ref={atelierPanelRef} id="atelier" order={3} defaultSize={50} minSize={20}>
-            <div className="atelier-host">
+            <div className="atelier-host" data-tour="atelier">
             <AtelierPane
               key={activeProject}
               galleryDir={settings.galleryPath}

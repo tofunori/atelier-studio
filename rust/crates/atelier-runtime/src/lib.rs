@@ -25,6 +25,7 @@ mod message_edits;
 pub mod paths;
 mod project_folders;
 pub mod project_history;
+mod example_project;
 mod project_home;
 pub mod prov;
 pub mod recipe;

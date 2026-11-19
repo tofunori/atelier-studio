@@ -95,7 +95,7 @@ export function ProjectHeader(p: {
   );
 
   return (
-    <header className="pnav-header">
+    <header className="pnav-header" data-tour="project">
       {/* identité projet UNE seule fois dans l'app, ici (audit SHELL-04 :
           la barre du haut n'a plus de crumb) ; le chemin complet en infobulle. */}
       <div className="pnav-id">

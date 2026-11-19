@@ -1,0 +1,31 @@
+/* Visite guidée (version Fable, 2026-11-19). Rien n'est assombri : un anneau
+   neutre autour de la cible, une carte élevée à côté. Fondus de 150 ms au
+   plus ; le mouvement réduit les neutralise via les jetons --motion-*. */
+
+.tour-layer { position: fixed; inset: 0; z-index: var(--z-popover); pointer-events: none; }
+
+.tour-ring {
+  position: fixed; border-radius: var(--r-m); pointer-events: none;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--fg) 55%, transparent);
+  opacity: 0; transition: opacity var(--motion-panel) var(--ease-out);
+}
+.tour-ring[data-shown] { opacity: 1; }
+
+.tour-card {
+  position: fixed; inset: auto; margin: 0; border: 0; max-width: none; max-height: none;
+  width: 272px; padding: 16px; pointer-events: auto;
+  background: var(--bg-pop); border-radius: var(--r-m); box-shadow: var(--elev);
+  color: var(--fg); font-size: 12px; line-height: 1.5;
+  opacity: 0; transform: translateY(var(--enter-offset));
+  transition: opacity var(--motion-panel) var(--ease-out), transform var(--motion-panel) var(--ease-out);
+}
+.tour-card[data-phase="end"] { width: 320px; }
+.tour-card[data-shown] { opacity: 1; transform: none; }
+
+.tour-count { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+.tour-title { margin: 0 0 4px; font-size: 13px; font-weight: 600; line-height: 1.3; letter-spacing: -0.01em; color: var(--fg); }
+.tour-text { margin: 0; color: var(--text-secondary); }
+.tour-error { margin: 8px 0 0; color: var(--status-error); }
+
+.tour-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.tour-back { margin-right: auto; }

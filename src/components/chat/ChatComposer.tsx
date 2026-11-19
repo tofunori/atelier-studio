@@ -272,6 +272,7 @@ export function ChatComposer(props: {
 
   return (
       <form
+        data-tour="composer"
         className={`composer${host.activeGoal && host.onGoal ? " has-goal" : ""}`}
         ref={input.formRef}
         onKeyDownCapture={(event) => {

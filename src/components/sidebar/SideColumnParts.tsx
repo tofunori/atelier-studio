@@ -190,7 +190,7 @@ export function SideBottom(p: SideBottomProps) {
           {discussions > 0 && <span className="scol-count" aria-hidden="true">{discussions > 99 ? "99+" : discussions}</span>}
         </RowButton>
         {p.onAllProjects && (
-          <RowButton className="scol-row scol-all" aria-keyshortcuts="Meta+Shift+P" onClick={p.onAllProjects}>
+          <RowButton data-tour="projects" className="scol-row scol-all" aria-keyshortcuts="Meta+Shift+P" onClick={p.onAllProjects}>
             <span className="scol-row-ico"><AllProjectsGlyph /></span>
             <span className="scol-row-label">{t("projects.all")}</span>
             <span className="scol-kbd" aria-hidden="true">⇧⌘P</span>

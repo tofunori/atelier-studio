@@ -192,7 +192,7 @@ export default function TopBar({
         <span className="flex" data-tauri-drag-region />
         <SurfacesMenu {...surfaces} />
         <span className="topbar-div" />
-        <div className="topbar-layout-controls">
+        <div className="topbar-layout-controls" data-tour="layout">
         <SegmentedControl
           label={t("layout.split")}
           value={layout}
