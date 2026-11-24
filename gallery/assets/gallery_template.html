@@ -3043,11 +3043,11 @@ const fmtSize = (b) => b>1048576?(b/1048576).toFixed(1)+' MB':b>1024?(b/1024).to
 const imgExt = (e) => e==='png'||e==='jpg'||e==='jpeg'||e==='svg';
 const videoExt = (e) => e==='mp4'||e==='m4v'||e==='mov'||e==='webm';
 const appExt = (e) => e==='docx'||e==='xlsx'||e==='xls'||e==='csv';
-const codeExt = (e) => e==='py'||e==='r'||e==='jl'||e==='tex'||e==='sh';
+const codeExt = (e) => e==='py'||e==='r'||e==='jl'||e==='tex'||e==='sh'||e==='txt';
 // Cahier Jupyter : s'ouvre dans l'éditeur de cahiers d'Atelier ; la carte montre sa première figure.
 const nbExt = (e) => e==='ipynb';
 // All file types live in this one menu (PNG/PDF/SVG/Video are no longer standalone chips).
-const TYPE_LIST                          = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/mov/webm)'],['pdf','PDF'],['html','HTML'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['md','Markdown'],['py','Python'],['ipynb','Jupyter'],['r','R'],['jl','Julia'],['tex','LaTeX'],['sh','Shell']];
+const TYPE_LIST                          = [['png','PNG'],['jpg','JPG'],['svg','SVG'],['mp4','Video (mp4/mov/webm)'],['pdf','PDF'],['html','HTML'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['md','Markdown'],['txt','Texte'],['py','Python'],['ipynb','Jupyter'],['r','R'],['jl','Julia'],['tex','LaTeX'],['sh','Shell']];
 const DEFAULT_PINNED_TYPES=['png','svg','pdf','html','tex','py','ipynb','jl'];
 const BUILTIN_FILE_PRESETS=[
   {id:'figures',label:'Figures',extensions:['png','svg','pdf']},
