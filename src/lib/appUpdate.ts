@@ -139,10 +139,12 @@ export async function installUpdate(): Promise<void> {
   if (!ok) return;
   await flushUnsavedFrames();
   set({ phase: { kind: "downloading", info, downloaded: 0, total: null }, cardOpen: true });
-  const offProgress = await listen<{ downloaded: number; total: number | null }>("atelier-update-progress", (event) => {
-    if (state.phase.kind === "downloading") set({ phase: { ...state.phase, ...event.payload } });
-  }).catch(() => null);
-  const offInstalling = await listen("atelier-update-installing", () => set({ phase: { kind: "installing", info } })).catch(() => null);
+  const [offProgress, offInstalling] = await Promise.all([
+    listen<{ downloaded: number; total: number | null }>("atelier-update-progress", (event) => {
+      if (state.phase.kind === "downloading") set({ phase: { ...state.phase, ...event.payload } });
+    }).catch(() => null),
+    listen("atelier-update-installing", () => set({ phase: { kind: "installing", info } })).catch(() => null),
+  ]);
   try {
     await invoke("update_install"); // ne revient pas en cas de succès : l'app redémarre
   } catch (error) {

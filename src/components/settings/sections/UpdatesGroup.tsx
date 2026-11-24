@@ -11,9 +11,21 @@ import {
   setAutoCheckPreference,
   subscribeUpdate,
   updateStatus,
+  type UpdateState,
   type UpdateStatus,
 } from "../../../lib/appUpdate";
 import { Button } from "../../ui";
+
+/** Ligne d'état sous « Version x.y.z ». */
+function describe({ phase, lastCheck, upToDate }: UpdateState): string {
+  if (phase.kind === "checking") return t("settings.update-checking");
+  if (phase.kind === "available" || phase.kind === "downloading" || phase.kind === "installing") {
+    return t("settings.update-available", { version: phase.info.version });
+  }
+  if (phase.kind === "error" && !phase.info) return t("settings.update-failed");
+  if (lastCheck == null) return t("settings.update-never");
+  return t(upToDate ? "settings.update-up-to-date" : "settings.update-checked", { time: clock(lastCheck) });
+}
 
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
@@ -26,14 +38,7 @@ export function UpdatesGroup(p: { onSaved: () => void }) {
   if (!status) return null;
 
   const { phase } = update;
-  const desc =
-    phase.kind === "checking" ? t("settings.update-checking")
-    : phase.kind === "available" || phase.kind === "downloading" || phase.kind === "installing"
-      ? t("settings.update-available", { version: phase.info.version })
-    : phase.kind === "error" && !phase.info ? t("settings.update-failed")
-    : update.lastCheck == null ? t("settings.update-never")
-    : update.upToDate ? t("settings.update-up-to-date", { time: clock(update.lastCheck) })
-    : t("settings.update-checked", { time: clock(update.lastCheck) });
+  const desc = describe(update);
   const busy = phase.kind === "checking" || phase.kind === "downloading" || phase.kind === "installing";
 
   return (
