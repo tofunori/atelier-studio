@@ -1594,6 +1594,10 @@ export default function App() {
         void showInfo(t("project.folders-running"));
       }
       if (msg.type === "settingsFile") {
+        // `atelier ./dossier` : ce miroir REMPLACE la liste des projets ; le
+        // dossier demandé ne s'ouvre qu'après lui (chargé à la demande, le
+        // budget d'entrée JS est plein ; branché une seule fois).
+        void import("./lib/projectOpen").then((m) => m.wireProjectOpen(setProjects, setActiveProject, markProjectOpened));
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         // Rust renvoie `null` quand settings.json n'existe pas encore (tout
         // premier lancement, avant la moindre écriture) — dans ce seul cas on

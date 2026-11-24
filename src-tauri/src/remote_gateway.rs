@@ -4,6 +4,11 @@
 //! lives in Application Support, so an iPhone remains paired across app and Mac
 //! restarts.  We bind the stable Tailscale address directly: no LAN address,
 //! Funnel, port forwarding, or repeated manual setup.
+//!
+//! macOS only: the Tailscale + Funnel setup and the binary paths are Mac
+//! specific.  The module stays compiled everywhere for `remote_device_action`,
+//! but off Apple nothing calls into it, hence the silenced dead code.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::sidecar::SidecarInfo;
 use serde::{Deserialize, Serialize};
@@ -90,6 +95,15 @@ fn token_hash(token: &str) -> String {
 /// Deux réponses rapprochées pour la même identité partagent le travail déjà
 /// en cours; une nouvelle identité peut remplacer le statut sans qu'une tâche
 /// ancienne n'écrase son résultat.
+///
+/// macOS seulement : la passerelle iPhone suppose Tailscale + Funnel et des
+/// chemins de binaire propres à macOS. Sur Linux elle échouait à chaque
+/// démarrage (« Tailscale n'est pas connecté sur ce Mac ») sans jamais
+/// pouvoir aboutir — on ne tente rien du tout.
+#[cfg(not(target_os = "macos"))]
+pub fn schedule(_app: tauri::AppHandle, _sidecar: SidecarInfo) {}
+
+#[cfg(target_os = "macos")]
 pub fn schedule(app: tauri::AppHandle, sidecar: SidecarInfo) {
     let identity = GatewayIdentity {
         sidecar_port: sidecar.port,
@@ -233,7 +247,7 @@ fn tailscale_ip() -> Result<IpAddr, String> {
             return Ok(ip);
         }
     }
-    Err("Tailscale n'est pas connecté sur ce Mac".into())
+    Err("Tailscale n'est pas connecté".into())
 }
 
 pub(crate) fn tailscale_dns_name() -> Option<String> {

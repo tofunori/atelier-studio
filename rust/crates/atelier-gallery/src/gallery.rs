@@ -25,7 +25,7 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 use crate::openable::is_openable_ext;
 use crate::{AppState, request_allowed};
 
-const SNIP_EXTS: &[&str] = &["py", "r", "jl", "sh", "tex", "md", "csv"];
+const SNIP_EXTS: &[&str] = &["py", "r", "jl", "sh", "tex", "md", "csv", "txt"];
 const EVENT_CAP: usize = 100;
 
 // ---------------------------------------------------------------------------

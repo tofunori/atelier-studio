@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { File } from "lucide-react";
 
 const imagePreview = /\.(pdf|png|jpe?g|webp|gif|svg|html?)$/i;
-const textPreview = /\.(md|tex)$/i;
+const textPreview = /\.(md|tex|txt)$/i;
 export function hasGalleryPreview(path: string) {
   return imagePreview.test(path) || textPreview.test(path);
 }

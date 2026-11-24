@@ -2298,6 +2298,33 @@ fn synctex_route_answers_like_the_cli_without_it() {
         "{body}"
     );
     assert_eq!(got["input"], serde_json::json!(want[5]), "{body}");
+    // Cette réponse appartient à `chapitres/methode.tex`, alors que la requête
+    // nomme `main.tex` : le serveur doit le signaler et donner le chemin à
+    // ouvrir, ré-ancré sur la racine du projet (le projet a bougé depuis la
+    // compilation : `/compil/pdflatex` n'existe plus ici).
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    // Le serveur travaille sur la racine résolue (`/private/var/…` sur Mac).
+    assert_eq!(
+        got["source"],
+        serde_json::json!(fs::canonicalize(&srv.root)
+            .unwrap()
+            .join("chapitres/methode.tex")
+            .to_string_lossy()
+            .into_owned()),
+        "{body}"
+    );
+
+    // Depuis le sous-fichier lui-même, la même réponse est « le fichier ouvert ».
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"edit","tex":"chapitres/methode.tex","pdf":"main.pdf","page":2,"x":105,"y":155}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    let got = json(&body);
+    assert_eq!(got["sameFile"], serde_json::json!(true), "{body}");
+    assert_eq!(got["line"], serde_json::json!(13), "{body}");
 
     // Pas de SyncTeX à côté de ce PDF : « no match », comme le CLI muet.
     let (st, body) = http(
@@ -2317,6 +2344,59 @@ fn synctex_route_answers_like_the_cli_without_it() {
         Some(r#"{"dir":"view","tex":"../dehors.tex","pdf":"main.pdf","line":3}"#),
     );
     assert_eq!(st, 403);
+}
+
+#[test]
+fn synctex_edit_opens_the_project_file_when_the_pdf_sits_in_a_subfolder() {
+    let srv = start_server();
+    // Manuscrit rangé dans `manuscrit/` (PDF et SyncTeX à côté de main.tex),
+    // compilé ailleurs (`/compil/pdflatex`). La racine du projet ne contient
+    // PAS `chapitres/methode.tex` : seul le dossier du PDF le connaît.
+    let fixture = synctex_fixture();
+    let book = srv.root.join("manuscrit");
+    fs::create_dir_all(book.join("chapitres")).unwrap();
+    fs::copy(fixture.join("main.tex"), book.join("main.tex")).unwrap();
+    fs::copy(
+        fixture.join("chapitres/methode.tex"),
+        book.join("chapitres/methode.tex"),
+    )
+    .unwrap();
+    fs::copy(
+        fixture.join("pdflatex/main.synctex.gz"),
+        book.join("main.synctex.gz"),
+    )
+    .unwrap();
+    let ask = || {
+        http(
+            srv.port,
+            "POST",
+            "/synctex",
+            Some(
+                r#"{"dir":"edit","tex":"manuscrit/main.tex","pdf":"manuscrit/main.pdf","page":2,"x":105,"y":155}"#,
+            ),
+        )
+    };
+    let (st, body) = ask();
+    assert_eq!(st, 200, "{body}");
+    let got: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    assert_eq!(
+        got["source"],
+        serde_json::json!(fs::canonicalize(&book)
+            .unwrap()
+            .join("chapitres/methode.tex")
+            .to_string_lossy()),
+        "ré-ancré sur le dossier du PDF, pas sur la racine : {body}"
+    );
+
+    // Fichier absent du projet (supprimé, ou `.sty` de la distribution) :
+    // pas de chemin à ouvrir plutôt qu'un chemin inventé.
+    fs::remove_file(book.join("chapitres/methode.tex")).unwrap();
+    let (st, body) = ask();
+    assert_eq!(st, 200, "{body}");
+    let got: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    assert_eq!(got["source"], serde_json::Value::Null, "{body}");
 }
 
 /// Archive au format des releases tectonic : une seule entrée `tectonic`.

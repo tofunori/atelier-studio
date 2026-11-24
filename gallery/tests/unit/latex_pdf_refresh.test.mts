@@ -159,3 +159,42 @@ test('first useful paint precedes decoding the whole document', async t => {
   await h.controller.loadPdf();
   assert.ok(firstPaint[0] < 5, `first canvas waited for ${firstPaint[0]} page decodes`);
 });
+
+// Un clic dans le PDF peut tomber dans un fichier inclus (\input, chapitre) :
+// la ligne seule ne veut rien dire dans l'onglet courant, il faut ouvrir CE
+// fichier. Le serveur répond `sameFile` et `source` ; le contrôleur doit
+// ouvrir au lieu de sauter, et ne rien rouvrir quand c'est déjà le bon fichier.
+test('un clic dans un fichier inclus ouvre ce fichier, pas l’onglet courant', async () => {
+  const dom = new JSDOM('<div id="right"></div><div id="marker"></div>', {pretendToBeVisual: true});
+  const win = dom.window;
+  const right = win.document.getElementById('right');
+  const opened: Array<[string, number]> = [];
+  const hints: string[] = [];
+  let answer: Record<string, unknown> = {};
+  (win as unknown as {fetch: unknown}).fetch = async () => ({ok: true, json: async () => answer});
+  const controller = context.PdfSync.createLatexPdfSyncController({
+    path: 'main.tex', isPdfMode: false, getPdfPath: () => 'main.pdf', getZoom: () => 1,
+    getEditor: () => null, right, marker: win.document.getElementById('marker'),
+    pdfjs: {getDocument: () => ({promise: new Promise(() => {})})},
+    channel: null, setState: (_key, value) => { hints.push(String(value)); }, revealLine() {},
+    document: win.document, window: win,
+    openFile: (path, line) => { opened.push([path, line]); },
+  });
+
+  answer = {line: 11, input: '/compil/./chapitres/methode.tex', source: '/projet/chapitres/methode.tex', sameFile: false};
+  await controller.synctexEdit(1, 5, 5);
+  assert.deepEqual(opened, [['/projet/chapitres/methode.tex', 11]]);
+
+  answer = {line: 10, input: '/compil/./main.tex', source: '/projet/main.tex', sameFile: true};
+  await controller.synctexEdit(1, 200, 5);
+  assert.equal(opened.length, 1, 'le fichier déjà ouvert ne se rouvre pas');
+
+  // Passage d'un fichier hors du projet (`.sty`, copie ailleurs) : rien à
+  // ouvrir, un message, et surtout pas le brut `input` de la compilation.
+  answer = {line: 42, input: '/usr/share/texmf/tex/latex/base/article.cls', source: null, sameFile: false};
+  await controller.synctexEdit(1, 5, 300);
+  assert.equal(opened.length, 1, 'aucun fichier hors projet ne s’ouvre');
+  assert.match(hints.at(-1) || '', /hors du projet/);
+
+  dom.window.close();
+});

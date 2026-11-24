@@ -117,6 +117,9 @@ pub struct ViewHit {
 pub struct EditHit {
     pub input: String,
     pub line: i32,
+    /// Tag de l'entrée qui a répondu : `tags_for` dit si c'est le fichier
+    /// demandé (comparaison de chemins, pas de nom).
+    pub tag: i32,
 }
 
 /// Un fichier SyncTeX analysé, prêt pour les deux requêtes.
@@ -1241,6 +1244,44 @@ impl Synctex {
         Some(EditHit {
             input: input.name.clone(),
             line: n.line,
+            tag: n.tag,
+        })
+    }
+
+    /// Chemin que l'éditeur doit ouvrir pour une réponse [`EditHit`], ou
+    /// `None` quand aucun fichier du projet ne correspond.
+    ///
+    /// `EditHit::input` est le nom **tel qu'écrit** dans le `.synctex.gz`
+    /// (parité avec le CLI) : absolu ou relatif au dossier de compilation.
+    /// Candidats, dans l'ordre, et seul un fichier existant SOUS la racine du
+    /// projet est retenu :
+    /// 1. le nom résolu comme le fait le parser (`resolve_name`) ;
+    /// 2. projet déplacé ou recompilé ailleurs (Mac ↔ Linux, copie) : la partie
+    ///    relative au dossier de compilation, ré-ancrée sur le dossier du
+    ///    SyncTeX (PDF en sous-dossier), puis sur la racine du projet.
+    ///
+    /// Jamais hors du projet : une copie restée ailleurs (`these/` copié en
+    /// `these-v2/`) ou un `.sty` de la distribution TeX ne doivent pas
+    /// s'ouvrir à la place du fichier du projet.
+    pub fn edit_source(&self, input: &str, project_root: &Path) -> Option<PathBuf> {
+        let root = fs::canonicalize(project_root).ok()?;
+        let mut candidates = vec![self.resolve_name(input)];
+        if let Some(parts) = self.relative_part(input).filter(|parts| !parts.is_empty()) {
+            for base in [self.dir.as_path(), project_root] {
+                let mut candidate = base.to_path_buf();
+                candidate.extend(&parts);
+                candidates.push(candidate);
+            }
+        }
+        // Le chemin rendu s'écrit sous la racine telle que l'app la connaît
+        // (`/var/…` et non `/private/var/…` sur Mac, lien symbolique gardé) :
+        // c'est ce chemin que l'éditeur compare à ses onglets.
+        candidates.into_iter().find_map(|candidate| {
+            let real = fs::canonicalize(candidate).ok()?;
+            if !real.is_file() {
+                return None;
+            }
+            Some(project_root.join(real.strip_prefix(&root).ok()?))
         })
     }
 

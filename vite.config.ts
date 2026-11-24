@@ -74,6 +74,11 @@ export default defineConfig(async () => ({
           if (id.includes("/node_modules/@tauri-apps/")) return "tauri-vendor";
           if (id.includes("/node_modules/lucide-react/")) return "icons-vendor";
           if (id.includes("/node_modules/react-resizable-panels/")) return "panels-vendor";
+          // tailwind-merge (~27 KB minifiés, sans dépendance) : chargé au
+          // démarrage comme les autres vendors, mais hors du budget d'entrée,
+          // qui ne doit compter que le code applicatif (2026-11-24 : l'entrée
+          // était à 40 octets de son plafond).
+          if (id.includes("/node_modules/tailwind-merge/")) return "twmerge-vendor";
           if (
             id.includes("/node_modules/react/")
             || id.includes("/node_modules/react-dom/")

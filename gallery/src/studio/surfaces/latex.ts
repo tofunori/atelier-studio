@@ -461,6 +461,7 @@ export function bootstrapLatexSurface(dependencies: LatexSurfaceDependencies): L
       document: doc,
       window: win,
       revealLine: (target, line) => revealLineRange(target, {fromLine: line, margin: 120, focus: true}),
+      openFile: (file, line) => dependencies.postToHost({type: "atelier-open-file", path: file, line}),
     });
     return pdfSync;
   };
