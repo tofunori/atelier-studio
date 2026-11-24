@@ -4527,7 +4527,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-app"
-version = "2.4.0"
+version = "2.4.1"
 dependencies = [
  "atelier-fdlimit",
  "atelier-inbox",
