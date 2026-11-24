@@ -19,3 +19,26 @@ export async function onOpenProject(handler: (path: string) => void): Promise<Un
     if (typeof event.payload === "string" && event.payload.trim()) handler(event.payload);
   });
 }
+
+/** Chemin absolu sans barre finale, ou null. */
+function projectRoot(raw: string): string | null {
+  const root = raw.replace(/\/+$/, "") || "/";
+  return root.startsWith("/") ? root : null;
+}
+
+/** Branche les deux voies sur `open` jusqu'à `signal.abort()`. */
+export async function wireProjectOpen(open: (root: string) => void, signal: AbortSignal): Promise<void> {
+  const openRaw = (raw: string) => {
+    const root = projectRoot(raw);
+    if (root && !signal.aborted) open(root);
+  };
+  try {
+    const unlisten = await onOpenProject(openRaw);
+    if (signal.aborted) { unlisten(); return; }
+    signal.addEventListener("abort", unlisten, { once: true });
+    const path = await takeCliProject();
+    if (path) openRaw(path);
+  } catch (error) {
+    console.warn("[atelier] ouverture de projet par la commande impossible", error);
+  }
+}

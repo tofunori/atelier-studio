@@ -11,8 +11,6 @@ mod discussions;
 mod identity;
 mod inbox;
 mod local_image;
-#[cfg(target_os = "linux")]
-mod linux_open;
 mod macos_badge_permission;
 #[cfg(target_os = "macos")]
 mod macos_services;
@@ -73,18 +71,10 @@ pub fn run() {
     let _instance = match single_instance::enter() {
         Ok(Some(guard)) => guard,
         Ok(None) => {
-            // Ouvrir avec → Atelier déjà ouvert : les fichiers vont au premier.
-            #[cfg(target_os = "linux")]
-            linux_open::forward(&linux_open::file_args(std::env::args_os()));
-            // Une instance tourne déjà : lui transmettre le dossier demandé
-            // (`atelier ./these`) puis sortir, au lieu de sortir en silence.
-            if let Some(path) = cli::project_from_args() {
-                if !cli::forward(&path) {
-                    eprintln!(
-                        "[atelier] une instance tourne déjà ; projet non transmis (socket absente)"
-                    );
-                }
-            }
+            // Une instance tourne déjà : lui transmettre le dossier
+            // (`atelier ./these`) ou les fichiers (Ouvrir avec) demandés,
+            // puis sortir, au lieu de sortir en silence.
+            cli::forward(&cli::Launch::from_args(std::env::args_os()));
             return;
         }
         Err(error) => {
@@ -93,7 +83,7 @@ pub fn run() {
         }
     };
     #[cfg(unix)]
-    cli::remember(cli::project_from_args());
+    cli::remember(cli::Launch::from_args(std::env::args_os()));
     let boot_clock = boot_metrics::BootClock::new();
     #[cfg(target_os = "linux")]
     let saved_linux_session: Vec<(&str, Option<std::ffi::OsString>)> = [
@@ -183,16 +173,12 @@ pub fn run() {
             // le setup, avant qu'un lancement à froid par le service livre
             // son appel en attente.
             inbox::install_services(app.handle());
-            // Linux : fichiers reçus en arguments (Ouvrir avec), maintenant
-            // et à chaque relance pendant qu'Atelier tourne.
-            #[cfg(target_os = "linux")]
-            linux_open::start(app.handle());
             macos_badge_permission::request_badge_authorization_native();
             // Connecteur Claude : lancé (ou remplacé par la nouvelle version)
             // à chaque démarrage, sans onglet Terminal.
             claude_connector::schedule(app.handle().clone());
-            // `atelier [dossier]` depuis un autre terminal : écouter les
-            // demandes d'ouverture de projet de l'instance vivante.
+            // `atelier [dossier]` et « Ouvrir avec » (Linux) : chemins du
+            // lancement, puis ceux des relances pendant qu'Atelier tourne.
             #[cfg(unix)]
             cli::listen(app.handle().clone());
             Ok(())
