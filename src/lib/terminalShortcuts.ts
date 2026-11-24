@@ -24,8 +24,7 @@ type TerminalKeyEvent = Pick<
  * Cmd+1…9 working on layouts where Digit2 produces "é", Digit7 produces "è",
  * etc. `key` remains a fallback for bracket navigation generated with Option.
  */
-export function terminalShortcutFor(event: TerminalKeyEvent): TerminalShortcut | null {
-  // Linux/Windows standard terminal chord: Ctrl+Shift+<Key> leaves plain Ctrl+<Key> for shell signals.
+export function terminalShortcutFor(event: TerminalKeyEvent): TerminalShortcut | null {  // Linux/Windows standard terminal chord: Ctrl+Shift+<Key> leaves plain Ctrl+<Key> for shell signals.
   if (!event.metaKey && event.ctrlKey && event.shiftKey && !event.altKey) {
     switch (event.code) {
       case "KeyC": return { kind: "copy" };
@@ -77,4 +76,23 @@ export function terminalShortcutFor(event: TerminalKeyEvent): TerminalShortcut |
     case "Numpad0": return { kind: "font-reset" };
     default: return null;
   }
+}
+
+/**
+ * Octets à écrire dans le PTY pour une frappe que xterm ne traduit pas seul,
+ * ou `null` si la touche doit suivre son chemin normal.
+ *
+ * Ctrl+⌫ (Linux, Windows) : effacer le mot précédent, comme ⌥⌫ sur macOS.
+ * On envoie ESC DEL, le Meta-Backspace que readline (bash, zsh, fish) lie à
+ * `backward-kill-word` — et non ^W, qui s'arrête au blanc et se comporte
+ * différemment dans les éditeurs de ligne (vim, python…).
+ */
+export function terminalInputBytes(
+  event: TerminalKeyEvent,
+  isNonMac: boolean,
+): string | null {
+  if (!isNonMac) return null;
+  if (event.metaKey || event.altKey || event.shiftKey || !event.ctrlKey) return null;
+  if (event.code !== "Backspace") return null;
+  return "\u001b\u007f";
 }

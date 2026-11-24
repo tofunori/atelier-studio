@@ -8,7 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import { wsSend, wsReady } from "../lib/wsBus";
 import { xtermThemeFor } from "../lib/themes";
 import { loadSettings } from "../lib/settings";
-import { terminalShortcutFor, type TerminalShortcut } from "../lib/terminalShortcuts";
+import { terminalInputBytes, terminalShortcutFor, type TerminalShortcut } from "../lib/terminalShortcuts";
 
 async function readNativeClipboard(): Promise<string> {
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
@@ -131,6 +131,19 @@ export default function Terminal(p: {
           }
           return false;
         }
+      }
+
+      // Ctrl+⌫ : effacer le mot précédent (Linux/Windows), l'équivalent de
+      // ⌥⌫ sur macOS. xterm n'envoie qu'un DEL, que readline traite comme
+      // une lettre : on écrit ESC DEL (Meta-Backspace = backward-kill-word).
+      const inputBytes = terminalInputBytes(event, isNonMac);
+      if (inputBytes) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.type === "keydown" && !exited.current) {
+          wsSend({ type: "termInput", termId: p.termId, data: inputBytes });
+        }
+        return false;
       }
 
       const shortcut = terminalShortcutFor(event);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { terminalShortcutFor } from "./terminalShortcuts";
+import { terminalInputBytes, terminalShortcutFor } from "./terminalShortcuts";
 
 function shortcut(overrides: Partial<KeyboardEvent>) {
   return terminalShortcutFor({
@@ -41,5 +41,30 @@ describe("terminalShortcutFor", () => {
     expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyV", key: "V" })).toEqual({ kind: "paste" });
     expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyT", key: "T" })).toEqual({ kind: "new-tab" });
     expect(shortcut({ metaKey: false, ctrlKey: true, shiftKey: true, code: "KeyW", key: "W" })).toEqual({ kind: "close-tab" });
+  });
+});
+
+describe("terminalInputBytes", () => {
+  const key = (overrides: Partial<KeyboardEvent>) =>
+    ({
+      altKey: false, code: "", ctrlKey: false, key: "", metaKey: false, shiftKey: false,
+      ...overrides,
+    }) as KeyboardEvent;
+
+  it("envoie ESC DEL pour Ctrl+⌫ hors Mac (backward-kill-word de readline)", () => {
+    expect(terminalInputBytes(key({ code: "Backspace", key: "Backspace", ctrlKey: true }), true))
+      .toBe("\u001b\u007f");
+  });
+
+  it("ne touche pas aux raccourcis Mac, ni aux variantes avec modificateurs", () => {
+    expect(terminalInputBytes(key({ code: "Backspace", ctrlKey: true }), false)).toBeNull();
+    expect(terminalInputBytes(key({ code: "Backspace", ctrlKey: true, shiftKey: true }), true)).toBeNull();
+    expect(terminalInputBytes(key({ code: "Backspace", ctrlKey: true, altKey: true }), true)).toBeNull();
+    expect(terminalInputBytes(key({ code: "Backspace", ctrlKey: true, metaKey: true }), true)).toBeNull();
+  });
+
+  it("laisse ⌫ seul et les autres codes au terminal", () => {
+    expect(terminalInputBytes(key({ code: "Backspace" }), true)).toBeNull();
+    expect(terminalInputBytes(key({ code: "KeyH", key: "h", ctrlKey: true }), true)).toBeNull();
   });
 });
