@@ -137,7 +137,11 @@ export function normalizeTools(value: unknown): EnvironmentTool[] {
 export const SETUP_AGENTS = ["claude", "codex", "opencode"] as const;
 export type SetupAgentId = (typeof SETUP_AGENTS)[number];
 
-export const OPENCODE_GO_LOGIN_COMMAND = "opencode auth login --provider opencode-go";
+// Le CLI OpenCode 2 prend l'intégration en argument positionnel
+// (`auth login <cible>`). L'ancien `--provider opencode-go` n'existe plus :
+// il imprimait l'aide et sortait sans rien authentifier, d'où le bouton
+// « Connecter OpenCode Go… » qui ne faisait rien. Mesuré sur opencode 2.3.2.
+export const OPENCODE_GO_LOGIN_COMMAND = "opencode auth login opencode-go";
 export const OPENCODE_PROVIDER_LOGIN_COMMAND = "opencode auth login";
 
 const AGENT_LABELS: Record<SetupAgentId, string> = {
