@@ -2,6 +2,8 @@ mod appsnap;
 mod atelier;
 mod boot_metrics;
 mod browser;
+#[cfg(unix)]
+mod cli;
 mod claude_connector;
 mod clipboard;
 mod dictation;
@@ -68,12 +70,25 @@ pub fn run() {
     #[cfg(unix)]
     let _instance = match single_instance::enter() {
         Ok(Some(guard)) => guard,
-        Ok(None) => return,
+        Ok(None) => {
+            // Une instance tourne déjà : lui transmettre le dossier demandé
+            // (`atelier ./these`) puis sortir, au lieu de sortir en silence.
+            if let Some(path) = cli::project_from_args() {
+                if !cli::forward(&path) {
+                    eprintln!(
+                        "[atelier] une instance tourne déjà ; projet non transmis (socket absente)"
+                    );
+                }
+            }
+            return;
+        }
         Err(error) => {
             eprintln!("Atelier ne peut pas protéger ses conversations : {error}");
             return;
         }
     };
+    #[cfg(unix)]
+    cli::remember(cli::project_from_args());
     let boot_clock = boot_metrics::BootClock::new();
     #[cfg(target_os = "linux")]
     let saved_linux_session: Vec<(&str, Option<std::ffi::OsString>)> = [
@@ -167,6 +182,10 @@ pub fn run() {
             // Connecteur Claude : lancé (ou remplacé par la nouvelle version)
             // à chaque démarrage, sans onglet Terminal.
             claude_connector::schedule(app.handle().clone());
+            // `atelier [dossier]` depuis un autre terminal : écouter les
+            // demandes d'ouverture de projet de l'instance vivante.
+            #[cfg(unix)]
+            cli::listen(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -208,7 +227,8 @@ pub fn run() {
             ui_state::ui_state_snapshot,
             unsaved_guard::set_unsaved_documents,
             unsaved_guard::ack_quit_request,
-            unsaved_guard::confirm_quit
+            unsaved_guard::confirm_quit,
+            cli::cli_project
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -228,6 +248,8 @@ pub fn run() {
             }
             if let tauri::RunEvent::Exit = event {
                 process_registry::kill_all();
+                #[cfg(unix)]
+                cli::cleanup();
             }
         });
 }

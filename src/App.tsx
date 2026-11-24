@@ -178,6 +178,7 @@ import {
 } from "./lib/composerAttachments";
 import { playAppSnapSound } from "./lib/appSnapSound";
 import { arrivalAttachments, arrivalFilesToOpen, drainInbox, onInboxArrival, type InboxArrival } from "./lib/inbox";
+import { onOpenProject, takeCliProject } from "./lib/projectOpen";
 import { type PendingGoal, type PendingResend, type PendingRevert, createThreadActions } from "./lib/threadActions";
 import { RevertConfirmDialog } from "./components/chat/RevertConfirmDialog";
 import { whenGalleryFrameReady } from "./lib/galleryFrameReady";
@@ -3259,6 +3260,31 @@ export default function App() {
     return true;
   }, [markProjectOpened]);
 
+  // `atelier [dossier]` (CLI) : même geste que addProject sans dialogue.
+  // Un dossier inconnu s'ajoute, un dossier déjà connu s'active simplement.
+  const openProjectAt = useCallback((raw: string) => {
+    const root = raw.replace(/\/+$/, "") || "/";
+    if (!root.startsWith("/")) return;
+    setProjects((p) => (p.includes(root) ? p : [...p, root]));
+    setActiveProject(root);
+    markProjectOpened(root);
+  }, [markProjectOpened]);
+
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | null = null;
+    void takeCliProject()
+      .then((path) => { if (path && !disposed) openProjectAt(path); })
+      .catch((error) => console.warn("[atelier] projet CLI ignoré", error));
+    void onOpenProject((path) => openProjectAt(path))
+      .then((unlisten) => {
+        if (disposed) { unlisten(); return; }
+        stop = unlisten;
+      })
+      .catch((error) => console.warn("[atelier] écoute des projets impossible", error));
+    return () => { disposed = true; stop?.(); };
+  }, [openProjectAt]);
+
   // Visite guidée (lib/guidedTour, pilote chargé à la demande dans
   // lib/tourDriver) : l'App publie de quoi ouvrir le projet d'exemple et
   // préparer chaque arrêt, relu à chaque appel.
@@ -4982,7 +5008,7 @@ export default function App() {
       overlays={<RenderBoundary>{overlaysNode}</RenderBoundary>}
       dragging={dragging} onDraggingChange={setDragging}>
     <PanelGroup direction="horizontal" className="app">
-      <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 30}
+      <Panel id="chat" order={2} defaultSize={50} minSize={layout === "atelier" ? 0 : 20}
         style={{ display: layout === "atelier" ? "none" : undefined }}>
         {annotation && (
           <div className="annot-banner">
