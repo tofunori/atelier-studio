@@ -26,16 +26,27 @@ function projectRoot(raw: string): string | null {
   return root.startsWith("/") ? root : null;
 }
 
-/** Branche les deux voies sur `open` jusqu'à `signal.abort()`. */
-export async function wireProjectOpen(open: (root: string) => void, signal: AbortSignal): Promise<void> {
+/**
+ * Branche les deux voies une fois par processus. Ajoute le projet à la liste
+ * puis l'active, comme le dialogue « Ouvrir un projet » (App.addProject).
+ */
+let wired = false;
+export async function wireProjectOpen(
+  setProjects: (update: (projects: string[]) => string[]) => void,
+  setActiveProject: (root: string) => void,
+  markOpened: (root: string) => void,
+): Promise<void> {
+  if (wired) return;
+  wired = true;
   const openRaw = (raw: string) => {
     const root = projectRoot(raw);
-    if (root && !signal.aborted) open(root);
+    if (!root) return;
+    setProjects((projects) => (projects.includes(root) ? projects : [...projects, root]));
+    setActiveProject(root);
+    markOpened(root);
   };
   try {
-    const unlisten = await onOpenProject(openRaw);
-    if (signal.aborted) { unlisten(); return; }
-    signal.addEventListener("abort", unlisten, { once: true });
+    await onOpenProject(openRaw);
     const path = await takeCliProject();
     if (path) openRaw(path);
   } catch (error) {

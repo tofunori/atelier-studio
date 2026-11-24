@@ -933,15 +933,11 @@ export default function App() {
   // après 5 s) : un envoi qui a lancé Atelier rejoint ainsi le fil restauré
   // plutôt qu'un fil vide créé trop tôt.
   const [inboxReady, setInboxReady] = useState(false);
-  // `atelier ./dossier` : le premier `settingsFile` REMPLACE la liste des
-  // projets par celle du disque ; un projet ouvert avant serait perdu. On
-  // attend donc ce miroir (ou les mêmes 5 s, serveur muet) avant de l'ouvrir.
-  const [settingsSeen, setSettingsSeen] = useState(false);
   useEffect(() => {
     if (threads.length) setInboxReady(true);
   }, [threads.length]);
   useEffect(() => {
-    const timer = window.setTimeout(() => { setInboxReady(true); setSettingsSeen(true); }, 5000);
+    const timer = window.setTimeout(() => setInboxReady(true), 5000);
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => {
@@ -1598,7 +1594,10 @@ export default function App() {
         void showInfo(t("project.folders-running"));
       }
       if (msg.type === "settingsFile") {
-        setSettingsSeen(true);
+        // `atelier ./dossier` : ce miroir REMPLACE la liste des projets ; le
+        // dossier demandé ne s'ouvre qu'après lui (chargé à la demande, le
+        // budget d'entrée JS est plein ; branché une seule fois).
+        void import("./lib/projectOpen").then((m) => m.wireProjectOpen(setProjects, setActiveProject, markProjectOpened));
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         // Rust renvoie `null` quand settings.json n'existe pas encore (tout
         // premier lancement, avant la moindre écriture) — dans ce seul cas on
@@ -3256,28 +3255,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Ajoute (ou active) un projet : dialogue « Ouvrir », commande `atelier [dossier]`.
-  const openProjectRoot = useCallback((root: string) => {
-    setProjects((p) => (p.includes(root) ? p : [...p, root]));
-    setActiveProject(root);
-    markProjectOpened(root);
-  }, [markProjectOpened]);
   // Task 25 (fix) : useCallback — passé nommé (`onAddProject`/`onOpenProject`)
   // à TopBarMemo/RailMemo et à ResearchHome/CommandPalette. Ne lit que `open`
-  // (import statique, stable) et des setters useState.
+  // (import statique, stable) et des setters useState : deps [].
   const addProject = useCallback(async () => {
     const root = await open({ directory: true });
     if (typeof root !== "string") return false;
-    openProjectRoot(root);
+    setProjects((p) => (p.includes(root) ? p : [...p, root]));
+    setActiveProject(root);
+    markProjectOpened(root);
     return true;
-  }, [openProjectRoot]);
-  // `atelier [dossier]` : chargé à la demande, le budget d'entrée JS est plein.
-  useEffect(() => {
-    if (!settingsSeen) return;
-    const stop = new AbortController();
-    void import("./lib/projectOpen").then((m) => m.wireProjectOpen(openProjectRoot, stop.signal));
-    return () => stop.abort();
-  }, [openProjectRoot, settingsSeen]);
+  }, [markProjectOpened]);
 
   // Visite guidée (lib/guidedTour, pilote chargé à la demande dans
   // lib/tourDriver) : l'App publie de quoi ouvrir le projet d'exemple et

@@ -55,7 +55,10 @@ else
   # paquets .deb (Debian, Ubuntu) et AppImage (toute distribution).
   # Lanceur .desktop maison (l'AppImage reprend celui du .deb) : `Exec=… %F` et
   # MimeType=text/plain mettent Atelier dans « Ouvrir avec » des fichiers texte.
+  # /usr/bin/atelier : commande du terminal (`atelier ~/these`), qui relaie
+  # vers /usr/bin/tauri-app.
   LINUX_DESKTOP="$REPO_ROOT/src-tauri/linux/atelier.desktop"
-  LINUX_CONFIG='{"app":{"windows":[{"title":"Atelier","width":1280,"height":820,"minWidth":720,"minHeight":480,"maximized":true,"decorations":false,"dragDropEnabled":false}]},"bundle":{"linux":{"deb":{"depends":["curl","git","xdg-utils"],"desktopTemplate":"'"$LINUX_DESKTOP"'"}}}}'
+  LINUX_COMMAND="$REPO_ROOT/src-tauri/linux/atelier"
+  LINUX_CONFIG='{"app":{"windows":[{"title":"Atelier","width":1280,"height":820,"minWidth":720,"minHeight":480,"maximized":true,"decorations":false,"dragDropEnabled":false}]},"bundle":{"linux":{"deb":{"depends":["curl","git","xdg-utils"],"desktopTemplate":"'"$LINUX_DESKTOP"'","files":{"/usr/bin/atelier":"'"$LINUX_COMMAND"'"}}}}}'
   npm run tauri -- build --bundles deb,appimage --config "$LINUX_CONFIG" "$@"
 fi
