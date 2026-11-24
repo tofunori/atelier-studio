@@ -66,7 +66,9 @@ test("embedded gallery open actions route supported files to IDE tabs", () => {
   assert.equal(parts.length, 2, "la garde d'ouverture embarquée a disparu");
   const cond = parts[1].split("\n", 1)[0];
   for (const ext of ["tex", "md", "pdf", "svg", "csv"]) has(cond, `f.ext==='${ext}'`, `format ${ext} non routé vers l'IDE`);
-  has(cond, "codeExt(f.ext)");
+  // Code et texte brut (.txt, Thierry 2026-11-24) passent par textExt.
+  has(cond, "textExt(f.ext)");
+  has(gallery, "const textExt = (e) => codeExt(e)||e==='txt';");
   has(gallery, "else if(isSvg) u='/.fig_thumbs/svg_viewer.html?file='");
   has(gallery.split("function openInContext(rel){", 2)[1].split("function ", 2)[0], "lbOpenAny(rel);");
   has(gallery, "body.querySelector('#inspOpen').onclick=()=>openInContext(rel);");

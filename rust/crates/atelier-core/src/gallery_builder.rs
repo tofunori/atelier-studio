@@ -25,7 +25,7 @@ const SELF_NAME: &str = "figures_index.html";
 /// restants sont repris par les builds suivants.
 const EAGER_THUMB_BUDGET: usize = 200;
 const SCRIPT_EXTS: &[&str] = &["py", "r", "jl", "sh", "rs"];
-const CODE_EXTS: &[&str] = &["py", "r", "jl", "sh", "rs", "tex", "md", "csv"];
+const CODE_EXTS: &[&str] = &["py", "r", "jl", "sh", "rs", "tex", "md", "csv", "txt"];
 const ARCHIVE_HINTS: &[&str] = &[
     "_archive",
     "menage_",
@@ -823,6 +823,28 @@ mod tests {
         assert!(!files.iter().any(|row| row["rel"] == "ignored.png"));
         let png = files.iter().find(|row| row["rel"] == "plot.png").unwrap();
         assert_eq!(png["provenance"]["generator"], "plot.py");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scan_lists_plain_text_with_a_preview() {
+        // Thierry 2026-11-24 : les .txt apparaissent dans la galerie (type
+        // « Texte ») avec l'aperçu de leurs premières lignes, comme le code.
+        let root = fixture();
+        fs::write(root.join("notes_terrain.txt"), b"Glacier Saskatchewan, 12 juillet").unwrap();
+        let rows = scan(&GalleryBuildOptions {
+            version_tag: None,
+            root: root.clone(),
+            template: root.join("unused"),
+            title: "Atelier".into(),
+            extensions: None,
+            show_frames: false,
+            no_thumbs: true,
+        })
+        .unwrap();
+        let note = rows.iter().find(|row| row.rel == "notes_terrain.txt").expect(".txt indexé");
+        assert_eq!(note.ext, "txt");
+        assert!(note.code, "aperçu texte sur la carte");
         let _ = fs::remove_dir_all(root);
     }
 

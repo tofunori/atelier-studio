@@ -230,6 +230,39 @@ test('chat bridge: show focuses known figures and reports missing paths', async 
   });
 });
 
+test('plain text: .txt files join the Documents formats and open in the editor tab', async ({ page }) => {
+  // Thierry 2026-11-24 : lire les .txt dans Atelier (Mac et Linux).
+  await withGallery(async ({ root, url }) => {
+    await page.goto(`${url}?embedded=atelier`);
+    await expect(page.locator('#grid [data-rel="notes_terrain.txt"]')).toHaveCount(0);
+    await page.evaluate(() => document.getElementById('fmtChip')!.click());
+    const documents = page.locator('#fmtMenu .fmt-cat', { hasText: 'Documents' });
+    await documents.click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#fmtMenu')).toBeHidden();
+    const card = page.locator('#grid [data-act="lb"][data-rel="notes_terrain.txt"]');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.snip')).toContainText('Glacier Saskatchewan');
+
+    const openedTab = page.evaluate(() => new Promise<any>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('open tab timeout')), 3000);
+      window.addEventListener('message', (event) => {
+        if (event.data?.type !== 'atelier-open-tab') return;
+        window.clearTimeout(timer);
+        resolve(event.data);
+      });
+    }));
+    await card.click();
+    const opened = await openedTab;
+    expect(opened.title).toBe('notes_terrain.txt');
+    expect(opened.url).toContain('/.fig_thumbs/latex_studio.html?path=');
+    expect(decodeURIComponent(opened.url)).toContain(`${root}/notes_terrain.txt`);
+    // L'éditeur affiche le texte brut, sans outils LaTeX.
+    await page.goto(new URL(opened.url, url).href);
+    await expect(page.locator('.cm-content')).toContainText('albedo 0.42');
+  }, root => writeFileSync(path.join(root, 'notes_terrain.txt'), 'Glacier Saskatchewan, 12 juillet\nalbedo 0.42\n'));
+});
+
 test('chat bridge: open, compare and reset drive the existing gallery surfaces', async ({ page }) => {
   await withGallery(async ({ root, url }) => {
     const nonce = 'e2e-gallery-actions';

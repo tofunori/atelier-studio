@@ -9,6 +9,8 @@ mod discussions;
 mod identity;
 mod inbox;
 mod local_image;
+#[cfg(target_os = "linux")]
+mod linux_open;
 mod macos_badge_permission;
 #[cfg(target_os = "macos")]
 mod macos_services;
@@ -68,7 +70,12 @@ pub fn run() {
     #[cfg(unix)]
     let _instance = match single_instance::enter() {
         Ok(Some(guard)) => guard,
-        Ok(None) => return,
+        Ok(None) => {
+            // Ouvrir avec → Atelier déjà ouvert : les fichiers vont au premier.
+            #[cfg(target_os = "linux")]
+            linux_open::forward(&linux_open::file_args(std::env::args_os()));
+            return;
+        }
         Err(error) => {
             eprintln!("Atelier ne peut pas protéger ses conversations : {error}");
             return;
@@ -163,6 +170,10 @@ pub fn run() {
             // le setup, avant qu'un lancement à froid par le service livre
             // son appel en attente.
             inbox::install_services(app.handle());
+            // Linux : fichiers reçus en arguments (Ouvrir avec), maintenant
+            // et à chaque relance pendant qu'Atelier tourne.
+            #[cfg(target_os = "linux")]
+            linux_open::start(app.handle());
             macos_badge_permission::request_badge_authorization_native();
             // Connecteur Claude : lancé (ou remplacé par la nouvelle version)
             // à chaque démarrage, sans onglet Terminal.
