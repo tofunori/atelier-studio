@@ -7,6 +7,14 @@ on:
 permissions:
   contents: write
 
+# Mise à jour intégrée (src-tauri/src/updater.rs) : les binaires de release
+# vérifient d'eux-mêmes la dernière version, et chaque paquet est signé par la
+# clé du secret TAURI_SIGNING_PRIVATE_KEY (clé publique dans tauri.conf.json).
+env:
+  ATELIER_RELEASE_BUILD: "1"
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
 jobs:
   build-macos:
     # macos-15 is the Apple Silicon image; the Rust binaries are arm64-only.
@@ -15,6 +23,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Require Apple Silicon runner
         run: test "$(uname -m)" = arm64
+      - name: Require the updater signing key
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || {
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY missing: in-app updates could not be signed (see docs/MISES_A_JOUR.md)."
+            exit 1
+          }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - uses: dtolnay/rust-toolchain@stable
@@ -87,6 +101,18 @@ jobs:
           releaseBody: ${{ steps.release_body.outputs.body }}
           releaseDraft: true
           prerelease: false
+          # latest.json complet (Mac + Linux) écrit par le job updater-manifest
+          includeUpdaterJson: false
+      - name: Upload macOS updater signature
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # tauri-action publie l'archive sous Atelier_aarch64.app.tar.gz : la
+        # signature prend le même nom, avec .sig
+        run: |
+          SIG="src-tauri/target/release/bundle/macos/Atelier.app.tar.gz.sig"
+          test -s "$SIG"
+          cp "$SIG" "$RUNNER_TEMP/Atelier_aarch64.app.tar.gz.sig"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/Atelier_aarch64.app.tar.gz.sig" --clobber
       - name: Verify packaged app artifact
         run: |
           APP="src-tauri/target/release/bundle/macos/Atelier.app"
@@ -163,12 +189,33 @@ jobs:
           npm --prefix gallery/whiteboard-src ci
           npm --prefix packages/atelier-protocol ci
       - name: Build Linux .deb + AppImage (${{ matrix.arch }})
-        run: npm run tauri:build:app
+        run: npm run tauri:build:app -- --config '{"bundle":{"createUpdaterArtifacts":true}}'
       - name: Upload Linux packages to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "$GITHUB_REF_NAME" \
             src-tauri/target/release/bundle/deb/*.deb \
+            src-tauri/target/release/bundle/deb/*.deb.sig \
             src-tauri/target/release/bundle/appimage/*.AppImage \
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig \
             --clobber
+
+  # Manifeste de la mise à jour intégrée, une fois tous les paquets publiés :
+  # un paquet Linux en échec n'empêche pas les autres de se mettre à jour.
+  updater-manifest:
+    needs: [build-macos, build-linux]
+    if: ${{ !cancelled() && needs.build-macos.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SIGS="$RUNNER_TEMP/sigs"
+          mkdir -p "$SIGS"
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --pattern '*.sig' --dir "$SIGS"
+          bash scripts/updater-manifest.sh "$GITHUB_REF_NAME" "$SIGS" "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/latest.json"
+          cat "$RUNNER_TEMP/latest.json"
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/latest.json" -R "$GITHUB_REPOSITORY" --clobber

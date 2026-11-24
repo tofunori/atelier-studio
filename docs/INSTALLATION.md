@@ -131,9 +131,17 @@ otherwise. Change it in **Settings → General**.
 
 ## Updating
 
-Atelier does not update itself yet. Quit it, download the new `.dmg`, and
-replace the app in Applications. macOS asks for approval again (step 2).
-Your conversations and settings are kept.
+Atelier checks GitHub for a new version at launch, then every 6 hours. When
+one is out, a card appears at the bottom right ("Atelier X is available"),
+with a system notification if the window is in the background. **Update**
+downloads the package, checks its signature, installs it and restarts
+Atelier. On Linux, the `.deb` asks for your password; the AppImage replaces
+itself. Settings › General › Updates shows the installed version, a **Check**
+button and the automatic check switch. Your conversations and settings are
+kept.
+
+Versions before 2.5.0 do not have this: install the next version by hand
+once (download it from the releases page and replace the app).
 
 ## Where your data lives
 
