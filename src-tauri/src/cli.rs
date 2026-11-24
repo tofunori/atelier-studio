@@ -30,6 +30,7 @@ pub const EVENT_OPEN_PROJECT: &str = "atelier-open-project";
 const SOCKET_NAME: &str = "open.sock";
 /// Une liste de chemins, jamais un contenu : 256 Ko suffisent largement.
 const MAX_MESSAGE: u64 = 256 * 1024;
+const READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Ce que demandent les arguments : un projet (le premier dossier) et des
 /// fichiers, en chemins absolus résolus.
@@ -140,10 +141,11 @@ pub fn forward(launch: &Launch) {
 }
 
 fn deliver(app: &AppHandle, launch: Launch) {
-    if launch.is_empty() {
-        crate::appsnap::focus_atelier(app);
-        return;
-    }
+    // Toute relance ramène la fenêtre : sans argument, c'est tout ce qu'elle
+    // demande ; avec un dossier ou des fichiers, on veut les voir s'ouvrir.
+    // Appelé depuis le fil de la socket : AppKit veut le fil principal.
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || crate::appsnap::focus_atelier(&handle));
     if let Some(project) = launch.project {
         let _ = app.emit(EVENT_OPEN_PROJECT, project.to_string_lossy().into_owned());
     }
@@ -174,8 +176,10 @@ fn serve(listener: UnixListener, mut on_message: impl FnMut(Launch) + Send + 'st
         .name("atelier-open".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
+                // Un client qui n'écrit rien rend la main à la fin du flux ;
+                // un client bloqué ne doit pas boucher la file pour les autres.
+                let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
                 let mut text = String::new();
-                // Un client qui n'écrit rien rend la main à la fin du flux.
                 if stream.take(MAX_MESSAGE).read_to_string(&mut text).is_ok() {
                     on_message(Launch::decode(&text));
                 }

@@ -704,15 +704,15 @@ pub async fn synctex(
             let page = page.clamp(1, i64::from(i32::MAX)) as i32;
             synctex.edit(page, x, y).map(|hit| {
                 // `input` reste le nom brut du `.synctex.gz` (parité CLI) ;
-                // `source` est le chemin à ouvrir, résolu contre le dossier de
-                // compilation puis, au besoin, ré-ancré sur la racine du
-                // projet ; `sameFile` dit si c'est le .tex déjà à l'écran.
+                // `source` est le fichier du projet à ouvrir (null s'il n'y en
+                // a pas : copie ailleurs, `.sty` de la distribution) ;
+                // `sameFile` dit si c'est le .tex déjà à l'écran.
                 let source = synctex.edit_source(&hit.input, &root);
                 let same = synctex.tags_for(&tex).contains(&hit.tag);
                 json!({
                     "line": hit.line,
                     "input": hit.input,
-                    "source": source.to_string_lossy(),
+                    "source": source.map(|path| path.to_string_lossy().into_owned()),
                     "sameFile": same,
                 })
             })

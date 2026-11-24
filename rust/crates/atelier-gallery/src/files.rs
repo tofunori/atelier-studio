@@ -242,23 +242,36 @@ pub async fn snippet(
         .map(|v| v.clamp(1, 40))
         .unwrap_or(10);
 
-    let Ok(raw) = tokio::fs::read_to_string(&src).await else {
-        // Python uses errors=replace; fall back to lossy.
-        let Ok(bytes) = tokio::fs::read(&src).await else {
-            return json_error(StatusCode::INTERNAL_SERVER_ERROR, "read failed");
-        };
-        return snippet_response(&String::from_utf8_lossy(&bytes), n);
-    };
-    // Cahier Jupyter : le texte de ses cellules, pas son JSON.
+    // Cahier Jupyter : le texte de ses cellules, pas son JSON (lu en entier).
     if src
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("ipynb"))
     {
+        let Ok(bytes) = tokio::fs::read(&src).await else {
+            return json_error(StatusCode::INTERNAL_SERVER_ERROR, "read failed");
+        };
+        let raw = String::from_utf8_lossy(&bytes);
         return snippet_response(&crate::notebook_preview::preview_text(&raw), n);
     }
-    snippet_response(&raw, n)
+    // 40 lignes et 600 caractères au plus : le début du fichier suffit. Un
+    // journal .txt de plusieurs Go ne doit pas être chargé pour une vignette.
+    let mut head = Vec::new();
+    let read = match tokio::fs::File::open(&src).await {
+        Ok(file) => {
+            use tokio::io::AsyncReadExt;
+            file.take(SNIPPET_READ_BYTES).read_to_end(&mut head).await
+        }
+        Err(error) => Err(error),
+    };
+    if read.is_err() {
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "read failed");
+    }
+    // Python uses errors=replace; lossy too.
+    snippet_response(&String::from_utf8_lossy(&head), n)
 }
+
+const SNIPPET_READ_BYTES: u64 = 64 * 1024;
 
 fn snippet_response(text: &str, n: usize) -> axum::response::Response {
     let mut lines = Vec::new();

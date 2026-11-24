@@ -1248,30 +1248,38 @@ impl Synctex {
         })
     }
 
-    /// Chemin que l'éditeur doit ouvrir pour une réponse [`EditHit`].
+    /// Chemin que l'éditeur doit ouvrir pour une réponse [`EditHit`], ou
+    /// `None` quand aucun fichier du projet ne correspond.
     ///
     /// `EditHit::input` est le nom **tel qu'écrit** dans le `.synctex.gz`
     /// (parité avec le CLI) : absolu ou relatif au dossier de compilation.
-    /// Ici on le résout pour de vrai : d'abord comme le parser le fait
-    /// (`resolve_name`, relatif au dossier du SyncTeX), puis — quand le projet
-    /// a été déplacé depuis la compilation — en ré-ancrant le suffixe relatif
-    /// sur la racine du projet. Sans cette seconde étape, un clic dans le PDF
-    /// renvoyait un chemin mort et l'éditeur retombait sur le fichier ouvert.
-    pub fn edit_source(&self, input: &str, project_root: &Path) -> PathBuf {
-        let resolved = self.resolve_name(input);
-        if resolved.is_file() {
-            return resolved;
-        }
-        if let Some(parts) = self.relative_part(input) {
-            if !parts.is_empty() {
-                let mut candidate = project_root.to_path_buf();
-                for part in parts {
-                    candidate.push(part);
-                }
-                return candidate;
+    /// Candidats, dans l'ordre, et seul un fichier existant SOUS la racine du
+    /// projet est retenu :
+    /// 1. le nom résolu comme le fait le parser (`resolve_name`) ;
+    /// 2. projet déplacé ou recompilé ailleurs (Mac ↔ Linux, copie) : la partie
+    ///    relative au dossier de compilation, ré-ancrée sur le dossier du
+    ///    SyncTeX (PDF en sous-dossier), puis sur la racine du projet.
+    ///
+    /// Jamais hors du projet : une copie restée ailleurs (`these/` copié en
+    /// `these-v2/`) ou un `.sty` de la distribution TeX ne doivent pas
+    /// s'ouvrir à la place du fichier du projet.
+    pub fn edit_source(&self, input: &str, project_root: &Path) -> Option<PathBuf> {
+        let root = fs::canonicalize(project_root).ok()?;
+        let mut candidates = vec![self.resolve_name(input)];
+        if let Some(parts) = self.relative_part(input).filter(|parts| !parts.is_empty()) {
+            for base in [self.dir.as_path(), project_root] {
+                let mut candidate = base.to_path_buf();
+                candidate.extend(&parts);
+                candidates.push(candidate);
             }
         }
-        resolved
+        // Le chemin rendu garde la forme de la racine reçue (pas de
+        // `/private/var` sur Mac) ; seule la vérification passe par le réel.
+        candidates.into_iter().find(|candidate| {
+            fs::canonicalize(candidate)
+                .map(|real| real.is_file() && real.starts_with(&root))
+                .unwrap_or(false)
+        })
     }
 
     /// `synctex_iterator_new_edit` réduit à son premier résultat.

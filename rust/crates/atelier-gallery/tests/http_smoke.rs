@@ -2346,6 +2346,56 @@ fn synctex_route_answers_like_the_cli_without_it() {
     assert_eq!(st, 403);
 }
 
+#[test]
+fn synctex_edit_opens_the_project_file_when_the_pdf_sits_in_a_subfolder() {
+    let srv = start_server();
+    // Manuscrit rangé dans `manuscrit/` (PDF et SyncTeX à côté de main.tex),
+    // compilé ailleurs (`/compil/pdflatex`). La racine du projet ne contient
+    // PAS `chapitres/methode.tex` : seul le dossier du PDF le connaît.
+    let fixture = synctex_fixture();
+    let book = srv.root.join("manuscrit");
+    fs::create_dir_all(book.join("chapitres")).unwrap();
+    fs::copy(fixture.join("main.tex"), book.join("main.tex")).unwrap();
+    fs::copy(
+        fixture.join("chapitres/methode.tex"),
+        book.join("chapitres/methode.tex"),
+    )
+    .unwrap();
+    fs::copy(
+        fixture.join("pdflatex/main.synctex.gz"),
+        book.join("main.synctex.gz"),
+    )
+    .unwrap();
+    let ask = || {
+        http(
+            srv.port,
+            "POST",
+            "/synctex",
+            Some(
+                r#"{"dir":"edit","tex":"manuscrit/main.tex","pdf":"manuscrit/main.pdf","page":2,"x":105,"y":155}"#,
+            ),
+        )
+    };
+    let (st, body) = ask();
+    assert_eq!(st, 200, "{body}");
+    let got: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    assert_eq!(
+        got["source"],
+        serde_json::json!(book.join("chapitres/methode.tex").to_string_lossy()),
+        "ré-ancré sur le dossier du PDF, pas sur la racine : {body}"
+    );
+
+    // Fichier absent du projet (supprimé, ou `.sty` de la distribution) :
+    // pas de chemin à ouvrir plutôt qu'un chemin inventé.
+    fs::remove_file(book.join("chapitres/methode.tex")).unwrap();
+    let (st, body) = ask();
+    assert_eq!(st, 200, "{body}");
+    let got: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    assert_eq!(got["source"], serde_json::Value::Null, "{body}");
+}
+
 /// Archive au format des releases tectonic : une seule entrée `tectonic`.
 fn fake_tectonic_archive() -> Vec<u8> {
     // Faux tectonic : note ses arguments et écrit un PDF.

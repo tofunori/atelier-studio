@@ -929,11 +929,15 @@ export default function App() {
   // après 5 s) : un envoi qui a lancé Atelier rejoint ainsi le fil restauré
   // plutôt qu'un fil vide créé trop tôt.
   const [inboxReady, setInboxReady] = useState(false);
+  // `atelier ./dossier` : le premier `settingsFile` REMPLACE la liste des
+  // projets par celle du disque ; un projet ouvert avant serait perdu. On
+  // attend donc ce miroir (ou les mêmes 5 s, serveur muet) avant de l'ouvrir.
+  const [settingsSeen, setSettingsSeen] = useState(false);
   useEffect(() => {
     if (threads.length) setInboxReady(true);
   }, [threads.length]);
   useEffect(() => {
-    const timer = window.setTimeout(() => setInboxReady(true), 5000);
+    const timer = window.setTimeout(() => { setInboxReady(true); setSettingsSeen(true); }, 5000);
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => {
@@ -1590,6 +1594,7 @@ export default function App() {
         void showInfo(t("project.folders-running"));
       }
       if (msg.type === "settingsFile") {
+        setSettingsSeen(true);
         const hasLocal = localStorage.getItem("atelier-studio.settings") !== null;
         // Rust renvoie `null` quand settings.json n'existe pas encore (tout
         // premier lancement, avant la moindre écriture) — dans ce seul cas on
@@ -3264,10 +3269,11 @@ export default function App() {
   }, [openProjectRoot]);
   // `atelier [dossier]` : chargé à la demande, le budget d'entrée JS est plein.
   useEffect(() => {
+    if (!settingsSeen) return;
     const stop = new AbortController();
     void import("./lib/projectOpen").then((m) => m.wireProjectOpen(openProjectRoot, stop.signal));
     return () => stop.abort();
-  }, [openProjectRoot]);
+  }, [openProjectRoot, settingsSeen]);
 
   // Visite guidée (lib/guidedTour, pilote chargé à la demande dans
   // lib/tourDriver) : l'App publie de quoi ouvrir le projet d'exemple et

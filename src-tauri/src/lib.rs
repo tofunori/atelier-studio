@@ -4,6 +4,15 @@ mod boot_metrics;
 mod browser;
 #[cfg(unix)]
 mod cli;
+/// Pas de lancement par argument hors Unix pour l'instant : la commande
+/// répond « aucun dossier », le frontend reste le même partout.
+#[cfg(not(unix))]
+mod cli {
+    #[tauri::command]
+    pub fn cli_project() -> Option<String> {
+        None
+    }
+}
 mod claude_connector;
 mod clipboard;
 mod dictation;
