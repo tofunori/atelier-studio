@@ -84,6 +84,7 @@
         <string>org.openxmlformats.spreadsheetml.sheet</string>
         <string>org.tug.tex</string>
         <string>net.daringfireball.markdown</string>
+        <string>public.plain-text</string>
         <string>public.comma-separated-values-text</string>
         <string>public.image</string>
         <string>public.folder</string>

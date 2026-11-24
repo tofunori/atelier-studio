@@ -39,6 +39,12 @@ interface SyncResponse {
   page?: number;
   y?: number;
   line?: number;
+  /** Nom du fichier source tel qu'écrit dans le `.synctex.gz`. */
+  input?: string;
+  /** Fichier du projet à ouvrir dans l'éditeur, null hors projet. */
+  source?: string | null;
+  /** Faux quand le clic tombe dans un fichier inclus (`\input`, chapitre…). */
+  sameFile?: boolean;
 }
 
 export interface LatexPdfSyncOptions {
@@ -56,6 +62,9 @@ export interface LatexPdfSyncOptions {
   tokenQuery?: string;
   setState(kind: "hint" | "err", message: string): void;
   revealLine(editor: SyncEditor, line: number): void;
+  /** Ouvre un autre fichier du projet à une ligne : un clic dans le PDF peut
+   *  tomber dans un `\input`, un chapitre, un fichier de figures LaTeX… */
+  openFile?(path: string, line: number): void;
   document?: Document;
   window?: Window;
   now?: () => number;
@@ -245,6 +254,24 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     const result = await response.json() as SyncResponse;
     if (!result.line) {
       options.setState("hint", "SyncTeX : pas de correspondance ici");
+      return;
+    }
+    // Le clic peut tomber dans un fichier inclus (`\input`, chapitre) : la
+    // ligne seule ne veut rien dire dans l'onglet courant. Le serveur dit si
+    // la cible est le fichier déjà ouvert (`sameFile`) et, sinon, quel chemin
+    // ouvrir (`source`, toujours un fichier du projet, ou null).
+    const source = (result.source || "").trim();
+    if (result.sameFile === false) {
+      if (source && options.openFile) {
+        options.openFile(source, result.line);
+        return;
+      }
+      // Fichier hors projet (`.sty`, copie restée ailleurs) ou studio seul,
+      // sans ouverture d'onglet : sa ligne ne veut rien dire dans le fichier
+      // affiché, on ne saute pas au hasard.
+      options.setState("hint", source
+        ? "SyncTeX : ce passage vient d'un autre fichier"
+        : "SyncTeX : ce passage vient d'un fichier hors du projet");
       return;
     }
     jumpToLine(result.line);

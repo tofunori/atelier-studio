@@ -1,0 +1,7 @@
+#!/bin/sh
+# Commande `atelier` installée par le .deb dans /usr/bin (le programme
+# s'appelle tauri-app, nom gardé pour les scripts de relance du Mac).
+#   atelier              ramène Atelier au premier plan, ou le lance
+#   atelier ~/these      ouvre ce dossier comme projet
+#   atelier notes.txt    ouvre ce fichier dans l'atelier
+exec /usr/bin/tauri-app "$@"
