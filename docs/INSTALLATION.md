@@ -140,7 +140,7 @@ itself. Settings › General › Updates shows the installed version, a **Check*
 button and the automatic check switch. Your conversations and settings are
 kept.
 
-Versions before 2.5.0 do not have this: install the next version by hand
+Versions before 2.4.1 do not have this: install the next version by hand
 once (download it from the releases page and replace the app).
 
 ## Where your data lives

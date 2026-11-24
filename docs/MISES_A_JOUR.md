@@ -1,6 +1,6 @@
 # Mises à jour intégrées
 
-Depuis la 2.5.0, Atelier se met à jour tout seul (Mac, AppImage et `.deb`).
+Depuis la 2.4.1, Atelier se met à jour tout seul (Mac, AppImage et `.deb`).
 
 ## Comment ça marche
 
