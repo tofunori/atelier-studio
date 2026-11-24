@@ -471,6 +471,10 @@ export default function App() {
     if (setupWelcomeOpen) setShowSettings(false);
   }, [setupWelcomeOpen]);
   const settingsRef = useRef(settings);
+  // Mises à jour (updater.rs) : carte « Atelier X est disponible » et
+  // vérification automatique, chargées en différé hors du budget d'entrée.
+  // (hors Tauri, update_status échoue et rien n'est vérifié)
+  useEffect(() => { import("./components/update/UpdateCenter").then((m) => m.mountUpdateCenter(), () => {}); }, []);
   useEffect(() => {
     const onLanguage = () => setLanguageRev((n) => n + 1);
     window.addEventListener("app-language-changed", onLanguage);

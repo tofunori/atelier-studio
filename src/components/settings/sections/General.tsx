@@ -27,6 +27,7 @@ import { Button, InlineNotice, Select, StatusBadge } from "../../ui";
 import { Textarea } from "../../shadcn/textarea";
 import { RemoteDevicesPanel } from "../../RemoteDevicesPanel";
 import { NotificationsGroup } from "./NotificationsGroup";
+import { UpdatesGroup } from "./UpdatesGroup";
 
 // Paliers d'effort — non dupliqués côté Models.tsx au sens du bug signalé
 // (seul le catalogue de modèles désalignait les deux sections), donc pas
@@ -216,6 +217,8 @@ export default function General(p: SectionProps) {
       </Group>
 
       <NotificationsGroup onSaved={p.onSaved} />
+
+      <UpdatesGroup onSaved={p.onSaved} />
 
       {/* Diagnostic sous le repli : la rangée « Serveur Atelier » (version,
           pid, port) — l'ancienne rangée « Runtime › Node » d'avant le
