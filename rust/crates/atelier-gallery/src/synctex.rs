@@ -117,6 +117,9 @@ pub struct ViewHit {
 pub struct EditHit {
     pub input: String,
     pub line: i32,
+    /// Tag de l'entrée qui a répondu : `tags_for` dit si c'est le fichier
+    /// demandé (comparaison de chemins, pas de nom).
+    pub tag: i32,
 }
 
 /// Un fichier SyncTeX analysé, prêt pour les deux requêtes.
@@ -1241,7 +1244,34 @@ impl Synctex {
         Some(EditHit {
             input: input.name.clone(),
             line: n.line,
+            tag: n.tag,
         })
+    }
+
+    /// Chemin que l'éditeur doit ouvrir pour une réponse [`EditHit`].
+    ///
+    /// `EditHit::input` est le nom **tel qu'écrit** dans le `.synctex.gz`
+    /// (parité avec le CLI) : absolu ou relatif au dossier de compilation.
+    /// Ici on le résout pour de vrai : d'abord comme le parser le fait
+    /// (`resolve_name`, relatif au dossier du SyncTeX), puis — quand le projet
+    /// a été déplacé depuis la compilation — en ré-ancrant le suffixe relatif
+    /// sur la racine du projet. Sans cette seconde étape, un clic dans le PDF
+    /// renvoyait un chemin mort et l'éditeur retombait sur le fichier ouvert.
+    pub fn edit_source(&self, input: &str, project_root: &Path) -> PathBuf {
+        let resolved = self.resolve_name(input);
+        if resolved.is_file() {
+            return resolved;
+        }
+        if let Some(parts) = self.relative_part(input) {
+            if !parts.is_empty() {
+                let mut candidate = project_root.to_path_buf();
+                for part in parts {
+                    candidate.push(part);
+                }
+                return candidate;
+            }
+        }
+        resolved
     }
 
     /// `synctex_iterator_new_edit` réduit à son premier résultat.

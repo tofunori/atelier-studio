@@ -692,6 +692,7 @@ pub async fn synctex(
     // de 10 s que l'ancienne CLI. Réponses au format de la CLI : premier
     // résultat (« le plus précis »), coordonnées PDF en points, origine en
     // haut à gauche.
+    let root = state.root.clone();
     let lookup = tokio::task::spawn_blocking(move || {
         let synctex = crate::synctex::load_for_pdf(&pdf).ok()?;
         if view {
@@ -701,9 +702,20 @@ pub async fn synctex(
             )
         } else {
             let page = page.clamp(1, i64::from(i32::MAX)) as i32;
-            synctex
-                .edit(page, x, y)
-                .map(|hit| json!({"line": hit.line, "input": hit.input}))
+            synctex.edit(page, x, y).map(|hit| {
+                // `input` reste le nom brut du `.synctex.gz` (parité CLI) ;
+                // `source` est le chemin à ouvrir, résolu contre le dossier de
+                // compilation puis, au besoin, ré-ancré sur la racine du
+                // projet ; `sameFile` dit si c'est le .tex déjà à l'écran.
+                let source = synctex.edit_source(&hit.input, &root);
+                let same = synctex.tags_for(&tex).contains(&hit.tag);
+                json!({
+                    "line": hit.line,
+                    "input": hit.input,
+                    "source": source.to_string_lossy(),
+                    "sameFile": same,
+                })
+            })
         }
     });
     match tokio::time::timeout(Duration::from_secs(10), lookup).await {

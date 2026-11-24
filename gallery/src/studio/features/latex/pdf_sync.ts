@@ -39,6 +39,12 @@ interface SyncResponse {
   page?: number;
   y?: number;
   line?: number;
+  /** Nom du fichier source tel qu'écrit dans le `.synctex.gz`. */
+  input?: string;
+  /** Chemin résolu du fichier source, à ouvrir dans l'éditeur. */
+  source?: string;
+  /** Faux quand le clic tombe dans un fichier inclus (`\input`, chapitre…). */
+  sameFile?: boolean;
 }
 
 export interface LatexPdfSyncOptions {
@@ -56,6 +62,9 @@ export interface LatexPdfSyncOptions {
   tokenQuery?: string;
   setState(kind: "hint" | "err", message: string): void;
   revealLine(editor: SyncEditor, line: number): void;
+  /** Ouvre un autre fichier du projet à une ligne : un clic dans le PDF peut
+   *  tomber dans un `\input`, un chapitre, un fichier de figures LaTeX… */
+  openFile?(path: string, line: number): void;
   document?: Document;
   window?: Window;
   now?: () => number;
@@ -246,6 +255,19 @@ export function createLatexPdfSyncController(options: LatexPdfSyncOptions): Late
     if (!result.line) {
       options.setState("hint", "SyncTeX : pas de correspondance ici");
       return;
+    }
+    // Le clic peut tomber dans un fichier inclus (`\input`, chapitre) : la
+    // ligne seule ne veut rien dire dans l'onglet courant. Le serveur dit si
+    // la cible est le fichier déjà ouvert (`sameFile`) et, sinon, quel chemin
+    // ouvrir (`source`, résolu contre le dossier de compilation).
+    const source = (result.source || result.input || "").trim();
+    if (result.sameFile === false && source) {
+      if (options.openFile) {
+        options.openFile(source, result.line);
+        return;
+      }
+      // Sans ouverture de fichier, on garde l'ancien comportement (saut dans
+      // l'onglet courant) plutôt que de ne rien faire.
     }
     jumpToLine(result.line);
     options.channel?.postMessage({t: "jump", line: result.line});

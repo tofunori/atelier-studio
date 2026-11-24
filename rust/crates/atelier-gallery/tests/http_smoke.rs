@@ -2298,6 +2298,33 @@ fn synctex_route_answers_like_the_cli_without_it() {
         "{body}"
     );
     assert_eq!(got["input"], serde_json::json!(want[5]), "{body}");
+    // Cette réponse appartient à `chapitres/methode.tex`, alors que la requête
+    // nomme `main.tex` : le serveur doit le signaler et donner le chemin à
+    // ouvrir, ré-ancré sur la racine du projet (le projet a bougé depuis la
+    // compilation : `/compil/pdflatex` n'existe plus ici).
+    assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    assert_eq!(
+        got["source"],
+        serde_json::json!(
+            srv.root
+                .join("chapitres/methode.tex")
+                .to_string_lossy()
+                .into_owned()
+        ),
+        "{body}"
+    );
+
+    // Depuis le sous-fichier lui-même, la même réponse est « le fichier ouvert ».
+    let (st, body) = http(
+        srv.port,
+        "POST",
+        "/synctex",
+        Some(r#"{"dir":"edit","tex":"chapitres/methode.tex","pdf":"main.pdf","page":2,"x":105,"y":155}"#),
+    );
+    assert_eq!(st, 200, "{body}");
+    let got = json(&body);
+    assert_eq!(got["sameFile"], serde_json::json!(true), "{body}");
+    assert_eq!(got["line"], serde_json::json!(13), "{body}");
 
     // Pas de SyncTeX à côté de ce PDF : « no match », comme le CLI muet.
     let (st, body) = http(
