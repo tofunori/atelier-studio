@@ -1273,12 +1273,15 @@ impl Synctex {
                 candidates.push(candidate);
             }
         }
-        // Le chemin rendu garde la forme de la racine reçue (pas de
-        // `/private/var` sur Mac) ; seule la vérification passe par le réel.
-        candidates.into_iter().find(|candidate| {
-            fs::canonicalize(candidate)
-                .map(|real| real.is_file() && real.starts_with(&root))
-                .unwrap_or(false)
+        // Le chemin rendu s'écrit sous la racine telle que l'app la connaît
+        // (`/var/…` et non `/private/var/…` sur Mac, lien symbolique gardé) :
+        // c'est ce chemin que l'éditeur compare à ses onglets.
+        candidates.into_iter().find_map(|candidate| {
+            let real = fs::canonicalize(candidate).ok()?;
+            if !real.is_file() {
+                return None;
+            }
+            Some(project_root.join(real.strip_prefix(&root).ok()?))
         })
     }
 

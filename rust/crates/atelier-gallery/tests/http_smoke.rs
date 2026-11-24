@@ -2303,14 +2303,14 @@ fn synctex_route_answers_like_the_cli_without_it() {
     // ouvrir, ré-ancré sur la racine du projet (le projet a bougé depuis la
     // compilation : `/compil/pdflatex` n'existe plus ici).
     assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
+    // Le serveur travaille sur la racine résolue (`/private/var/…` sur Mac).
     assert_eq!(
         got["source"],
-        serde_json::json!(
-            srv.root
-                .join("chapitres/methode.tex")
-                .to_string_lossy()
-                .into_owned()
-        ),
+        serde_json::json!(fs::canonicalize(&srv.root)
+            .unwrap()
+            .join("chapitres/methode.tex")
+            .to_string_lossy()
+            .into_owned()),
         "{body}"
     );
 
@@ -2382,7 +2382,10 @@ fn synctex_edit_opens_the_project_file_when_the_pdf_sits_in_a_subfolder() {
     assert_eq!(got["sameFile"], serde_json::json!(false), "{body}");
     assert_eq!(
         got["source"],
-        serde_json::json!(book.join("chapitres/methode.tex").to_string_lossy()),
+        serde_json::json!(fs::canonicalize(&book)
+            .unwrap()
+            .join("chapitres/methode.tex")
+            .to_string_lossy()),
         "ré-ancré sur le dossier du PDF, pas sur la racine : {body}"
     );
 
