@@ -19,6 +19,7 @@ mod sidecar;
 mod single_instance;
 mod ui_state;
 mod unsaved_guard;
+mod updater;
 
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -143,6 +144,7 @@ pub fn run() {
         .manage(boot_clock)
         .manage(atelier_workspace::QuitGuard::new())
         .manage(inbox::InboxState::default())
+        .manage(updater::PendingUpdate::default())
         .on_window_event(unsaved_guard::on_window_event);
     // ⌘Q passe par la garde des documents modifiés (voir unsaved_guard)
     #[cfg(target_os = "macos")]
@@ -153,6 +155,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let new_identifier = app.config().identifier.clone();
             if let Some(support_root) = application_support_root() {
@@ -208,7 +211,11 @@ pub fn run() {
             ui_state::ui_state_snapshot,
             unsaved_guard::set_unsaved_documents,
             unsaved_guard::ack_quit_request,
-            unsaved_guard::confirm_quit
+            unsaved_guard::confirm_quit,
+            updater::update_status,
+            updater::update_check,
+            updater::update_install,
+            updater::update_open_releases
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
