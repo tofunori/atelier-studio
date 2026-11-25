@@ -1,0 +1,15 @@
+{
+  "version": "2.4.2",
+  "notes": "Essai de notification (faux 2.4.2 -> paquet 2.4.1)",
+  "pub_date": "2026-11-25T02:45:36Z",
+  "platforms": {
+    "darwin-aarch64-app": {
+      "url": "https://github.com/tofunori/atelier-studio/releases/download/v2.4.1/Atelier_aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTldlcytyVzNYNVhmZFkvQ2lxZGdGeWRiM1hmdUNNVkpQVm5CcmdsSXE2SXNzZXVveTVpM3hvdXpiSzVOQnk4RmFodWNkZzdMS1dxd2puUzlBRCtCZC8rM0lyam03Y0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTczNTExCWZpbGU6QXRlbGllci5hcHAudGFyLmd6CmpyMHVGdEdjV0l0MVRFZEF4NkIzSFlGVkJBZVVRZ24zU1VFOVVoMy81L2k0aEF6b0NXVWIzT1J1SW9Zc1BwR2x5ODZwL0RtZGx4eHRPY2FCcDBtYUFRPT0K"
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/tofunori/atelier-studio/releases/download/v2.4.1/Atelier_aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSTldlcytyVzNYNVhmZFkvQ2lxZGdGeWRiM1hmdUNNVkpQVm5CcmdsSXE2SXNzZXVveTVpM3hvdXpiSzVOQnk4RmFodWNkZzdMS1dxd2puUzlBRCtCZC8rM0lyam03Y0FJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTczNTExCWZpbGU6QXRlbGllci5hcHAudGFyLmd6CmpyMHVGdEdjV0l0MVRFZEF4NkIzSFlGVkJBZVVRZ24zU1VFOVVoMy81L2k0aEF6b0NXVWIzT1J1SW9Zc1BwR2x5ODZwL0RtZGx4eHRPY2FCcDBtYUFRPT0K"
+    }
+  }
+}
